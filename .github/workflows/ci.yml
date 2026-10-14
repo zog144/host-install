@@ -54,10 +54,14 @@ jobs:
           python -m pip install --no-deps .
       - name: Compile sources and tests
         run: python -m compileall -q src tests
-      - name: Run synthetic and companion tests
+      - name: Run ownership-accurate synthetic and companion tests
         env:
           HOST_IDENTIFY_SOURCE: companions/host-identify
-        run: python -m pytest -q tests
+          HOST_DISCOVER_SOURCE: companions/host-discover
+        run: |
+          # STATE coordination tests require real root ownership; no mocked UID.
+          # The GitHub-hosted runner is disposable, not an enrolled Zog host.
+          sudo --preserve-env=HOST_IDENTIFY_SOURCE,HOST_DISCOVER_SOURCE "$(command -v python)" -m pytest -q tests
       - name: Confirm CLI and namespace
         run: |
           host-install --help >/dev/null
