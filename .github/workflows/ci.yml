@@ -65,7 +65,7 @@ jobs:
       - name: Confirm CLI and namespace
         run: |
           host-install --help >/dev/null
-          python -c 'import zog.host_install as h; assert h.__version__ == "0.4.4"'
+          python -c 'import zog.host_install as h; assert h.__version__ == "0.5.0"'
           test ! -e src/zog/__init__.py
 
   artifacts:
@@ -91,6 +91,7 @@ jobs:
               members = set(z.namelist())
               assert 'zog/host_install/__init__.py' in members
               assert 'zog/host_install/state_admission.py' in members
+              assert 'zog/host_install/certificate_gate.py' in members
               assert 'zog/host_install/systemd/host-install-admission.socket' in members
               assert 'zog/__init__.py' not in members
               assert not any(x.startswith('tests/') or x.startswith('evidence/') for x in members)

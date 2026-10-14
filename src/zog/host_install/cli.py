@@ -11,6 +11,7 @@ from .state_probe import probe_live
 from .state_provision import stage_overlay, prepare_live
 from .state_initialize import authorize_live, initialize_live
 from .state_admission import serve_stdin, serve_listener
+from .certificate_gate import decide as certificate_decide
 from . import beacon_profile
 from .artifact import stage
 from .filesystem import build_root_fixture
@@ -67,9 +68,14 @@ def main(argv=None):
     cmd.add_argument("--output", type=Path, required=True)
     cmd.add_argument("--executable-directory", default="/usr/bin")
     sub.add_parser("state-admission-listen", help="serve the systemd listener until ordered shutdown")
+    cmd = sub.add_parser("certificate-status", help="evaluate detached secret-free certificate enablement evidence")
+    cmd.add_argument("evidence", type=Path)
     args = parser.parse_args(argv)
     try:
-        if args.command == "state-admission-listen":
+        if args.command == "certificate-status":
+            with args.evidence.open("rb") as stream:
+                result = certificate_decide(decode(stream.read(65537)))
+        elif args.command == "state-admission-listen":
             serve_listener()
             return 0
         elif args.command == "beacon-prepare":

@@ -24,3 +24,13 @@ Use the [disposable AWS STATE acceptance](aws-state-acceptance.md) procedure for
 Before reporting an end-to-end install, require separate verified evidence of: boot payload matching the rootfs/kernel; safe exclusive physical-target writes; protected STATE identity persistence across boot/reboot; network and enrollment; controller admission; and reviewed recovery or rollback. Missing evidence is a stated gap, not a success by inference.
 
 Dated immutable results and handoffs are retained separately as private historical evidence, not as public acceptance or installation authority. Do not rewrite a historical pass result to imply new acceptance.
+
+## Certificate enablement contract evidence
+
+The 0.5.0 source suite includes contract tests for the certificate application
+dependency order, operator-approved hostname/challenge hold, durable ACME identity
+preservation across immutable generation changes, rejection of attempted identity
+regeneration, uncertain/failed issuance behavior, host-deploy publication
+separation, and the independent external HTTPS readiness boundary. These tests
+are source-level policy evidence only; they are not live ACME, nginx, DNS,
+controller-grant, reboot, or browser-trust acceptance.

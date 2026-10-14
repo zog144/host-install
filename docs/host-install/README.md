@@ -9,6 +9,7 @@ Reader-facing chapters organize the existing documentation by enduring concepts 
 - [Persistent STATE and identity](guide/persistent-state-and-identity.md)
 - [Managed beacons and enrollment](guide/managed-beacons-and-enrollment.md)
 - [Validation and recovery](guide/validation-and-recovery.md)
+- [Certificate application enablement](certificate-enablement.md)
 
 
 ## Supplemental cross-cutting synopses
