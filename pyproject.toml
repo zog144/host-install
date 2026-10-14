@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=80,<83"]
+build-backend = "setuptools.build_meta"
+
+# Component-development metadata only. Public Python publication is the
+# aggregate "zog" distribution assembled by release-build.
+[project]
+name = "host-install"
+version = "0.4.4"
+description = "Offline Zog host installation planning and disposable disk-image assembly"
+requires-python = ">=3.11"
+license = "BSD-3-Clause OR GPL-3.0-only"
+license-files = ["LICENSE", "LICENSES/*.txt", "THIRD-PARTY-NOTICES.md"]
+
+[project.scripts]
+host-install = "zog.host_install.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["zog.host_install*"]
+namespaces = true
+
+[tool.setuptools.package-data]
+"zog.host_install" = ["systemd/*"]

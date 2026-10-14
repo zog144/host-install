@@ -1,0 +1,110 @@
+name: Public source validation
+
+on:
+  push:
+    branches: [main, unstable]
+  pull_request:
+    branches: [main, unstable]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Tests and public consumers (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - name: Check out host-install
+        uses: actions/checkout@v4
+      - name: Check out reviewed public host-identify
+        uses: actions/checkout@v4
+        with:
+          repository: zog144/host-identify
+          ref: 1a5eac0b255c995022db6a3a4c0051efffa748cc
+          path: companions/host-identify
+      - name: Check out reviewed public host-discover
+        uses: actions/checkout@v4
+        with:
+          repository: zog144/host-discover
+          ref: b61197461f2fe19fd29203a1d148a66c6ce89f6d
+          path: companions/host-discover
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Validate source and pinned public dependencies
+        run: |
+          test ! -e COPYRIGHT
+          test ! -e version-share-handoff.json
+          test ! -e evidence
+          test ! -e publication
+          test -f LICENSE
+          test -f LICENSES/BSD-3-Clause.txt
+          test -f LICENSES/GPL-3.0-only.txt
+          test "$(git -C companions/host-identify rev-parse HEAD)" = "1a5eac0b255c995022db6a3a4c0051efffa748cc"
+          test "$(git -C companions/host-discover rev-parse HEAD)" = "b61197461f2fe19fd29203a1d148a66c6ce89f6d"
+      - name: Install reviewed companions and local source
+        run: |
+          python -m pip install './companions/host-identify' 'pytest>=8,<10'
+          python -m pip install --no-deps './companions/host-discover'
+          python -m pip install --no-deps .
+      - name: Compile sources and tests
+        run: python -m compileall -q src tests
+      - name: Run synthetic and companion tests
+        env:
+          HOST_IDENTIFY_SOURCE: companions/host-identify
+        run: python -m pytest -q tests
+      - name: Confirm CLI and namespace
+        run: |
+          host-install --help >/dev/null
+          python -c 'import zog.host_install as h; assert h.__version__ == "0.4.4"'
+          test ! -e src/zog/__init__.py
+
+  artifacts:
+    name: Wheel and source distribution audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build source and wheel
+        run: |
+          python -m pip install build
+          python -m build
+      - name: Inspect public distribution
+        run: |
+          python - <<'PY'
+          import glob, tarfile, zipfile
+          wheels = glob.glob('dist/*.whl')
+          sdists = glob.glob('dist/*.tar.gz')
+          assert len(wheels) == len(sdists) == 1
+          with zipfile.ZipFile(wheels[0]) as z:
+              members = set(z.namelist())
+              assert 'zog/host_install/__init__.py' in members
+              assert 'zog/host_install/state_admission.py' in members
+              assert 'zog/host_install/systemd/host-install-admission.socket' in members
+              assert 'zog/__init__.py' not in members
+              assert not any(x.startswith('tests/') or x.startswith('evidence/') for x in members)
+              assert any(x.endswith('/LICENSE') for x in members)
+              entry = next(x for x in members if x.endswith('.dist-info/entry_points.txt'))
+              assert 'host-install = zog.host_install.cli:main' in z.read(entry).decode()
+          with tarfile.open(sdists[0], 'r:gz') as t:
+              names = t.getnames()
+              prefix = names[0].split('/', 1)[0]
+              files = {x[len(prefix)+1:] for x in names if x.startswith(prefix + '/')}
+              for p in ('LICENSE', 'LICENSES/BSD-3-Clause.txt',
+                        'LICENSES/GPL-3.0-only.txt', 'THIRD-PARTY-NOTICES.md',
+                        'README.md', 'docs/host-install/README.md',
+                        'examples/state-contract-v1/bundle.json',
+                        'tests/test_namespace_migration.py',
+                        'src/zog/host_install/state_contract.py'):
+                  assert p in files, p
+              assert not any(x.startswith('evidence/') for x in files)
+              assert 'COPYRIGHT' not in files
+              assert 'version-share-handoff.json' not in files
+          PY

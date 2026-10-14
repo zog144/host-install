@@ -1,0 +1,20 @@
+{
+  "schema": 2,
+  "program": "host-install",
+  "python_package": "zog.host_install",
+  "version": "0.4.4",
+  "scripts": {
+    "host-install": "zog.host_install.cli:main"
+  },
+  "component_dependencies": [],
+  "external_dependencies": [],
+  "package_data": [
+    "systemd/*"
+  ],
+  "license_notice_paths": [
+    "LICENSE",
+    "LICENSES/BSD-3-Clause.txt",
+    "LICENSES/GPL-3.0-only.txt",
+    "THIRD-PARTY-NOTICES.md"
+  ]
+}
