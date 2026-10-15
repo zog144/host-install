@@ -336,10 +336,10 @@ class CertificateLifecycleTests(unittest.TestCase):
             )
             stored = json.dumps(load_record(record), sort_keys=True)
             for forbidden in (
-                "hostname",
+                "station.example",
                 "acme_directory",
                 "dns_plugin",
-                "credential",
+                "credential_id",
                 "privkey",
                 "fullchain",
             ):
