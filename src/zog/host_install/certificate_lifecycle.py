@@ -212,8 +212,9 @@ def reconcile(previous, observation):
     if override is None:
         status = gate
         if application["status"] == "unavailable":
-            if gate["code"] in ("application-preparation-required",
-                                "ready-for-authorized-issuance"):
+            if (gate["code"] in ("application-preparation-required",
+                                 "ready-for-authorized-issuance") or
+                    gate["code"].startswith("persistent-state-")):
                 status = {
                     **gate,
                     "status": "pending",
