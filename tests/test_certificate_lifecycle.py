@@ -206,7 +206,7 @@ class CertificateLifecycleTests(unittest.TestCase):
                 persistent="unavailable",
             ),
         )
-        self.assertEqual(reboot["status"]["code"], "persistent-state-unavailable")
+        self.assertEqual(reboot["status"]["code"], "certificate-application-unavailable")
         self.assertFalse(reboot["status"]["application_available"])
         self.assertTrue(reboot["status"]["external_https_observed"])
         self.assertTrue(reboot["record"]["acme_identity_seen"])
