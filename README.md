@@ -1,5 +1,7 @@
 # host-install
 
+Version 0.6.0 adds a durable, secret-free certificate lifecycle coordinator and simulation path for application availability. It preserves bound certificate state, completed preparation revision, observed ACME account/lineage existence and software-generation history across reboot/upgrade; it blocks silent state replacement, identity/lineage disappearance and preparation-revision migration. Actual image deployment and Certbot/nginx execution remain outside this pass.
+
 Version 0.5.0 adds the [certificate application enablement contract](docs/host-install/certificate-enablement.md): a fail-closed dependency/status evaluator for verified STATE, controller grant, immutable software, operator-approved hostname/challenge policy, durable ACME identity preservation, one-time preparation, issuance, host-deploy publication and independent external HTTPS verification. It never issues certificates, exposes nginx, changes archive roles, or regenerates an existing ACME identity.
 
 **Documentation:** [technical manual](docs/host-install/README.md) · [architecture](docs/host-install/architecture.md) · [verification and evidence](docs/host-install/verification.md). These consolidate current boundaries while preserving historical implementation-pass reports and their original acceptance scope.

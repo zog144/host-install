@@ -1,6 +1,6 @@
 # Certificate application enablement contract
 
-Status: **host-install 0.5.0 contract/evaluator only**. This does not issue a
+Status: **host-install 0.6.0 contract + simulated durable lifecycle**. This does not issue a
 certificate, authenticate controller evidence, expose a proxy, publish a key, or
 change an archive role.
 
@@ -96,3 +96,53 @@ mount and execution grant. `host-deploy` owns authorized certificate transfer,
 consumer binding, nginx validation/reload/rollback, and external HTTPS
 verification. host-install reflects those boundaries but does not inherit their
 privileges.
+
+
+## Simulated durable lifecycle
+
+Version 0.6.0 adds a secret-free lifecycle record that can be exercised before
+image-build deployment is available. The record persists only opaque coordination
+facts: the bound certificate-state identity, the completed application preparation
+revision, whether an ACME account and certificate lineage have previously been
+observed, the first/last immutable software generation, and the last lifecycle
+status. It contains no hostname, ACME directory, certificate PEM, private key,
+DNS credential, provider identifier, or Certbot argument.
+
+A simulated observation names whether the certify-manage application is available
+and, when available, supplies its persistent-state identity and preparation
+revision plus the already-authenticated certificate evidence consumed by the
+0.5.0 gate. Tests exercise installation, temporary application unavailability,
+reboot, immutable software upgrade, and recovery of the same durable application
+state.
+
+Use the source-only simulation command:
+
+```sh
+host-install certificate-lifecycle-simulate observation.json \
+  --record /tmp/certificate-lifecycle.json
+```
+
+The record is mode 0600 and replaced atomically with stale-writer detection. This
+is a development/acceptance surface, not a production controller API and not an
+authorization to invoke certify-manage.
+
+Once a preparation revision is durably observed complete, reboot or a HOST
+generation change does not reset it. A new preparation revision is reported as
+`certificate-preparation-migration-required` rather than being run
+automatically. Likewise, a different persistent-state identity, disappearance of
+an ACME account that was previously present, or disappearance of a previously
+healthy certificate lineage requires operator reconciliation.
+
+An ACME account may validly exist before the first certificate lineage. That state
+is preserved and does not trigger regeneration.
+
+## Local and command-center intent transitions
+
+The policy status layer now distinguishes missing configuration from hard
+authority failures. Missing policy remains
+`awaiting-operator-approved-hostname-challenge`. Revoked, conflicting or
+migration-required policy is blocked and cannot fall back to another hostname,
+provider, self-signed certificate or public automatic issuance. This lets a
+future trusted adapter map either local-admin or command-center ownership into
+the same lifecycle without host-install learning DNS credentials or choosing an
+FQDN.

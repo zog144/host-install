@@ -50,7 +50,7 @@ def validate_evidence(evidence):
 
     policy = evidence["policy"]
     fields(policy, "status hostname_approved challenge_approved challenge")
-    require(policy["status"] in ("approved", "missing", "invalid"),
+    require(policy["status"] in ("approved", "missing", "invalid", "revoked", "conflict", "migration-required"),
             "certificate-evidence", "policy status")
     require(type(policy["hostname_approved"]) is bool and
             type(policy["challenge_approved"]) is bool,
@@ -71,10 +71,6 @@ def validate_evidence(evidence):
             "certificate-evidence", "persistent state flags")
     require(persistent["lineage_status"] in ("absent", "healthy", "uncertain", "conflict"),
             "certificate-evidence", "lineage status")
-    if persistent["existing_acme_identity"]:
-        require(persistent["lineage_status"] != "absent",
-                "certificate-evidence", "existing ACME identity cannot have absent lineage state")
-
     preparation = evidence["preparation"]
     fields(preparation, "status")
     require(preparation["status"] in ("not-run", "complete", "failed"),
@@ -148,6 +144,19 @@ def decide(evidence):
         return result("blocked", "software-generation-" + software["status"],
                       "select-verified-immutable-software-generation")
 
+    policy = evidence["policy"]
+    if policy["status"] == "missing":
+        return result("awaiting-operator",
+                      "awaiting-operator-approved-hostname-challenge",
+                      "approve-hostname-and-challenge")
+    if policy["status"] != "approved":
+        return result("blocked", "certificate-policy-" + policy["status"],
+                      "operator-reconciliation")
+    if (not policy["hostname_approved"] or not policy["challenge_approved"] or
+            policy["challenge"] not in ("http-01", "dns-01")):
+        return result("blocked", "certificate-policy-incomplete",
+                      "operator-reconciliation")
+
     if persistent["status"] != "available":
         return result("blocked", "persistent-state-" + persistent["status"],
                       "restore-protected-certificate-state")
@@ -157,14 +166,6 @@ def decide(evidence):
     if persistent["lineage_status"] in ("uncertain", "conflict"):
         return result("blocked", "certificate-lineage-" + persistent["lineage_status"],
                       "operator-reconciliation")
-
-    policy = evidence["policy"]
-    if (policy["status"] != "approved" or not policy["hostname_approved"] or
-            not policy["challenge_approved"] or
-            policy["challenge"] not in ("http-01", "dns-01")):
-        return result("awaiting-operator",
-                      "awaiting-operator-approved-hostname-challenge",
-                      "approve-hostname-and-challenge")
 
     preparation = evidence["preparation"]["status"]
     if preparation == "failed":

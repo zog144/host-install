@@ -34,3 +34,14 @@ regeneration, uncertain/failed issuance behavior, host-deploy publication
 separation, and the independent external HTTPS readiness boundary. These tests
 are source-level policy evidence only; they are not live ACME, nginx, DNS,
 controller-grant, reboot, or browser-trust acceptance.
+
+
+The 0.6.0 suite additionally simulates certificate-application availability and
+persists the lifecycle record across process reopen, reboot observations and
+immutable software generation changes. It verifies one-time preparation
+preservation, ACME-account-before-lineage handling, persistent-state replacement
+rejection, preparation migration gating, identity/lineage disappearance handling,
+local/central policy revocation/conflict/migration hard blocks, atomic record
+replacement and stale-writer rejection. This remains simulated application
+acceptance; no image deployment, live controller grant, ACME endpoint, DNS API,
+nginx reload or browser trust path is exercised.
