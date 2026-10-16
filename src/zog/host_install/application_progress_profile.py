@@ -32,7 +32,9 @@ def _numeric(value, label):
 
 def _absolute(path, label):
     value = str(path)
-    require(_SIMPLE_PATH.fullmatch(value) is not None and str(Path(value)) == value,
+    parsed = Path(value)
+    require(_SIMPLE_PATH.fullmatch(value) is not None and str(parsed) == value
+            and ".." not in parsed.parts and "." not in parsed.parts,
             "progress-profile", label)
     return value
 
