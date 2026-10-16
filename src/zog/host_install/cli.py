@@ -18,7 +18,7 @@ from .certificate_lifecycle import (
     reconcile as certificate_lifecycle_reconcile,
     store_record as certificate_lifecycle_store,
 )
-from . import beacon_profile
+from . import beacon_profile, application_progress_profile
 from .artifact import stage
 from .filesystem import build_root_fixture
 from .image import inspect, install
@@ -75,6 +75,16 @@ def main(argv=None):
     cmd.add_argument("--executable-directory", default="/usr/bin")
     sub.add_parser("state-admission-listen", help="serve the systemd listener until ordered shutdown")
     sub.add_parser("welcome-readiness-serve", help="serve one sanitized bootstrap readiness snapshot on a systemd accepted socket")
+    cmd = sub.add_parser("application-progress-stage", help="stage the protected station application-progress observer profile")
+    cmd.add_argument("--output", type=Path, required=True)
+    cmd.add_argument("--controller-project", required=True)
+    cmd.add_argument("--station-consumer-uid", type=int, required=True)
+    cmd.add_argument("--station-consumer-gid", type=int, required=True)
+    cmd.add_argument("--controller-owner-uid", type=int, required=True)
+    cmd.add_argument("--controller-owner-gid", type=int, required=True)
+    cmd.add_argument("--host-bindings-policy", type=Path, required=True)
+    cmd.add_argument("--python-executable", default="/usr/bin/python3")
+    cmd.add_argument("--producer-source", type=Path)
     cmd = sub.add_parser("certificate-status", help="evaluate detached secret-free certificate enablement evidence")
     cmd.add_argument("evidence", type=Path)
     cmd = sub.add_parser(
@@ -85,7 +95,19 @@ def main(argv=None):
     cmd.add_argument("--record", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
-        if args.command == "welcome-readiness-serve":
+        if args.command == "application-progress-stage":
+            result = application_progress_profile.stage(
+                output=args.output,
+                controller_project=args.controller_project,
+                station_uid=args.station_consumer_uid,
+                station_gid=args.station_consumer_gid,
+                controller_uid=args.controller_owner_uid,
+                controller_gid=args.controller_owner_gid,
+                host_bindings_policy=args.host_bindings_policy,
+                python_executable=args.python_executable,
+                producer_source=args.producer_source,
+            )
+        elif args.command == "welcome-readiness-serve":
             welcome_readiness_serve()
             return 0
         elif args.command == "certificate-status":

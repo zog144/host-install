@@ -6,4 +6,5 @@ The canonical reader-facing manual is **[host-install technical manual](README.m
 - [Verification and evidence synopsis](verification.md) — supplemental evidence checklist; do not infer deployment acceptance from documentation.
 - [Certificate application enablement](certificate-enablement.md) — fail-closed ordering, durable ACME identity preservation and headless secret-free status.
 - [Console-first bootstrap readiness](console-bootstrap.md) — getty-safe boot ordering, authenticated sanitized status and headless/optional-graphics separation.
+- [Protected station application-progress observer](application-progress-observer.md) — numeric execution-UID authorization, socket deployment and read-only station host-capability exposure.
 - [Source traceability](TRACEABILITY.md) — preserved source-to-manual mapping and historical disposition.

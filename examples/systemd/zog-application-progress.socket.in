@@ -1,0 +1,19 @@
+[Unit]
+Description=Protected Zog controller application-progress observer
+After=sysinit.target
+Before=shutdown.target
+Conflicts=shutdown.target
+DefaultDependencies=no
+
+[Socket]
+ListenStream=/run/zog-host-export/application-progress/application-progress.sock
+SocketUser=@STATION_UID@
+SocketGroup=@STATION_GID@
+SocketMode=0600
+DirectoryMode=0711
+Accept=no
+Backlog=8
+RemoveOnStop=yes
+
+[Install]
+WantedBy=multi-user.target

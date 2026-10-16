@@ -64,3 +64,21 @@ independent getty transaction without ordering cycles or TTY takeover. This is
 not native first-boot acceptance: the dedicated `host-welcome` OS account,
 actual getty rendering, emergency-console behavior and later graphical
 session/PAM/logind integration still require authorized disposable-host testing.
+
+
+## Station application-progress observer deployment evidence
+
+The 0.8.0 source suite adds a deployable protected box-control application-progress
+observer profile. Tests require the station consumer UID/GID and controller-owner
+UID/GID to be supplied numerically, reject root or same-UID identities, render
+socket DAC and broker `--authorized-uid` from the same station UID, and preserve
+unrelated existing `host-bindings.json` entries while adding only the exact
+read-only `station-access/web` application-progress capability.
+
+The profile is staging-only: it emits root-owned units, merged host policy,
+station configuration values and an enablement manifest without invoking
+systemctl, restarting station-access, changing a protected execution grant,
+starting a build/application, or touching STATE. Native acceptance still requires
+the actual protected station grant and controller owner to be compared to live
+process/socket credentials, including wrong-peer denial, application namespace
+visibility, SELinux where applicable and reboot behavior.

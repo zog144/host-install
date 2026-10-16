@@ -11,6 +11,7 @@ Reader-facing chapters organize the existing documentation by enduring concepts 
 - [Validation and recovery](guide/validation-and-recovery.md)
 - [Certificate application enablement](certificate-enablement.md)
 - [Console-first bootstrap readiness](console-bootstrap.md)
+- [Protected station application-progress observer](application-progress-observer.md)
 
 
 ## Supplemental cross-cutting synopses

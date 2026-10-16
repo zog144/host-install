@@ -1,0 +1,23 @@
+[Unit]
+Description=Read-only Zog controller application-progress broker
+After=sysinit.target
+
+[Service]
+Type=simple
+Sockets=zog-application-progress.socket
+User=@CONTROLLER_UID@
+Group=@CONTROLLER_GID@
+ExecStart=@PYTHON_EXECUTABLE@ -m zog.box_control.application_progress_broker --project @CONTROLLER_PROJECT@ --authorized-uid @STATION_UID@ --root-control-socket /run/zog/root-control.sock
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX
+UMask=0077
+Restart=on-failure
+RestartSec=2s
+StandardOutput=journal
+StandardError=journal
