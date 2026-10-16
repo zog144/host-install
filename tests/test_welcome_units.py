@@ -13,7 +13,7 @@ class WelcomeUnitContractTests(unittest.TestCase):
         socket = (SOURCE / "host-install-welcome.socket").read_text()
         service = (SOURCE / "host-install-welcome@.service").read_text()
         combined = socket + "\n" + service
-
+        directives = "\n".join(\n            line for line in combined.splitlines()\n            if not line.lstrip().startswith("#")\n        )\n
         self.assertIn("SocketGroup=host-welcome", socket)
         self.assertIn("SocketMode=0660", socket)
         self.assertIn("Accept=yes", socket)
@@ -36,7 +36,7 @@ class WelcomeUnitContractTests(unittest.TestCase):
             "Requires=getty",
         ):
             with self.subTest(forbidden=forbidden):
-                self.assertNotIn(forbidden, combined)
+                self.assertNotIn(forbidden, directives)
 
         self.assertIn("After=sysinit.target", socket)
         self.assertIn("After=sysinit.target", service)
