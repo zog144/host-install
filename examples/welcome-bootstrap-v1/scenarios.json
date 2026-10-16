@@ -1,0 +1,51 @@
+{
+  "schema": 1,
+  "kind": "zog-host-install-welcome-fixtures",
+  "scenarios": [
+    {
+      "name": "offline-reboot",
+      "expected": "unknown-until-state-observed",
+      "persistent_writes_expected": false
+    },
+    {
+      "name": "unavailable-controller",
+      "expected": "core-readiness-independent",
+      "persistent_writes_expected": false
+    },
+    {
+      "name": "malformed-state",
+      "expected": "state-invalid-not-ready",
+      "persistent_writes_expected": false
+    },
+    {
+      "name": "incomplete-install",
+      "expected": "identity-pending-not-ready",
+      "persistent_writes_expected": false
+    },
+    {
+      "name": "stale-identity-observation",
+      "expected": "reject-stale-or-prior-boot-snapshot",
+      "persistent_writes_expected": false
+    },
+    {
+      "name": "delayed-network",
+      "expected": "core-readiness-independent",
+      "persistent_writes_expected": false
+    },
+    {
+      "name": "no-browser",
+      "expected": "headless-success-allowed",
+      "persistent_writes_expected": false
+    },
+    {
+      "name": "foreground-console-login",
+      "expected": "getty-remains-owner",
+      "persistent_writes_expected": false
+    },
+    {
+      "name": "recovery-hold",
+      "expected": "recovery-required-no-repair",
+      "persistent_writes_expected": false
+    }
+  ]
+}

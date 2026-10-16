@@ -12,6 +12,7 @@ from .state_provision import stage_overlay, prepare_live
 from .state_initialize import authorize_live, initialize_live
 from .state_admission import serve_stdin, serve_listener
 from .certificate_gate import decide as certificate_decide
+from .welcome_readiness import serve_stdin as welcome_readiness_serve
 from .certificate_lifecycle import (
     load_record as certificate_lifecycle_load,
     reconcile as certificate_lifecycle_reconcile,
@@ -73,6 +74,7 @@ def main(argv=None):
     cmd.add_argument("--output", type=Path, required=True)
     cmd.add_argument("--executable-directory", default="/usr/bin")
     sub.add_parser("state-admission-listen", help="serve the systemd listener until ordered shutdown")
+    sub.add_parser("welcome-readiness-serve", help="serve one sanitized bootstrap readiness snapshot on a systemd accepted socket")
     cmd = sub.add_parser("certificate-status", help="evaluate detached secret-free certificate enablement evidence")
     cmd.add_argument("evidence", type=Path)
     cmd = sub.add_parser(
@@ -83,7 +85,10 @@ def main(argv=None):
     cmd.add_argument("--record", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
-        if args.command == "certificate-status":
+        if args.command == "welcome-readiness-serve":
+            welcome_readiness_serve()
+            return 0
+        elif args.command == "certificate-status":
             with args.evidence.open("rb") as stream:
                 result = certificate_decide(decode(stream.read(65537)))
         elif args.command == "certificate-lifecycle-simulate":

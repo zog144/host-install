@@ -1,5 +1,7 @@
 # host-install
 
+Version 0.7.0 adds the [console-first bootstrap readiness contract](docs/host-install/console-bootstrap.md): a sanitized authenticated local status producer that can answer `unknown` before STATE/network/controller/browser readiness, preserves normal getty/emergency login independence, keeps headless installation success separate from optional graphical applications, and defines a no-autostart graphical handoff gate. Source/synthetic acceptance only; no greetd/X11/browser deployment is implied.
+
 Version 0.6.0 adds a durable, secret-free certificate lifecycle coordinator and simulation path for application availability. It preserves bound certificate state, completed preparation revision, observed ACME account/lineage existence and software-generation history across reboot/upgrade; it blocks silent state replacement, identity/lineage disappearance and preparation-revision migration. Actual image deployment and Certbot/nginx execution remain outside this pass.
 
 Version 0.5.0 adds the [certificate application enablement contract](docs/host-install/certificate-enablement.md): a fail-closed dependency/status evaluator for verified STATE, controller grant, immutable software, operator-approved hostname/challenge policy, durable ACME identity preservation, one-time preparation, issuance, host-deploy publication and independent external HTTPS verification. It never issues certificates, exposes nginx, changes archive roles, or regenerates an existing ACME identity.

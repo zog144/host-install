@@ -1,0 +1,26 @@
+[Unit]
+Description=Read one sanitized Zog bootstrap readiness snapshot
+# Do not require state.mount, network-online.target, controller services or getty.
+# The producer must be able to answer unknown before those components exist.
+After=sysinit.target
+
+[Service]
+Type=exec
+User=root
+Group=root
+ExecStart=/usr/bin/host-install welcome-readiness-serve
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal
+RuntimeMaxSec=6
+TimeoutStopSec=2
+NoNewPrivileges=yes
+ProtectSystem=full
+ProtectHome=yes
+PrivateTmp=yes
+RestrictAddressFamilies=AF_UNIX
+UMask=0077
+Restart=no
+# Do not use ProtectSystem=strict/ReadOnlyPaths=/ here: the verifier must observe
+# the same rw STATE mount topology as normal bootstrap, while the code itself
+# opens STATE read-only and grants no mutation capability.

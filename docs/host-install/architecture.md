@@ -12,6 +12,7 @@ Host-install is an offline-first installer and durable host-state coordinator. I
 6. **Optional transport** — [Managed beacon composition](managed-beacon.md) configures a separately gated signed heartbeat transport. It is not a replacement for local installation checks.
 7. **Observed host provenance** — [Host generation provenance](host-generation-provenance.md) reports verified currently booted slot evidence without choosing a next slot or inventing inactive-slot state.
 8. **Certificate application enablement** — [Certificate enablement](certificate-enablement.md) orders protected prerequisites and exposes secret-free headless status. It does not issue, publish, reload, expose a proxy, or alter archive roles.
+9. **Console-first bootstrap readiness** — [Console bootstrap](console-bootstrap.md) exposes a sanitized authenticated local readiness snapshot without granting host-welcome raw STATE, identity secrets, device writes, controller commands or optional-application authority. The producer can answer `unknown` before STATE/network/controller/browser readiness and does not own the TTY/login session.
 
 ## Persistence and failure
 
@@ -27,6 +28,7 @@ STATE records and immutable-generation choices must survive interruption. An inc
 | host-install | host-discover | Read-only verified booted-generation report |
 | host-deploy | installer host | Provisioning and remote transport, not installation policy |
 | certify-manage / controller / host-deploy | host-install status gate | Authenticated secret-free lifecycle evidence only; no inherited certificate or proxy authority |
+| host-install | host-welcome trusted adapter | Sanitized bootstrap readiness over a fixed peer-authenticated local socket; no raw STATE or mutation authority |
 
 ## Not yet implied by local success
 

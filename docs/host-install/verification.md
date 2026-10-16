@@ -45,3 +45,22 @@ local/central policy revocation/conflict/migration hard blocks, atomic record
 replacement and stale-writer rejection. This remains simulated application
 acceptance; no image deployment, live controller grant, ACME endpoint, DNS API,
 nginx reload or browser trust path is exercised.
+
+
+## Console-first bootstrap readiness evidence
+
+The 0.7.0 source suite adds the sanitized `zog-host-install-bootstrap-readiness-v1`
+producer, peer-bound Unix-socket protocol, boot/freshness validation, optional
+graphical handoff gate, and systemd ordering templates. Synthetic tests cover
+offline reboot, unavailable controller, malformed STATE, incomplete identity
+initialization, stale/prior-boot observations, delayed network, no browser,
+foreground-console login ownership and protected recovery hold. They also verify
+that the producer grants no STATE/device writes, identity-secret access,
+controller command or application-mutation authority, and that graphical
+availability is not a prerequisite for headless success.
+
+The systemd source test verifies the readiness socket can coexist with an
+independent getty transaction without ordering cycles or TTY takeover. This is
+not native first-boot acceptance: the dedicated `host-welcome` OS account,
+actual getty rendering, emergency-console behavior and later graphical
+session/PAM/logind integration still require authorized disposable-host testing.

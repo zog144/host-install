@@ -1,0 +1,22 @@
+[Unit]
+Description=Sanitized Zog bootstrap readiness for host-welcome
+# This observation socket deliberately starts without STATE, network, controller,
+# browser, graphics, or identity readiness. Early requests return unknown.
+DefaultDependencies=no
+Conflicts=shutdown.target
+Before=shutdown.target
+After=sysinit.target
+
+[Socket]
+ListenStream=/run/host-install/welcome.sock
+SocketUser=root
+SocketGroup=host-welcome
+SocketMode=0660
+DirectoryMode=0755
+Accept=yes
+MaxConnections=4
+MaxConnectionsPerSource=2
+RemoveOnStop=yes
+
+[Install]
+WantedBy=multi-user.target

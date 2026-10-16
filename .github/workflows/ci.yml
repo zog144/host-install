@@ -65,7 +65,7 @@ jobs:
       - name: Confirm CLI and namespace
         run: |
           host-install --help >/dev/null
-          python -c 'import zog.host_install as h; assert h.__version__ == "0.6.0"'
+          python -c 'import zog.host_install as h; assert h.__version__ == "0.7.0"'
           test ! -e src/zog/__init__.py
 
   artifacts:
@@ -93,7 +93,10 @@ jobs:
               assert 'zog/host_install/state_admission.py' in members
               assert 'zog/host_install/certificate_gate.py' in members
               assert 'zog/host_install/certificate_lifecycle.py' in members
+              assert 'zog/host_install/welcome_readiness.py' in members
               assert 'zog/host_install/systemd/host-install-admission.socket' in members
+              assert 'zog/host_install/systemd/host-install-welcome.socket' in members
+              assert 'zog/host_install/systemd/host-install-welcome@.service' in members
               assert 'zog/__init__.py' not in members
               assert not any(x.startswith('tests/') or x.startswith('evidence/') for x in members)
               assert any(x.endswith('/LICENSE') for x in members)
@@ -110,7 +113,11 @@ jobs:
                         'tests/test_namespace_migration.py',
                         'src/zog/host_install/state_contract.py',
                         'src/zog/host_install/certificate_lifecycle.py',
-                        'tests/test_certificate_lifecycle.py'):
+                        'tests/test_certificate_lifecycle.py',
+                        'src/zog/host_install/welcome_readiness.py',
+                        'tests/test_welcome_readiness.py',
+                        'tests/test_welcome_units.py',
+                        'examples/welcome-bootstrap-v1/scenarios.json'):
                   assert p in files, p
               assert not any(x.startswith('evidence/') for x in files)
               assert 'COPYRIGHT' not in files
