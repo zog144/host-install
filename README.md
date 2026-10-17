@@ -1,5 +1,7 @@
 # host-install
 
+Version 0.9.0 adds the [dedicated host-welcome controller-progress observer](docs/host-install/host-welcome-progress-observer.md): a separate mode-0600 AF_UNIX listener and exact root policy for the host-rootfs console consumer, numeric UID peer authorization, reviewed box-control broker/client byte pins, and an installed-byte verification gate before enablement. The station-access progress listener remains separate and unchanged.
+
 Version 0.8.0 adds the [protected station application-progress observer deployment profile](docs/host-install/application-progress-observer.md). It renders the box-control observer socket/service with the station consumer's protected numeric execution UID/GID, runs the broker under the distinct numeric controller owner, preserves and extends the root-owned host-binding policy, and exports the exact station settings needed for the read-only adapter. No username is trusted as an authorization source, and staging itself does not start systemd or station-access.
 
 Version 0.7.0 adds the [console-first bootstrap readiness contract](docs/host-install/console-bootstrap.md): a sanitized authenticated local status producer that can answer `unknown` before STATE/network/controller/browser readiness, preserves normal getty/emergency login independence, keeps headless installation success separate from optional graphical applications, and defines a no-autostart graphical handoff gate. Source/synthetic acceptance only; no greetd/X11/browser deployment is implied.

@@ -18,7 +18,7 @@ from .certificate_lifecycle import (
     reconcile as certificate_lifecycle_reconcile,
     store_record as certificate_lifecycle_store,
 )
-from . import beacon_profile, application_progress_profile
+from . import beacon_profile, application_progress_profile, host_welcome_progress_profile
 from .artifact import stage
 from .filesystem import build_root_fixture
 from .image import inspect, install
@@ -85,6 +85,16 @@ def main(argv=None):
     cmd.add_argument("--host-bindings-policy", type=Path, required=True)
     cmd.add_argument("--python-executable", default="/usr/bin/python3")
     cmd.add_argument("--producer-source", type=Path)
+    cmd = sub.add_parser("host-welcome-progress-stage", help="stage the dedicated host-welcome controller-progress observer")
+    cmd.add_argument("--output", type=Path, required=True)
+    cmd.add_argument("--controller-project", required=True)
+    cmd.add_argument("--consumer-uid", type=int, required=True)
+    cmd.add_argument("--controller-owner-uid", type=int, required=True)
+    cmd.add_argument("--controller-owner-gid", type=int, required=True)
+    cmd.add_argument("--box-control-source", type=Path, required=True)
+    cmd.add_argument("--python-executable", default="/usr/bin/python3")
+    cmd.add_argument("--producer-source", type=Path)
+    sub.add_parser("host-welcome-progress-verify-installed", help="verify installed box-control observer bytes against the reviewed source pin")
     cmd = sub.add_parser("certificate-status", help="evaluate detached secret-free certificate enablement evidence")
     cmd.add_argument("evidence", type=Path)
     cmd = sub.add_parser(
@@ -95,7 +105,20 @@ def main(argv=None):
     cmd.add_argument("--record", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
-        if args.command == "application-progress-stage":
+        if args.command == "host-welcome-progress-verify-installed":
+            result = host_welcome_progress_profile.verify_installed()
+        elif args.command == "host-welcome-progress-stage":
+            result = host_welcome_progress_profile.stage(
+                output=args.output,
+                controller_project=args.controller_project,
+                consumer_uid=args.consumer_uid,
+                controller_uid=args.controller_owner_uid,
+                controller_gid=args.controller_owner_gid,
+                box_control_source=args.box_control_source,
+                python_executable=args.python_executable,
+                producer_source=args.producer_source,
+            )
+        elif args.command == "application-progress-stage":
             result = application_progress_profile.stage(
                 output=args.output,
                 controller_project=args.controller_project,

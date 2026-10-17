@@ -82,3 +82,27 @@ starting a build/application, or touching STATE. Native acceptance still require
 the actual protected station grant and controller owner to be compared to live
 process/socket credentials, including wrong-peer denial, application namespace
 visibility, SELinux where applicable and reboot behavior.
+
+
+## Dedicated host-welcome controller-progress observer evidence
+
+The 0.9.0 source suite stages a second controller-progress listener exclusively
+for the host-rootfs host-welcome consumer. It verifies an exact mode-0600 socket
+owned by the supplied numeric host-welcome UID, a distinct numeric controller
+service identity, the fixed root-control socket/project arguments, and an exact
+root-owned `zog-host-welcome-progress-observer-v1` policy. The station-access
+observer path and host-binding policy are not reused.
+
+The profile pins box-control source
+`644170fc441863307092f329bf7e23cb64eb33e2` and the exact Git blob identities
+of the reviewed broker and strict client modules. Source staging refuses changed
+bytes, and a separate installed-byte verifier checks the actual imported module
+files before deployment may enable the socket. Source tests also assert that
+STATE, station-access, network, image-build, graphics and the observer itself do
+not become getty prerequisites.
+
+Native acceptance still requires authoritative live UID/grant comparison,
+SELinux/socket ancestry, wrong-peer denial, server peer verification, current
+boot/freshness, activation/restart/reboot cleanup, controller timeout and offline
+headless getty fallback while proving the original station listener remains
+isolated.

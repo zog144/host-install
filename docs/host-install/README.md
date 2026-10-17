@@ -12,6 +12,7 @@ Reader-facing chapters organize the existing documentation by enduring concepts 
 - [Certificate application enablement](certificate-enablement.md)
 - [Console-first bootstrap readiness](console-bootstrap.md)
 - [Protected station application-progress observer](application-progress-observer.md)
+- [Dedicated host-welcome controller-progress observer](host-welcome-progress-observer.md)
 
 
 ## Supplemental cross-cutting synopses

@@ -14,6 +14,7 @@ Host-install is an offline-first installer and durable host-state coordinator. I
 8. **Certificate application enablement** — [Certificate enablement](certificate-enablement.md) orders protected prerequisites and exposes secret-free headless status. It does not issue, publish, reload, expose a proxy, or alter archive roles.
 9. **Console-first bootstrap readiness** — [Console bootstrap](console-bootstrap.md) exposes a sanitized authenticated local readiness snapshot without granting host-welcome raw STATE, identity secrets, device writes, controller commands or optional-application authority. The producer can answer `unknown` before STATE/network/controller/browser readiness and does not own the TTY/login session.
 10. **Station controller-progress observation** — [Application-progress observer deployment](application-progress-observer.md) stages the protected box-control read-only broker socket using the station runtime's numeric protected execution identity, exposes only its host-export directory to the station web program, and does not authorize controller mutation.
+11. **Host-welcome controller-progress observation** — [Dedicated console observer](host-welcome-progress-observer.md) stages a second, non-shared read-only broker socket for the host-rootfs bootstrap consumer, with a fixed root policy and reviewed broker/client byte identities. It does not inherit the station socket or arbitrary host runtime files.
 
 ## Persistence and failure
 
@@ -31,6 +32,7 @@ STATE records and immutable-generation choices must survive interruption. An inc
 | certify-manage / controller / host-deploy | host-install status gate | Authenticated secret-free lifecycle evidence only; no inherited certificate or proxy authority |
 | host-install | host-welcome trusted adapter | Sanitized bootstrap readiness over a fixed peer-authenticated local socket; no raw STATE or mutation authority |
 | box-control observer via host-install deployment | station-access web | Read-only application progress over a fixed AF_UNIX socket, numeric peer UID and protected host-export capability |
+| box-control observer via host-install deployment | host-welcome | Separate read-only controller progress socket and exact root-owned policy; no station socket, raw STATE or mutation authority |
 
 ## Not yet implied by local success
 
