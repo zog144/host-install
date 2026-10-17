@@ -2,11 +2,11 @@
   "schema": 2,
   "program": "host-install",
   "python_package": "zog.host_install",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "scripts": {
     "host-install": "zog.host_install.cli:main"
   },
-  "component_dependencies": [],
+  "component_dependencies": ["box-control"],
   "external_dependencies": [],
   "package_data": [
     "systemd/*"

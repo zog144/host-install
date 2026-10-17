@@ -1,5 +1,7 @@
 # host-install
 
+Version 0.10.0 hardens the dedicated host-welcome controller-progress observer: the public staging command now derives the welcome UID and controller UID/GID from independent live host evidence instead of accepting numeric identity arguments, consumes the post-integration box-control observer contract at `8249715708c6ef8a1fd30a3fb529b4034ffffe25`, and attests the actual aggregate `zog` installation against pinned source blobs plus wheel `RECORD` hashes before native activation can be considered.
+
 Version 0.9.0 adds the [dedicated host-welcome controller-progress observer](docs/host-install/host-welcome-progress-observer.md): a separate mode-0600 AF_UNIX listener and exact root policy for the host-rootfs console consumer, numeric UID peer authorization, reviewed box-control broker/client byte pins, and an installed-byte verification gate before enablement. The station-access progress listener remains separate and unchanged.
 
 Version 0.8.0 adds the [protected station application-progress observer deployment profile](docs/host-install/application-progress-observer.md). It renders the box-control observer socket/service with the station consumer's protected numeric execution UID/GID, runs the broker under the distinct numeric controller owner, preserves and extends the root-owned host-binding policy, and exports the exact station settings needed for the read-only adapter. No username is trusted as an authorization source, and staging itself does not start systemd or station-access.

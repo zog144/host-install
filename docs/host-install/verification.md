@@ -106,3 +106,26 @@ SELinux/socket ancestry, wrong-peer denial, server peer verification, current
 boot/freshness, activation/restart/reboot cleanup, controller timeout and offline
 headless getty fallback while proving the original station listener remains
 isolated.
+
+
+## Independently resolved console observer identities and installed software
+
+The 0.10.0 suite removes caller-supplied UID/GID authority from the
+`host-welcome-progress-stage` command. Live staging resolves the validated
+host-welcome account, protected controller project owner and actual root-control
+socket owner independently and requires those controller UID observations to
+agree before rendering the dedicated listener.
+
+The reviewed box-control source pin advances to
+`8249715708c6ef8a1fd30a3fb529b4034ffffe25` and includes the console-specific
+`--observer-role host-welcome` and `--controller-owner-uid` broker contract.
+Source staging verifies the broker/client plus seven security-critical direct
+controller/runtime dependencies by Git blob and SHA-256.
+
+The installed-software attestation is separately read-only. It rejects
+`PYTHONPATH`, requires the approved root-controlled interpreter, loads the
+actual aggregate `zog` distribution, verifies protected module origins and
+ancestry, exact reviewed Git blobs, SHA-256 values and matching wheel
+`RECORD` hashes for every pinned module. A successful attestation explicitly
+does not authorize production activation; native peer/DAC/SELinux/systemd/reboot
+and getty acceptance remains required.
