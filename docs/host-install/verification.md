@@ -129,3 +129,23 @@ ancestry, exact reviewed Git blobs, SHA-256 values and matching wheel
 `RECORD` hashes for every pinned module. A successful attestation explicitly
 does not authorize production activation; native peer/DAC/SELinux/systemd/reboot
 and getty acceptance remains required.
+
+
+## host-discover public migration compatibility
+
+The 2026-10-18 compatibility gate compares the exact public host-install 0.4.4
+consumer API baseline with the current 0.10.0 STATE/admission surface used by
+`host-discover@341255fd0ebdee5eedfd4be9a40829ec17391887`. The imported
+function/class signatures and the fixed UID 970 STATE account mapping remain
+unchanged, and `tests/test_host_discover_compatibility.py` freezes that narrow
+surface.
+
+A separate non-root CI matrix installs the exact selected host-discover source
+with dependency resolution disabled only for the compatibility execution, then
+runs every host-discover test file that directly imports `zog.host_install`.
+This is intended to prove source/runtime compatibility while preserving the
+packaging failure: the selected host-discover revision still declares the stale
+standalone `host-install==0.4.4` dependency and therefore is not itself an
+accepted aggregate release input. host-discover Regular must issue and test a
+new metadata-correct revision before host-deploy can regenerate its six-component
+source manifest. Native UID/STATE/socket acceptance remains Work-owned.

@@ -8,4 +8,5 @@ The canonical reader-facing manual is **[host-install technical manual](README.m
 - [Console-first bootstrap readiness](console-bootstrap.md) — getty-safe boot ordering, authenticated sanitized status and headless/optional-graphics separation.
 - [Protected station application-progress observer](application-progress-observer.md) — numeric execution-UID authorization, socket deployment and read-only station host-capability exposure.
 - [Dedicated host-welcome controller-progress observer](host-welcome-progress-observer.md) — isolated console socket/policy, numeric peer UID and reviewed installed box-control byte verification.
+- [host-discover compatibility contract](host-discover-compatibility-2026-10-18.md) — exact public source/API pairing for the 2026-10-18 migration remediation.
 - [Source traceability](TRACEABILITY.md) — preserved source-to-manual mapping and historical disposition.

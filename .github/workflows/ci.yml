@@ -76,6 +76,50 @@ jobs:
           python -c 'import zog.host_install as h; assert h.__version__ == "0.10.0"'
           test ! -e src/zog/__init__.py
 
+  host-discover-compatibility:
+    name: host-discover 0.4.8 compatibility (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - name: Check out host-install
+        uses: actions/checkout@v4
+      - name: Check out selected host-discover public source
+        uses: actions/checkout@v4
+        with:
+          repository: zog144/host-discover
+          ref: 341255fd0ebdee5eedfd4be9a40829ec17391887
+          path: companions/host-discover-compat
+      - name: Check out reviewed host-identify companion
+        uses: actions/checkout@v4
+        with:
+          repository: zog144/host-identify
+          ref: 1a5eac0b255c995022db6a3a4c0051efffa748cc
+          path: companions/host-identify-compat
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Verify exact compatibility inputs
+        run: |
+          test "$(git -C companions/host-discover-compat rev-parse HEAD)" = "341255fd0ebdee5eedfd4be9a40829ec17391887"
+          test "$(git -C companions/host-identify-compat rev-parse HEAD)" = "1a5eac0b255c995022db6a3a4c0051efffa748cc"
+          grep -F '"host-install==0.4.4"' companions/host-discover-compat/pyproject.toml
+          test ! -e src/zog/__init__.py
+      - name: Install exact source pair without stale standalone dependency resolution
+        run: |
+          python -m pip install './companions/host-identify-compat' 'pytest>=8,<10'
+          python -m pip install --no-deps .
+          python -m pip install --no-deps './companions/host-discover-compat'
+      - name: Compile selected host-discover source and tests
+        run: |
+          python -m compileall -q companions/host-discover-compat/src companions/host-discover-compat/tests
+      - name: Run host-install consumer compatibility suite
+        working-directory: companions/host-discover-compat
+        run: |
+          python -m pytest -q             tests/test_beacon_https.py             tests/test_beacon_units.py             tests/test_bootstrap.py             tests/test_host_generation.py             tests/test_managed.py             tests/test_managed_admission.py             tests/test_namespace_layout.py             tests/test_narrow_admission.py             tests/test_network_retry.py             tests/test_session_recovery.py             tests/test_supervised_beacon.py
+
   artifacts:
     name: Wheel and source distribution audit
     runs-on: ubuntu-latest
@@ -138,6 +182,8 @@ jobs:
                         'examples/systemd/zog-application-progress.service.in',
                         'src/zog/host_install/host_welcome_progress_profile.py',
                         'tests/test_host_welcome_progress_profile.py',
+                        'tests/test_host_discover_compatibility.py',
+                        'docs/host-install/host-discover-compatibility-2026-10-18.md',
                         'examples/systemd/zog-host-welcome-controller-progress.socket.in',
                         'examples/systemd/zog-host-welcome-controller-progress.service.in'):
                   assert p in files, p

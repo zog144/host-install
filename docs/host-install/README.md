@@ -13,6 +13,7 @@ Reader-facing chapters organize the existing documentation by enduring concepts 
 - [Console-first bootstrap readiness](console-bootstrap.md)
 - [Protected station application-progress observer](application-progress-observer.md)
 - [Dedicated host-welcome controller-progress observer](host-welcome-progress-observer.md)
+- [host-discover 0.4.8 / host-install 0.10.0 compatibility](host-discover-compatibility-2026-10-18.md)
 
 
 ## Supplemental cross-cutting synopses
