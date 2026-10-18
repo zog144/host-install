@@ -67,9 +67,13 @@ host-install:
 - managed admission;
 - namespace layout;
 - narrow admission;
-- network retry;
-- session recovery;
-- supervised beacon.
+The ordinary non-root lane stops at narrow admission. The three host-discover
+files that perform root-only supervisor/recovery provisioning
+(`test_network_retry.py`, `test_session_recovery.py`, and
+`test_supervised_beacon.py`) are deliberately **not** run as ordinary
+public-source tests. Their fixtures invoke root-only provisioning and ownership
+transitions; they belong to the separately prepared native Work gate described
+below.
 
 This proves source/runtime compatibility only for the tested source pair. It
 does **not** make `host-discover@341255f...` a releasable aggregate component,
@@ -96,10 +100,12 @@ revision, should be handed back to host-deploy for regeneration of
 ## Native evidence boundary
 
 The CI compatibility suite is intentionally non-root source/synthetic evidence.
-It does not replace the existing native STATE/account/mount/socket acceptance.
-The host-deploy Work rerun must prepare the confined root fixtures separately
+An initial broad compatibility run correctly exposed the three privileged fixture
+files above as root-only rather than silently reclassifying them as source tests.
+The host-deploy Work rerun must prepare those confined root fixtures separately
 and verify the real UID 970 account, STATE ownership/mounts, admission socket,
-reboot/failure paths and installed aggregate bytes.
+supervisor/recovery ownership transitions, reboot/failure paths and installed
+aggregate bytes.
 
 No production publication or host-deploy GO follows from this source
 compatibility result alone.

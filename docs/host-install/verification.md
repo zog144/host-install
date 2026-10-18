@@ -142,10 +142,12 @@ surface.
 
 A separate non-root CI matrix installs the exact selected host-discover source
 with dependency resolution disabled only for the compatibility execution, then
-runs every host-discover test file that directly imports `zog.host_install`.
-This is intended to prove source/runtime compatibility while preserving the
-packaging failure: the selected host-discover revision still declares the stale
-standalone `host-install==0.4.4` dependency and therefore is not itself an
-accepted aggregate release input. host-discover Regular must issue and test a
-new metadata-correct revision before host-deploy can regenerate its six-component
-source manifest. Native UID/STATE/socket acceptance remains Work-owned.
+runs the host-discover source/synthetic tests that directly consume
+`zog.host_install`. The root-only supervisor/recovery files are excluded from
+that lane and remain separately prepared Work/native fixtures. This preserves
+the packaging failure as well: the selected host-discover revision still
+declares the stale standalone `host-install==0.4.4` dependency and therefore is
+not itself an accepted aggregate release input. host-discover Regular must issue
+and test a new metadata-correct revision before host-deploy can regenerate its
+six-component source manifest. Native UID/STATE/socket acceptance remains
+Work-owned.

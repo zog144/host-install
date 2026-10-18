@@ -118,7 +118,7 @@ jobs:
       - name: Run host-install consumer compatibility suite
         working-directory: companions/host-discover-compat
         run: |
-          python -m pytest -q             tests/test_beacon_https.py             tests/test_beacon_units.py             tests/test_bootstrap.py             tests/test_host_generation.py             tests/test_managed.py             tests/test_managed_admission.py             tests/test_namespace_layout.py             tests/test_narrow_admission.py             tests/test_network_retry.py             tests/test_session_recovery.py             tests/test_supervised_beacon.py
+          python -m pytest -q tests/test_beacon_https.py tests/test_beacon_units.py tests/test_bootstrap.py tests/test_host_generation.py tests/test_managed.py tests/test_managed_admission.py tests/test_namespace_layout.py tests/test_narrow_admission.py
 
   artifacts:
     name: Wheel and source distribution audit
