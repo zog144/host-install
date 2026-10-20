@@ -18,7 +18,8 @@ from .certificate_lifecycle import (
     reconcile as certificate_lifecycle_reconcile,
     store_record as certificate_lifecycle_store,
 )
-from . import (beacon_profile, application_progress_profile,\n               host_welcome_progress_profile, image_progress_profile)
+from . import (beacon_profile, application_progress_profile,
+               host_welcome_progress_profile, image_progress_profile)
 from .artifact import stage
 from .filesystem import build_root_fixture
 from .image import inspect, install
