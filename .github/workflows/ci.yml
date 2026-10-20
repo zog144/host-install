@@ -86,6 +86,7 @@ jobs:
         run: |
           python -m pip install './companions/host-identify' 'pytest>=8,<10'
           python -m pip install --no-deps './companions/host-discover'
+          python -m pip install --no-deps './companions/image-build'
           python -m pip install --no-deps './companions/box-control-certificate/box-control'
           python -m pip install --no-deps .
       - name: Compile sources and tests
