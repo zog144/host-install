@@ -109,6 +109,12 @@ def test_reviewed_source_pins_are_exact():
     assert observed["certify-manage controller declaration"]["git_blob"] == (
         "23b180f1f731dae67a06fcd1bdb994304c67390f"
     )
+    assert observed["certify-manage host-install requirements"]["git_blob"] == (
+        "1de58f2be2e21710a7544df8a9d0638ad3bb5c06"
+    )
+    assert profile.CERTIFY_MANAGE_COMMIT == (
+        "8d073ff449557fc82c12eea93e240cdeec1b0fcc"
+    )
 
 
 def test_software_result_binds_exact_immutable_view():

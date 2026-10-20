@@ -213,3 +213,28 @@ Certbot/plugin ABI verification, running systemd/runtime credential and mount
 evidence, hostname-policy installation, issuer-only DNS credential provisioning,
 renew→inspect→stage continuity, interruption/reboot recovery, nginx
 delivery/rollback and real local CA/SNI verification.
+
+
+## Native issuer readiness and managed authority pin — 0.13.0
+
+The 0.13.0 source gate advances the native issuer installation handoff without
+granting certificate execution. The managed beacon composition is now pinned to
+`host-discover@69ef2620f644a83ccc309f13b71b7f0e30a684aa`; staging validates
+the reviewed supervisor/assignment source blobs and, when supplied, a
+station-produced Ed25519 authority pin before publishing it root:root 0444 at
+`/etc/zog/host-install/certificate-assignment-authority.json`.
+
+The new `certificate-native-observe` adapter consumes only root-authenticated
+STATE/controller/authority observations. It revalidates the immutable
+certify-manage application software view, exact selected commands, original
+execution grant/storage ownership, root policy mount and preparation
+boot/InvocationID. It can consume an explicit selected inspect request only
+through the reviewed root-control invocation-scoped reader. It never opens
+UID-970 certificate assignment state directly.
+
+Source regression requires prior observed ACME/lineage evidence to become
+uncertain after reboot/upgrade until a fresh selected inspect succeeds. The
+returned matrix always leaves host-deploy's root-observation to
+`policy_sha256` owner binding NOT RUN; native Gate B/HTTPS Gate C therefore
+remain blocked until host-deploy Regular and Work complete their separate
+contracts.

@@ -1,6 +1,6 @@
 # Native certify-manage issuer installation
 
-**Status:** host-install 0.12.0 source/deployment implementation. Native ACME,
+**Status:** host-install 0.13.0 source/deployment implementation. Native ACME,
 systemd, nginx and HTTPS acceptance remains **NO-GO** until host-deploy Work
 completes the isolated gate.
 
@@ -11,7 +11,7 @@ authorize production HTTPS.
 
 ## Exact reviewed inputs
 
-- certify-manage: `b0e80b92a121678244f1a18fa2055ec769ea8852`
+- certify-manage: `8d073ff449557fc82c12eea93e240cdeec1b0fcc`
 - image-build immutable issuer producer:
   `b5cf3d761087c157b71724986bc94503089932a2`
 - box-control selected issuer controller:
@@ -204,3 +204,94 @@ Host-deploy Work still must prove:
 - real local CA-valid SNI verification.
 
 Production renewal and live HTTPS remain NO-GO until those checks pass.
+
+
+## Managed hostname-authority root pin
+
+For the managed command-center authority path, host-install now consumes the
+separately reviewed station-access Ed25519 assignment key only as a native
+installation input. `beacon-stage` accepts:
+
+```text
+--certificate-assignment-authority-pin <reviewed-json>
+```
+
+The input must be schema 1 / kind
+`zog-certificate-assignment-authority-pin`, contain one registry ID, raw
+Ed25519 public key and matching SHA-256 fingerprint. host-install validates the
+key/fingerprint and stages exactly:
+
+```text
+/etc/zog/host-install/certificate-assignment-authority.json
+```
+
+as root:root mode 0444. The managed supervisor source is pinned to
+`host-discover@69ef2620f644a83ccc309f13b71b7f0e30a684aa`; its reviewed
+supervisor and certificate-assignment module Git blobs are checked before the
+profile is staged. The existing STATE account contract remains unchanged:
+`host-discover` UID/GID 970 with groups 972/973, a root supervisor, and a
+root:970 supervisor socket. No new identity allocator is introduced.
+
+The root-owned host-discover checkpoint remains:
+
+```text
+/state/host-discover-certificate-authority/authority.json
+```
+
+under a root:root 0700 parent, with the observation root:root 0600. host-install
+does not copy or consume UID-970 `certificate-assignment.json`; native
+readiness reads only this root-owned checkpoint and independently requires it
+to match the installed key pin and the current host-install installation/STATE
+identity.
+
+## Authenticated native readiness observation
+
+After controller/application installation and preparation, run:
+
+```sh
+host-install certificate-native-observe \
+  --controller-project /absolute/controller/project \
+  --root-control-socket /run/zog/root-control.sock \
+  --generation <64-hex-rootfs-generation> \
+  --software-view sha256:<view> \
+  --record /protected/certificate-lifecycle.json \
+  --event status
+```
+
+For an already selected inspection, add the durable controller request identity:
+
+```text
+--inspect-request-id <32-hex-request-id>
+```
+
+The adapter is read-only with respect to controller, STATE, issuer state,
+hostname authority and certificates. Its only write is the existing
+secret-free `zog-certificate-lifecycle-record` through the established atomic
+status-record path.
+
+The matrix independently reports PASS/BLOCKED/NOT RUN for:
+
+- verified host-install STATE and recovery hold;
+- installed reviewed host-discover root-observation producer;
+- root-owned managed hostname authority checkpoint and installed pin;
+- installed reviewed box-control/root-control controller bytes;
+- exact published rootfs generation plus revalidated
+  `application-software-consumer-v1` certify-manage view;
+- exact five selected program commands and immutable Python path;
+- protected root-owned certify policy and read-only mount digest;
+- original preparation attempt/boot/InvocationID;
+- original root-control grant ID, numeric UID/GID and controller-managed
+  `certificate-data` storage ID/mode;
+- optional root-authenticated selected inspect result.
+
+When the lifecycle record has already observed an ACME identity or healthy
+lineage, reboot/upgrade without a fresh authenticated selected `inspect`
+changes the persistent evidence to `uncertain` and blocks issuance. Storage
+identity alone is not treated as proof that account/lineage content survived.
+
+The adapter deliberately leaves
+`host_deploy_owner_policy_binding = NOT RUN` and
+`host_deploy_native_gate_handoff_ready = false`. host-deploy Regular owns the
+separate conversion of the root host-discover observation to the exact local
+consumer and `policy_sha256`; host-install neither fabricates that receipt nor
+uses the UID-970 file as a shortcut.

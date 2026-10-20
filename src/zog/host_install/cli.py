@@ -20,7 +20,7 @@ from .certificate_lifecycle import (
 )
 from . import (beacon_profile, application_progress_profile,
                host_welcome_progress_profile, image_progress_profile,
-               certify_manage_profile)
+               certify_manage_profile, certificate_native_observation)
 from .artifact import stage
 from .filesystem import build_root_fixture
 from .image import inspect, install
@@ -75,6 +75,7 @@ def main(argv=None):
     cmd.add_argument("--producer-source", type=Path, help="optional checkout used only to verify packaged host-install templates")
     cmd.add_argument("--output", type=Path, required=True)
     cmd.add_argument("--executable-directory", default="/usr/bin")
+    cmd.add_argument("--certificate-assignment-authority-pin", type=Path)
     sub.add_parser("state-admission-listen", help="serve the systemd listener until ordered shutdown")
     sub.add_parser("welcome-readiness-serve", help="serve one sanitized bootstrap readiness snapshot on a systemd accepted socket")
     cmd = sub.add_parser("application-progress-stage", help="stage the protected station application-progress observer profile")
@@ -119,6 +120,15 @@ def main(argv=None):
     cmd.add_argument("--software-view", required=True)
     cmd = sub.add_parser("certify-manage-controller-attest-installed", help="attest installed box-control/root-control issuer controller bytes")
     cmd.add_argument("--python-executable", default="/usr/bin/python3")
+    cmd = sub.add_parser("certificate-native-observe", help="gather authenticated native issuer readiness and advance the secret-free lifecycle status")
+    cmd.add_argument("--controller-project", required=True)
+    cmd.add_argument("--root-control-socket", required=True)
+    cmd.add_argument("--generation", required=True)
+    cmd.add_argument("--software-view", required=True)
+    cmd.add_argument("--record", type=Path, required=True)
+    cmd.add_argument("--event", choices=("install", "reboot", "upgrade", "status"), default="status")
+    cmd.add_argument("--inspect-request-id")
+    cmd.add_argument("--python-executable", default="/usr/bin/python3")
     cmd = sub.add_parser("certificate-status", help="evaluate detached secret-free certificate enablement evidence")
     cmd.add_argument("evidence", type=Path)
     cmd = sub.add_parser(
@@ -129,7 +139,18 @@ def main(argv=None):
     cmd.add_argument("--record", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
-        if args.command == "certify-manage-controller-attest-installed":
+        if args.command == "certificate-native-observe":
+            result = certificate_native_observation.observe_live(
+                controller_project=args.controller_project,
+                root_control_socket=args.root_control_socket,
+                generation=args.generation,
+                software_view=args.software_view,
+                lifecycle_record=args.record,
+                event=args.event,
+                inspect_request_id=args.inspect_request_id,
+                python_executable=args.python_executable,
+            )
+        elif args.command == "certify-manage-controller-attest-installed":
             result = certify_manage_profile.attest_installed_controller(
                 python_executable=args.python_executable,
             )
@@ -205,7 +226,13 @@ def main(argv=None):
         elif args.command == "beacon-prepare":
             result = beacon_profile.prepare_live(args.state_volume_id)
         elif args.command == "beacon-stage":
-            result = beacon_profile.stage(args.discover_source, args.producer_source, args.output, args.executable_directory)
+            result = beacon_profile.stage(
+                args.discover_source,
+                args.producer_source,
+                args.output,
+                args.executable_directory,
+                args.certificate_assignment_authority_pin,
+            )
         elif args.command == "state-admission-serve":
             serve_stdin()
             return 0  # stdout is the protocol socket; never append a CLI envelope.

@@ -37,8 +37,9 @@ UNIT_SERVICE = "zog-certify-lifecycle.service"
 
 IMAGE_BUILD_COMMIT = "b5cf3d761087c157b71724986bc94503089932a2"
 IMAGE_BUILD_PRODUCER_BLOB = "ed69143e42d13db8e0165158af61c9d592394e7b"
-CERTIFY_MANAGE_COMMIT = "b0e80b92a121678244f1a18fa2055ec769ea8852"
+CERTIFY_MANAGE_COMMIT = "8d073ff449557fc82c12eea93e240cdeec1b0fcc"
 CERTIFY_APPLICATION_BLOB = "23b180f1f731dae67a06fcd1bdb994304c67390f"
+CERTIFY_REQUIREMENTS_BLOB = "1de58f2be2e21710a7544df8a9d0638ad3bb5c06"
 BOX_CONTROL_COMMIT = "a3e939b7a22ef6277ae9712961ffbd5a18ccac39"
 ROOT_CONTROL_COMMIT = "3a2dd9c935e332e811adaccedf04b16bd2de1ea7"
 
@@ -241,6 +242,11 @@ def verify_reviewed_sources(image_build_source, certify_manage_source):
             Path(certify_manage_source) / "integration/box-control/application.py",
             CERTIFY_APPLICATION_BLOB,
             "certify-manage controller declaration",
+        ),
+        (
+            Path(certify_manage_source) / "integration/host-install/issuer-installation-requirements-v1.json",
+            CERTIFY_REQUIREMENTS_BLOB,
+            "certify-manage host-install requirements",
         ),
     )
     observed = {}

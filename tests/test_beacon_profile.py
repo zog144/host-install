@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 import pytest
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from zog.host_identify import signatures
 from zog.host_install import beacon_profile as profile
 from zog.host_install.state_contract import StateError
 from zog.host_install.state_provision import prepare_tree
@@ -93,3 +95,63 @@ def test_staged_profile_boot_graph(tmp_path):
     socket=units/'host-discover-supervisor.socket';socket.chmod(0o644);socket.write_text(socket.read_text().replace('DefaultDependencies=no\n',''))
     p=subprocess.run(command,capture_output=True,text=True)
     assert 'ordering cycle' in p.stderr.lower(),p.stderr
+
+
+def _authority_pin(tmp_path):
+    key = Ed25519PrivateKey.generate()
+    public = key.public_key()
+    value = {
+        "schema": 1,
+        "kind": "zog-certificate-assignment-authority-pin",
+        "registry_id": "primary",
+        "authority_public_key": signatures.public_text(public),
+        "authority_key_id": signatures.fingerprint(public),
+    }
+    path = tmp_path / "authority-pin.json"
+    path.write_text(json.dumps(value))
+    return path, value
+
+
+def test_offline_profile_installs_reviewed_root_authority_pin(tmp_path):
+    consumer = Path(os.environ["HOST_DISCOVER_SOURCE"])
+    producer = Path(__file__).resolve().parents[1]
+    pin_path, pin = _authority_pin(tmp_path)
+    out = tmp_path / "authority-overlay"
+    result = profile.stage(
+        consumer,
+        producer,
+        out,
+        authority_pin=pin_path,
+    )
+    installed = (
+        out / "etc/zog/host-install/certificate-assignment-authority.json"
+    )
+    assert result["certificate_assignment_authority_pin_installed"] is True
+    assert result["certificate_assignment_authority_key_id"] == pin["authority_key_id"]
+    assert installed.stat().st_mode & 0o777 == 0o444
+    assert json.loads(installed.read_text()) == pin
+    manifest = json.loads((out / "profile.json").read_text())
+    assert manifest["consumer_template_commit"] == (
+        "69ef2620f644a83ccc309f13b71b7f0e30a684aa"
+    )
+    assert manifest["certificate_assignment_authority_pin"]["path"] == (
+        "/etc/zog/host-install/certificate-assignment-authority.json"
+    )
+    assert manifest["certificate_assignment_authority_pin"]["authority_key_id"] == (
+        pin["authority_key_id"]
+    )
+
+
+def test_offline_profile_rejects_wrong_authority_fingerprint(tmp_path):
+    consumer = Path(os.environ["HOST_DISCOVER_SOURCE"])
+    producer = Path(__file__).resolve().parents[1]
+    pin_path, pin = _authority_pin(tmp_path)
+    pin["authority_key_id"] = "0" * 64
+    pin_path.write_text(json.dumps(pin))
+    with pytest.raises(StateError, match="fingerprint"):
+        profile.stage(
+            consumer,
+            producer,
+            tmp_path / "bad-authority-overlay",
+            authority_pin=pin_path,
+        )

@@ -4,14 +4,17 @@ import os
 import re
 from importlib.resources import files as resource_files
 from pathlib import Path
-from .state_contract import canonical, require
+from .state_contract import StateError, canonical, decode, fields, require, sha
 from .state_inspect import directory, inspect_live, metadata
 from .state_initialize import operations
 from .state_io import ensure_directory, lock, publish, raw
 
 # Reviewed consumer templates; changes require interface review, not silent adoption.
-CONSUMER_COMMIT = '9075748a98b1c8f679113544cdcd5c8bd9d84958'
+CONSUMER_COMMIT = '69ef2620f644a83ccc309f13b71b7f0e30a684aa'
 CONSUMER_HASHES = {'host-discover-supervisor.socket': 'e2e07d9780f3e24fb32438779806d60d1948130970ac45938184cc2a05cd9db6', 'host-discover-supervisor@.service': '7e559dd696609c4787c9a2711165aa32c1be7ec011636dcd33d837114eecc22a', 'host-discover-beacon.service': '5c82b531eaf548074a2480354eb208496634ffa6b916320632311b71da9fb430'}
+AUTHORITY_SOURCE_BLOBS = {'src/zog/host_discover/supervisor.py': '419c56e07e22d2784fca6cb44ccb1e7a4dd54f0f', 'src/zog/host_discover/certificate_assignment.py': 'ac7ef69f6b22bc227c0b1eb05b76c1bf4bd389e2'}
+AUTHORITY_PIN_KIND = 'zog-certificate-assignment-authority-pin'
+AUTHORITY_PIN_NAME = 'certificate-assignment-authority.json'
 
 
 def prepare(context, volume, supervisor):
@@ -53,7 +56,7 @@ def prepare_live(volume):
         return prepare(context, volume, supervisor)
 
 
-def stage(discover_source, producer_source, output, executable_directory='/usr/bin'):
+def stage(discover_source, producer_source, output, executable_directory='/usr/bin', authority_pin=None):
     """Root-owned resumable offline overlay; never enable services or touch STATE."""
     require(os.geteuid() == 0, 'root-required', 'Root-owned composition required')
     require(re.fullmatch(r'/(?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+', executable_directory) is not None,
@@ -63,6 +66,30 @@ def stage(discover_source, producer_source, output, executable_directory='/usr/b
         data = (Path(discover_source)/'deployment'/name).read_bytes()
         require(hashlib.sha256(data).hexdigest() == expected, 'consumer-template-changed', name)
         files[name] = data.decode()
+    def git_blob(data):
+        return hashlib.sha1(b'blob ' + str(len(data)).encode('ascii') + b'\\0' + data).hexdigest()
+    for relative, expected in AUTHORITY_SOURCE_BLOBS.items():
+        data = (Path(discover_source)/relative).read_bytes()
+        require(git_blob(data) == expected, 'consumer-authority-source-changed', relative)
+    pin = None
+    if authority_pin is not None:
+        path = Path(authority_pin)
+        require(path.is_file() and not path.is_symlink(), 'certificate-authority-pin', 'Reviewed authority pin must be a regular file')
+        raw_pin = path.read_bytes()
+        require(len(raw_pin) <= 4096, 'certificate-authority-pin', 'Authority pin exceeds size bound')
+        pin = decode(raw_pin)
+        fields(pin, 'schema kind registry_id authority_public_key authority_key_id')
+        require(type(pin['schema']) is int and pin['schema'] == 1 and pin['kind'] == AUTHORITY_PIN_KIND and
+                type(pin['registry_id']) is str and 1 <= len(pin['registry_id']) <= 64,
+                'certificate-authority-pin', 'Unsupported authority pin')
+        sha(pin['authority_key_id'])
+        from zog.host_identify import signatures
+        try:
+            key = signatures.public_key(pin['authority_public_key'])
+        except (TypeError, ValueError) as exc:
+            raise StateError('certificate-authority-pin', 'Invalid Ed25519 authority public key') from exc
+        require(signatures.fingerprint(key) == pin['authority_key_id'],
+                'certificate-authority-pin', 'Authority key fingerprint mismatch')
     packaged = resource_files(__package__).joinpath('systemd')
     for name in ('host-install-admission.socket','host-install-admission@.service',
                  'host-install-identity.service','host-install-prepare.service'):
@@ -102,7 +129,11 @@ def stage(discover_source, producer_source, output, executable_directory='/usr/b
     manifest = canonical(dict(schema=1, kind='zog-managed-beacon-profile', consumer_template_commit=CONSUMER_COMMIT,
         executable_directory=executable_directory, files={n:hashlib.sha256(d).hexdigest() for n,d in files.items()},
         disabled_profiles=['host-discover.service','host-discover-managed.service'],
-        enable=['host-discover-beacon.service'], supervisor_preparation='explicit-only'))
+        enable=['host-discover-beacon.service'], supervisor_preparation='explicit-only',
+        certificate_assignment_authority_pin=(None if pin is None else {
+            'path': '/etc/zog/host-install/' + AUTHORITY_PIN_NAME,
+            'registry_id': pin['registry_id'], 'authority_key_id': pin['authority_key_id'],
+            'sha256': hashlib.sha256(canonical(pin)).hexdigest()})))
     output = Path(output).absolute()
     parent = directory(str(output.parent))
     root = None
@@ -120,7 +151,17 @@ def stage(discover_source, producer_source, output, executable_directory='/usr/b
                 for name,data in files.items(): publish(current,name,data,0o444)
             finally:
                 for fd in reversed(opened): os.close(fd)
-        return dict(status='beacon-profile-staged', output=str(output), services_enabled=False, state_modified=False)
+            if pin is not None:
+                opened = []; current = root
+                try:
+                    for name in ('etc','zog','host-install'):
+                        current = ensure_directory(current,name,0,0,0o755); opened.append(current)
+                    publish(current, AUTHORITY_PIN_NAME, canonical(pin), 0o444)
+                finally:
+                    for fd in reversed(opened): os.close(fd)
+        return dict(status='beacon-profile-staged', output=str(output), services_enabled=False, state_modified=False,
+                    certificate_assignment_authority_pin_installed=pin is not None,
+                    certificate_assignment_authority_key_id=None if pin is None else pin['authority_key_id'])
     finally:
         if root is not None: os.close(root)
         os.close(parent)
