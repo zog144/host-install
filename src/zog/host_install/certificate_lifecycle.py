@@ -170,7 +170,9 @@ def reconcile(previous, observation):
                        else "create-only-on-authorized-issuance")
     override = None
 
-    if application["status"] == "invalid":
+    if (application["status"] == "invalid"
+            and evidence["state"]["verified"]
+            and not evidence["state"]["recovery_hold"]):
         override = _blocked("certificate-application-invalid",
                             "repair-certificate-application", identity_action)
 

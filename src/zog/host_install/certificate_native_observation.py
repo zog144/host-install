@@ -586,7 +586,8 @@ def _lifecycle_observation(*, event, state_ok, recovery_hold, software_ok,
         "application": {
             "status": "available" if app_available else "invalid",
             "persistent_state_id":
-                prepared["storage_id"] if app_available and storage_ok else None,
+                prepared["storage_id"]
+                if app_available and persistent_status == "available" else None,
             "preparation_revision":
                 PREPARATION_REVISION if app_available else None,
         },

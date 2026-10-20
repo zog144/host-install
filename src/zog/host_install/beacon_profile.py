@@ -67,7 +67,7 @@ def stage(discover_source, producer_source, output, executable_directory='/usr/b
         require(hashlib.sha256(data).hexdigest() == expected, 'consumer-template-changed', name)
         files[name] = data.decode()
     def git_blob(data):
-        return hashlib.sha1(b'blob ' + str(len(data)).encode('ascii') + b'\\0' + data).hexdigest()
+        return hashlib.sha1(b'blob ' + str(len(data)).encode('ascii') + b'\0' + data).hexdigest()
     for relative, expected in AUTHORITY_SOURCE_BLOBS.items():
         data = (Path(discover_source)/relative).read_bytes()
         require(git_blob(data) == expected, 'consumer-authority-source-changed', relative)
