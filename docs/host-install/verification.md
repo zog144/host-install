@@ -155,27 +155,33 @@ Work-owned.
 
 ## Dedicated image-build progress observer evidence
 
-The 0.11.0 source suite implements the host-install deployment side of
-host-welcome's reviewed `image-build-post-install-progress-v2` consumer. It pins
-image-build source
-`fcc12f3db959afe395b1adfb5b0b4dc1f16a3258`, keeps the image observer
-separate from both existing station/controller progress listeners, derives the
-host-welcome UID from the validated account and the producer UID/GID from the
-protected live image-build component-state owner, and renders the fixed
-`/run/host-welcome/image-progress.sock` plus exact
-`zog-host-welcome-image-progress-observer-v1` policy.
+The 0.11.0 suite implements the host-install side of image-build's producer-owned
+`image-build-post-install-progress-native-deployment-v1` contract at deployment
+reference `b5cf3d761087c157b71724986bc94503089932a2`. The consumer-visible
+runtime/source binding intentionally remains
+`fcc12f3db959afe395b1adfb5b0b4dc1f16a3258`.
 
-The source verifier binds all 85 installable `zog.image_build` Python files by
-Git blob/SHA-256 plus component metadata and license/notice inputs. The installed
-attester rejects `PYTHONPATH`/`PYTHONHOME`, verifies the approved interpreter
-and aggregate wheel `RECORD`, imports the broker/projection, and requires every
-loaded image-build module to match the reviewed Git blob and wheel hash.
+The source verifier requires the exact deployment module and producer socket/service
+template blobs from `b5cf3d...` and the exact 13 security-critical runtime
+module blobs defined by the producer reference. Those runtime modules are
+byte-identical to the reviewed `fcc12f3...` projection source. The staged
+allowlist is exactly `agreety`, `firefox-esr`, `greetd`, `i3`, and
+`xorg-server`; Chromium, TurboVNC and Weston are not included in v1.
 
-Source tests also freeze the reviewed nine-application allowlist, read-only unit
-arguments, current-boot semantics, host-install selection ownership, exact
-selection receipt/sequence requirement, selected-rootfs-generation requirement
-for compatibility-checked views, and the absence of mutation authority. This
-does **not** constitute native deployment acceptance. Wrong-UID DAC/peer denial,
-actual systemd service identity, socket inode/SELinux labeling, stale/wrong-boot
-and source replay, reboot/interruption truthfulness, selection/rootfs readback,
-offline getty behavior and disposal remain Work-owned gates before enablement.
+Live staging derives the host-welcome UID from the validated account and the
+producer UID/GID from protected image-build state ownership. It accepts no numeric
+identity CLI authority, verifies protected state ancestry, packages the producer
+templates byte-for-byte, and never enables the unit.
+
+Installed-software attestation rejects inherited `PYTHONPATH`/`PYTHONHOME`,
+verifies the approved interpreter and aggregate wheel `RECORD`, imports all 13
+reviewed modules, and requires protected origins, exact Git blobs, independent
+SHA-256 values and matching wheel hashes. A pass still returns
+`production_activation_authorized=false`.
+
+Native acceptance remains separate: actual UID/GID/supplementary groups, socket
+inode/mode/SELinux, wrong-peer DAC and `SO_PEERCRED` denial, producer peer UID,
+source/boot replay rejection, read-only state behavior, restart/reboot cleanup,
+selection/rootfs/application-view readback, failure/cancel/interruption truthfulness,
+observer isolation, offline getty fallback and disposal must be retained before
+enablement.

@@ -1,176 +1,209 @@
 # Dedicated host-welcome image-build progress observer
 
-**Status:** host-install 0.11.0 source/deployment profile. Native systemd,
-DAC/`SO_PEERCRED`, SELinux/LSM, reboot and getty acceptance remains a
-separate disposable-host gate.
+**Status:** host-install 0.11.0 source/deployment implementation aligned to
+image-build native-deployment contract v1. Production activation remains
+**NO-GO** until disposable-host Work acceptance.
 
-This profile implements the host-install side of the reviewed host-welcome /
-image-build post-install progress contract.
+## Exact producer contracts
 
-Pinned producer source:
+Producer-owned deployment reference:
 
 - repository: `zog144/image-build`
-- source revision: `fcc12f3db959afe395b1adfb5b0b4dc1f16a3258`
+- deployment-reference revision:
+  `b5cf3d761087c157b71724986bc94503089932a2`
+- deployment module:
+  `zog.image_build.post_install_progress_deployment`
+- deployment module Git blob:
+  `bd0d13be67bcebc380001fb64b646f6e04400640`
+- contract: `image-build-post-install-progress-native-deployment-v1`
+- socket template blob:
+  `8e7e7bbd6af41572441f33e8db178f6588e117d6`
+- service template blob:
+  `8c9b548d0e47b1f5a82fe511d2db81c4865dfab3`
+
+The authenticated runtime projection/source binding intentionally remains:
+
+- source revision:
+  `fcc12f3db959afe395b1adfb5b0b4dc1f16a3258`
 - projection: `image-build-post-install-progress-v2`
 - wire: `image-build-post-install-progress-rpc-v2`
 - source binding: `image-build-post-install-source-v1`
 
-Pinned consumer source:
+The 13 security-critical snapshot modules are byte-identical between the
+runtime revision and the later deployment-reference revision. The consumer
+policy therefore continues to name `fcc12f3...`; the root-owned staging
+manifest separately records `b5cf3d...` as the deployment reference.
 
-- host-welcome: `6edb11140a44a10061e5308fab03a43d9008dbfc`
+Reviewed host-welcome consumer:
+`6edb11140a44a10061e5308fab03a43d9008dbfc`.
 
-The observer is independent from both the station application-progress socket and
-the host-welcome controller-progress socket.
+## Fixed v1 role
 
-## Fixed consumer contract
-
-The root-owned consumer policy is exactly:
+The root-owned policy is exactly:
 
 `/etc/zog/host-welcome-image-progress-observer.json`
 
-with schema `zog-host-welcome-image-progress-observer-v1` and fields:
+with schema `zog-host-welcome-image-progress-observer-v1` and only:
 
 - `schema`;
 - `enabled=true`;
 - independently resolved numeric `consumer_uid`;
-- independently resolved numeric `producer_uid`;
+- independently resolved, distinct numeric `producer_uid`;
 - `socket=/run/host-welcome/image-progress.sock`;
 - `image_build_source_commit=fcc12f3db959afe395b1adfb5b0b4dc1f16a3258`.
 
-No source directory, raw image-build state path, application selector, build job,
-credential, mutation action or arbitrary evidence reference is exposed through
-the host-welcome UI/RPC.
+The first-wave immutable allowlist is exactly:
 
-## Independent live identity resolution
+- `agreety`;
+- `firefox-esr`;
+- `greetd`;
+- `i3`;
+- `xorg-server`.
 
-The public staging command accepts no consumer or producer UID/GID values.
+Chromium, TurboVNC, Weston/Wayland and the non-ESR Firefox name are deliberately
+not admitted by v1.
 
-Running as root, host-install:
+## Independently resolved live identities
 
-1. validates the dedicated host-welcome account using the existing
-   `welcome_account()` contract;
-2. requires a canonical durable image-build state root;
-3. requires its `image-build/` component directory to exist with a distinct
-   non-root owner and protected permissions;
-4. resolves that owner through the host account database and rejects duplicate
-   numeric UIDs or primary-GID disagreement;
-5. verifies protected, non-symlinked, non-group/world-writable ancestry and
-   checks that the resolved producer can traverse/read the fixed state root.
+The staging CLI accepts no consumer or producer UID/GID values. Running as root,
+host-install:
 
-The resulting producer UID/GID is therefore derived from the actual image-build
-state owner, not from UI input or a synthetic source constant.
+1. validates the actual dedicated host-welcome account;
+2. resolves one canonical durable image-build state root;
+3. requires its `image-build/` component state directory to have a protected,
+   distinct non-root owner;
+4. resolves that numeric owner through the host account database and validates
+   its primary GID;
+5. rejects symlinked, group/world-writable or ownership-conflicting state
+   ancestry;
+6. verifies the resolved producer can read/traverse that fixed state root.
 
-## Dedicated unit pair
+No UI-supplied identity is accepted.
 
-The staged socket is:
+## Exact producer-owned unit pair
+
+Host-install packages the producer templates byte-for-byte and verifies them
+against the pinned `b5cf3d...` checkout before staging.
+
+The socket is:
 
 ```text
 ListenStream=/run/host-welcome/image-progress.sock
 SocketUser=<resolved-host-welcome-uid>
 SocketMode=0600
+DirectoryMode=0711
 Accept=no
+Backlog=8
+RemoveOnStop=yes
 ```
 
-The service runs as the distinct resolved image-build owner and invokes only:
+The service runs as the resolved image-build producer UID/GID and fixes:
 
 ```text
-<approved-python> -m zog.image_build.post_install_progress_broker \
-  --state-dir <fixed-reviewed-state-root> \
-  --authorized-uid <resolved-host-welcome-uid> \
-  --application agreety \
-  --application chromium \
-  --application firefox \
-  --application firefox-esr \
-  --application greetd \
-  --application i3 \
-  --application turbovnc \
-  --application weston \
-  --application xorg-server \
-  --source-repository zog144/image-build \
+python -m zog.image_build.post_install_progress_broker
+  --state-dir <protected-image-build-state-root>
+  --authorized-uid <resolved-host-welcome-uid>
+  --application agreety
+  --application firefox-esr
+  --application greetd
+  --application i3
+  --application xorg-server
+  --source-repository zog144/image-build
   --source-revision fcc12f3db959afe395b1adfb5b0b4dc1f16a3258
 ```
 
-The state root is explicitly read-only to the broker. The unit clears
-`PYTHONPATH`/`PYTHONHOME`, disables bytecode writes, restricts networking to
-AF_UNIX and applies systemd filesystem/kernel hardening. The broker itself
-requires exactly one systemd-activated AF_UNIX listener, performs
-`SO_PEERCRED` before request parsing and permits only the bounded `snapshot`
-operation.
+The reference service clears inherited `PYTHONPATH`, restricts networking to
+AF_UNIX, drops capabilities, applies no-new-privileges and namespace/kernel
+hardening, and exposes the selected image-build state root read-only. It has no
+station-access socket, controller-progress socket or root-control socket.
 
-The allowlist is the exact nine-application set accepted by the reviewed
-host-welcome consumer. It is not caller selectable.
+The producer broker itself permits exactly one systemd-activated AF_UNIX socket,
+authenticates `SO_PEERCRED` before request parsing and exposes only the bounded
+read-only `snapshot` operation.
 
-## Reviewed source and installed-byte attestation
+## Source and installed-software attestation
 
-Source staging checks the complete installable image-build Python inventory at
-the pinned revision: 85 `src/zog/image_build/**/*.py` files, each by exact Git
-blob and SHA-256, plus component metadata and license/notice files.
+Before rendering the overlay, host-install verifies:
 
-After the aggregate `zog` wheel is installed, run:
+- the exact deployment module blob at `b5cf3d...`;
+- the exact producer socket and service template blobs;
+- the producer-defined 13 security-critical runtime module Git blobs associated
+  with `fcc12f3...`.
+
+The 13 modules are the broker, projection, application software/view readers,
+build views, errors, filesystem, metadata, engine, rootfs compatibility,
+artifact observations, runtime facilities and application data targets.
+
+After the aggregate `zog` wheel is installed:
 
 ```sh
 host-install host-welcome-image-progress-attest-installed \
   --python-executable /usr/bin/python3
 ```
 
-The attester is read-only. It requires root, rejects inherited `PYTHONPATH` or
-`PYTHONHOME`, verifies the actual interpreter and protected aggregate
-distribution root, imports the broker/projection, enumerates the image-build
-modules actually loaded, and requires every loaded module to:
+The attester requires root, rejects inherited `PYTHONPATH` and `PYTHONHOME`,
+verifies the approved root-controlled interpreter and aggregate distribution,
+imports all 13 reviewed modules, and requires every one to have:
 
-- belong to the reviewed 85-module source inventory;
-- match the exact reviewed Git blob;
-- have a separately calculated SHA-256;
-- come from a protected regular file under the aggregate installation;
-- have a matching SHA-256 entry in the wheel `RECORD`.
+- a protected regular-file origin under the aggregate distribution;
+- the exact reviewed Git blob identity;
+- an independently calculated SHA-256;
+- a matching SHA-256 entry in the aggregate wheel `RECORD`.
 
-The aggregate `RECORD` is itself protected and SHA-256 identified. A successful
+The `RECORD` itself is protected and SHA-256 identified. Successful software
 attestation still reports `production_activation_authorized=false`.
 
-## Selection, rootfs and reboot semantics
+## Selection, rootfs and boot semantics
 
-host-install remains the sole post-install selection/intent owner. The staged
-profile does not manufacture intent or infer selection from a running pipeline.
+host-install remains sole post-install selection/intent owner. This observer
+does not infer selection from a pipeline and cannot write the selection.
 
-Native acceptance must retain and report the exact immutable host-install
-selection revision and sequence. A compatibility-checked application publication
-must additionally name the exact retained selected rootfs generation. Missing,
-superseded or mismatched selection/rootfs evidence is unknown, not success.
+Native acceptance must present the exact immutable selection receipt/revision
+and monotonically bound sequence. A compatibility-checked publication must name
+the exact selected retained rootfs generation. Missing, superseded or mismatched
+selection/rootfs evidence is unknown rather than success.
 
-The producer's fresh snapshot must identify the active Linux boot. Durable
-terminal controller command evidence is allowed to name an older controller
-boot after reboot; that does not make the old process live. The observer cannot
-submit, resume, retry, cancel, publish, install or start services.
+The live producer snapshot must name the current Linux boot. Durable terminal
+controller command evidence may legitimately name an older boot after restart;
+that does not imply a live process. The observer cannot submit, resume, retry,
+cancel, publish, install or start services.
 
-## Staging command
+## Staging
 
 ```sh
 host-install host-welcome-image-progress-stage \
   --output /path/to/new-overlay \
   --image-build-state-root /fixed/image-build/state/root \
-  --image-build-source /path/to/image-build@fcc12f3db959afe395b1adfb5b0b4dc1f16a3258 \
+  --image-build-source /path/to/image-build@b5cf3d761087c157b71724986bc94503089932a2 \
   --python-executable /usr/bin/python3
 ```
 
-The output contains root-owned policy and unit files plus a source/identity
-manifest. Staging itself never calls systemctl and never writes image-build state.
+`--image-build-source` names the deployment-reference checkout. host-install
+uses it to validate the later deployment contract/templates and the 13
+byte-identical runtime modules. The consumer-visible policy still pins
+`fcc12f3...`.
 
-## Native gate still open
+Staging writes only a new root-owned overlay. It never calls systemctl, enables
+the socket, mutates image-build state or grants graphical readiness.
 
-Before enablement, Work must verify on a disposable host:
+## Native Work gate
 
-- actual safely resolved welcome and image-build numeric IDs;
-- socket parent/inode ownership, mode and SELinux/LSM label;
-- positive authorized access and wrong-UID denial at both DAC and
-  producer `SO_PEERCRED`;
-- actual broker process UID/GID and exact installed aggregate bytes;
-- station and controller observer isolation;
-- current-boot snapshot acceptance and stale/wrong-boot replay denial;
-- exact source-revision replay denial;
-- selection revision/sequence and selected-rootfs generation agreement;
+Disposable-host acceptance must still return:
+
+- actual safely resolved consumer and producer UID/GID values and supplementary
+  group evidence;
+- installed module SHA-256 values plus wheel `RECORD` digest;
+- actual selection receipt/sequence, selected rootfs generation and reviewed
+  application-view identities where available;
+- socket parent/inode/mode and SELinux/LSM evidence;
+- authorized observer success and wrong-UID denial at both DAC and broker
+  `SO_PEERCRED`;
+- source-pin and stale/wrong-boot replay rejection;
+- activation/restart/reboot cleanup and read-only state proof;
 - truthful failure, cancellation, interruption/reboot, generation mismatch and
-  absent/superseded publication states;
-- first boot/offline getty operation when the optional observer or image-build
-  is absent.
+  absent/superseded publication behavior;
+- isolation from the station and controller observers;
+- offline first-boot/getty usability with the optional observer absent;
+- disposal/cleanup evidence.
 
-Production enablement remains NO-GO until that evidence is retained.
+Passing source CI is not production activation authorization.

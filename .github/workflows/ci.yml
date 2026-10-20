@@ -43,7 +43,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: zog144/image-build
-          ref: fcc12f3db959afe395b1adfb5b0b4dc1f16a3258
+          ref: b5cf3d761087c157b71724986bc94503089932a2
           path: companions/image-build
       - uses: actions/setup-python@v5
         with:
@@ -60,7 +60,7 @@ jobs:
           test "$(git -C companions/host-identify rev-parse HEAD)" = "1a5eac0b255c995022db6a3a4c0051efffa748cc"
           test "$(git -C companions/host-discover rev-parse HEAD)" = "b61197461f2fe19fd29203a1d148a66c6ce89f6d"
           test "$(git -C companions/box-control rev-parse HEAD)" = "8249715708c6ef8a1fd30a3fb529b4034ffffe25"
-          test "$(git -C companions/image-build rev-parse HEAD)" = "fcc12f3db959afe395b1adfb5b0b4dc1f16a3258"
+          test "$(git -C companions/image-build rev-parse HEAD)" = "b5cf3d761087c157b71724986bc94503089932a2"
       - name: Install reviewed companions and local source
         run: |
           python -m pip install './companions/host-identify' 'pytest>=8,<10'
