@@ -18,7 +18,7 @@ from .certificate_lifecycle import (
     reconcile as certificate_lifecycle_reconcile,
     store_record as certificate_lifecycle_store,
 )
-from . import beacon_profile, application_progress_profile, host_welcome_progress_profile
+from . import (beacon_profile, application_progress_profile,\n               host_welcome_progress_profile, image_progress_profile)
 from .artifact import stage
 from .filesystem import build_root_fixture
 from .image import inspect, install
@@ -93,6 +93,14 @@ def main(argv=None):
     cmd.add_argument("--producer-source", type=Path)
     cmd = sub.add_parser("host-welcome-progress-attest-installed", help="attest actual aggregate box-control observer bytes against reviewed source and wheel RECORD")
     cmd.add_argument("--python-executable", default="/usr/bin/python3")
+    cmd = sub.add_parser("host-welcome-image-progress-stage", help="stage the dedicated image-build progress observer using independently resolved live UIDs")
+    cmd.add_argument("--output", type=Path, required=True)
+    cmd.add_argument("--image-build-state-root", required=True)
+    cmd.add_argument("--image-build-source", type=Path, required=True)
+    cmd.add_argument("--python-executable", default="/usr/bin/python3")
+    cmd.add_argument("--producer-source", type=Path)
+    cmd = sub.add_parser("host-welcome-image-progress-attest-installed", help="attest aggregate image-build observer bytes against reviewed source and wheel RECORD")
+    cmd.add_argument("--python-executable", default="/usr/bin/python3")
     cmd = sub.add_parser("certificate-status", help="evaluate detached secret-free certificate enablement evidence")
     cmd.add_argument("evidence", type=Path)
     cmd = sub.add_parser(
@@ -103,7 +111,19 @@ def main(argv=None):
     cmd.add_argument("--record", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
-        if args.command == "host-welcome-progress-attest-installed":
+        if args.command == "host-welcome-image-progress-attest-installed":
+            result = image_progress_profile.verify_installed(
+                python_executable=args.python_executable,
+            )
+        elif args.command == "host-welcome-image-progress-stage":
+            result = image_progress_profile.stage_live(
+                output=args.output,
+                image_build_state_root=args.image_build_state_root,
+                image_build_source=args.image_build_source,
+                python_executable=args.python_executable,
+                producer_source=args.producer_source,
+            )
+        elif args.command == "host-welcome-progress-attest-installed":
             result = host_welcome_progress_profile.verify_installed(
                 python_executable=args.python_executable,
             )

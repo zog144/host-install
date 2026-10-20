@@ -11,7 +11,7 @@ class NamespaceMigrationTests(unittest.TestCase):
     def test_component_namespace_and_entry_point(self):
         package = importlib.import_module("zog.host_install")
         cli = importlib.import_module("zog.host_install.cli")
-        self.assertEqual(package.__version__, "0.10.0")
+        self.assertEqual(package.__version__, "0.11.0")
         self.assertTrue(callable(cli.main))
         self.assertFalse((ROOT / "host_install").exists())
         self.assertFalse((ROOT / "src" / "zog" / "__init__.py").exists())
@@ -35,6 +35,8 @@ class NamespaceMigrationTests(unittest.TestCase):
             "zog-application-progress.service.in",
             "zog-host-welcome-controller-progress.socket.in",
             "zog-host-welcome-controller-progress.service.in",
+            "zog-host-welcome-image-progress.socket.in",
+            "zog-host-welcome-image-progress.service.in",
         ):
             self.assertTrue(packaged.joinpath(name).is_file(), name)
 

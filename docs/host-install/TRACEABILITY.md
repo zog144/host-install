@@ -19,3 +19,13 @@
 ## Cross-repository audit clarification — 2026-10-12
 
 The canonical documentation entry remains [README.md](README.md), with thematic chapters in [guide/](guide/). The later [INDEX.md](INDEX.md) is only a compatibility entry and does not define an alternate hierarchy. [Architecture](architecture.md) and [verification](verification.md) are supplemental high-level synopses, not replacement schema contracts or proof of new acceptance. The original source-coverage figures above refer to the preserved detailed documents, and are unchanged by these additional navigational pages. No historical or canonical source is retired by this clarification.
+
+
+## Dedicated image-build progress observer — 2026-10-20
+
+[image-build-progress-observer.md](image-build-progress-observer.md) is a new
+maintained deployment contract rather than one of the nine historical documents
+counted above. It records the host-install ownership and verification boundary
+for the reviewed host-welcome/image-build post-install progress observer. Its
+source-level staging status must not be promoted to native deployment acceptance
+without the separate disposable-host evidence listed in that document.

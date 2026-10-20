@@ -151,3 +151,31 @@ not itself an accepted aggregate release input. host-discover Regular must issue
 and test a new metadata-correct revision before host-deploy can regenerate its
 six-component source manifest. Native UID/STATE/socket acceptance remains
 Work-owned.
+
+
+## Dedicated image-build progress observer evidence
+
+The 0.11.0 source suite implements the host-install deployment side of
+host-welcome's reviewed `image-build-post-install-progress-v2` consumer. It pins
+image-build source
+`fcc12f3db959afe395b1adfb5b0b4dc1f16a3258`, keeps the image observer
+separate from both existing station/controller progress listeners, derives the
+host-welcome UID from the validated account and the producer UID/GID from the
+protected live image-build component-state owner, and renders the fixed
+`/run/host-welcome/image-progress.sock` plus exact
+`zog-host-welcome-image-progress-observer-v1` policy.
+
+The source verifier binds all 85 installable `zog.image_build` Python files by
+Git blob/SHA-256 plus component metadata and license/notice inputs. The installed
+attester rejects `PYTHONPATH`/`PYTHONHOME`, verifies the approved interpreter
+and aggregate wheel `RECORD`, imports the broker/projection, and requires every
+loaded image-build module to match the reviewed Git blob and wheel hash.
+
+Source tests also freeze the reviewed nine-application allowlist, read-only unit
+arguments, current-boot semantics, host-install selection ownership, exact
+selection receipt/sequence requirement, selected-rootfs-generation requirement
+for compatibility-checked views, and the absence of mutation authority. This
+does **not** constitute native deployment acceptance. Wrong-UID DAC/peer denial,
+actual systemd service identity, socket inode/SELinux labeling, stale/wrong-boot
+and source replay, reboot/interruption truthfulness, selection/rootfs readback,
+offline getty behavior and disposal remain Work-owned gates before enablement.

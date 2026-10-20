@@ -1,0 +1,18 @@
+[Unit]
+Description=Dedicated host-welcome image-build progress observer
+After=sysinit.target
+Before=shutdown.target
+Conflicts=shutdown.target
+DefaultDependencies=no
+
+[Socket]
+ListenStream=/run/host-welcome/image-progress.sock
+SocketUser=@WELCOME_UID@
+SocketMode=0600
+DirectoryMode=0711
+Accept=no
+Backlog=8
+RemoveOnStop=yes
+
+[Install]
+WantedBy=multi-user.target
