@@ -14,6 +14,7 @@ Reader-facing chapters organize the existing documentation by enduring concepts 
 - [Protected station application-progress observer](application-progress-observer.md)
 - [Dedicated host-welcome controller-progress observer](host-welcome-progress-observer.md)
 - [Dedicated host-welcome image-build progress observer](image-build-progress-observer.md)
+- [Native certify-manage issuer installation](certify-manage-native-install.md)
 - [host-discover 0.4.8 / host-install 0.10.0 compatibility](host-discover-compatibility-2026-10-18.md)
 
 

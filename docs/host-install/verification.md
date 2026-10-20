@@ -185,3 +185,31 @@ source/boot replay rejection, read-only state behavior, restart/reboot cleanup,
 selection/rootfs/application-view readback, failure/cancel/interruption truthfulness,
 observer isolation, offline getty fallback and disposal must be retained before
 enablement.
+
+
+## Native certify-manage issuer installation evidence
+
+Host-install 0.12.0 adds a staging-only native issuer profile aligned to
+`certify-manage@b0e80b92a121678244f1a18fa2055ec769ea8852`,
+`image-build@b5cf3d761087c157b71724986bc94503089932a2`,
+`box-control@a3e939b7a22ef6277ae9712961ffbd5a18ccac39`, and
+`root-control@3a2dd9c935e332e811adaccedf04b16bd2de1ea7`.
+
+Source tests freeze the image-build software-result/binding digest, exact immutable
+Python/Certbot paths, rendered software view, five `certify-policy` host bindings,
+lifecycle socket peer UID, controller service UID/GID and source pins. Staging
+does not install hostname policy or DNS secrets, pre-create issuer state, prepare
+the application, enable systemd or grant certificate mutation.
+
+A separate prepared-state attester reads box-control's retained preparation,
+compares its execution grant with root-control's independent identity resolution,
+and checks the actual controller-managed `certificate-data` directory is mode
+0700 with the exact grant UID/GID. A separate installed-software attester verifies
+the selected lifecycle/inspection/application-storage and root-control modules by
+reviewed Git blob plus aggregate wheel `RECORD` hash.
+
+These passes are prerequisites only. Native Work still owns actual immutable
+Certbot/plugin ABI verification, running systemd/runtime credential and mount
+evidence, hostname-policy installation, issuer-only DNS credential provisioning,
+renew→inspect→stage continuity, interruption/reboot recovery, nginx
+delivery/rollback and real local CA/SNI verification.

@@ -45,6 +45,24 @@ jobs:
           repository: zog144/image-build
           ref: b5cf3d761087c157b71724986bc94503089932a2
           path: companions/image-build
+      - name: Check out certificate box-control producer
+        uses: actions/checkout@v4
+        with:
+          repository: zog144/box-control
+          ref: a3e939b7a22ef6277ae9712961ffbd5a18ccac39
+          path: companions/box-control-certificate
+      - name: Check out certificate root-control producer
+        uses: actions/checkout@v4
+        with:
+          repository: zog144/root-control
+          ref: 3a2dd9c935e332e811adaccedf04b16bd2de1ea7
+          path: companions/root-control
+      - name: Check out certify-manage issuer source
+        uses: actions/checkout@v4
+        with:
+          repository: zog144/certify-manage
+          ref: b0e80b92a121678244f1a18fa2055ec769ea8852
+          path: companions/certify-manage
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
@@ -61,10 +79,14 @@ jobs:
           test "$(git -C companions/host-discover rev-parse HEAD)" = "b61197461f2fe19fd29203a1d148a66c6ce89f6d"
           test "$(git -C companions/box-control rev-parse HEAD)" = "8249715708c6ef8a1fd30a3fb529b4034ffffe25"
           test "$(git -C companions/image-build rev-parse HEAD)" = "b5cf3d761087c157b71724986bc94503089932a2"
+          test "$(git -C companions/box-control-certificate rev-parse HEAD)" = "a3e939b7a22ef6277ae9712961ffbd5a18ccac39"
+          test "$(git -C companions/root-control rev-parse HEAD)" = "3a2dd9c935e332e811adaccedf04b16bd2de1ea7"
+          test "$(git -C companions/certify-manage rev-parse HEAD)" = "b0e80b92a121678244f1a18fa2055ec769ea8852"
       - name: Install reviewed companions and local source
         run: |
           python -m pip install './companions/host-identify' 'pytest>=8,<10'
           python -m pip install --no-deps './companions/host-discover'
+          python -m pip install --no-deps './companions/box-control-certificate/box-control'
           python -m pip install --no-deps .
       - name: Compile sources and tests
         run: python -m compileall -q src tests
@@ -74,14 +96,17 @@ jobs:
           HOST_DISCOVER_SOURCE: companions/host-discover
           BOX_CONTROL_SOURCE: companions/box-control
           IMAGE_BUILD_SOURCE: companions/image-build
+          CERTIFICATE_BOX_CONTROL_SOURCE: companions/box-control-certificate
+          ROOT_CONTROL_SOURCE: companions/root-control
+          CERTIFY_MANAGE_SOURCE: companions/certify-manage
         run: |
           # STATE coordination tests require real root ownership; no mocked UID.
           # The GitHub-hosted runner is disposable, not an enrolled Zog host.
-          sudo --preserve-env=HOST_IDENTIFY_SOURCE,HOST_DISCOVER_SOURCE,BOX_CONTROL_SOURCE,IMAGE_BUILD_SOURCE "$(command -v python)" -m pytest -q tests
+          sudo --preserve-env=HOST_IDENTIFY_SOURCE,HOST_DISCOVER_SOURCE,BOX_CONTROL_SOURCE,IMAGE_BUILD_SOURCE,CERTIFICATE_BOX_CONTROL_SOURCE,ROOT_CONTROL_SOURCE,CERTIFY_MANAGE_SOURCE "$(command -v python)" -m pytest -q tests
       - name: Confirm CLI and namespace
         run: |
           host-install --help >/dev/null
-          python -c 'import zog.host_install as h; assert h.__version__ == "0.11.0"'
+          python -c 'import zog.host_install as h; assert h.__version__ == "0.12.0"'
           test ! -e src/zog/__init__.py
 
   host-discover-compatibility:
@@ -157,6 +182,7 @@ jobs:
               assert 'zog/host_install/application_progress_profile.py' in members
               assert 'zog/host_install/host_welcome_progress_profile.py' in members
               assert 'zog/host_install/image_progress_profile.py' in members
+              assert 'zog/host_install/certify_manage_profile.py' in members
               assert 'zog/host_install/systemd/host-install-admission.socket' in members
               assert 'zog/host_install/systemd/host-install-welcome.socket' in members
               assert 'zog/host_install/systemd/host-install-welcome@.service' in members
@@ -201,7 +227,10 @@ jobs:
                         'tests/test_image_progress_profile.py',
                         'docs/host-install/image-build-progress-observer.md',
                         'examples/systemd/zog-host-welcome-image-progress.socket.in',
-                        'examples/systemd/zog-host-welcome-image-progress.service.in'):
+                        'examples/systemd/zog-host-welcome-image-progress.service.in',
+                        'src/zog/host_install/certify_manage_profile.py',
+                        'tests/test_certify_manage_profile.py',
+                        'docs/host-install/certify-manage-native-install.md'):
                   assert p in files, p
               assert not any(x.startswith('evidence/') for x in files)
               assert 'COPYRIGHT' not in files

@@ -19,7 +19,8 @@ from .certificate_lifecycle import (
     store_record as certificate_lifecycle_store,
 )
 from . import (beacon_profile, application_progress_profile,
-               host_welcome_progress_profile, image_progress_profile)
+               host_welcome_progress_profile, image_progress_profile,
+               certify_manage_profile)
 from .artifact import stage
 from .filesystem import build_root_fixture
 from .image import inspect, install
@@ -102,6 +103,22 @@ def main(argv=None):
     cmd.add_argument("--producer-source", type=Path)
     cmd = sub.add_parser("host-welcome-image-progress-attest-installed", help="attest aggregate image-build observer bytes against reviewed source and wheel RECORD")
     cmd.add_argument("--python-executable", default="/usr/bin/python3")
+    cmd = sub.add_parser("certify-manage-native-stage", help="stage the native certify-manage controller/application profile without activating it")
+    cmd.add_argument("--output", type=Path, required=True)
+    cmd.add_argument("--controller-project", required=True)
+    cmd.add_argument("--root-control-socket", required=True)
+    cmd.add_argument("--lifecycle-consumer-account", required=True)
+    cmd.add_argument("--generation", required=True)
+    cmd.add_argument("--software-result", type=Path, required=True)
+    cmd.add_argument("--host-bindings-policy", type=Path, required=True)
+    cmd.add_argument("--image-build-source", type=Path, required=True)
+    cmd.add_argument("--certify-manage-source", type=Path, required=True)
+    cmd = sub.add_parser("certify-manage-prepared-attest", help="attest actual prepared issuer grant and certificate-data storage")
+    cmd.add_argument("--controller-project", required=True)
+    cmd.add_argument("--root-control-socket", required=True)
+    cmd.add_argument("--software-view", required=True)
+    cmd = sub.add_parser("certify-manage-controller-attest-installed", help="attest installed box-control/root-control issuer controller bytes")
+    cmd.add_argument("--python-executable", default="/usr/bin/python3")
     cmd = sub.add_parser("certificate-status", help="evaluate detached secret-free certificate enablement evidence")
     cmd.add_argument("evidence", type=Path)
     cmd = sub.add_parser(
@@ -112,7 +129,29 @@ def main(argv=None):
     cmd.add_argument("--record", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
-        if args.command == "host-welcome-image-progress-attest-installed":
+        if args.command == "certify-manage-controller-attest-installed":
+            result = certify_manage_profile.attest_installed_controller(
+                python_executable=args.python_executable,
+            )
+        elif args.command == "certify-manage-prepared-attest":
+            result = certify_manage_profile.attest_prepared(
+                controller_project=args.controller_project,
+                root_control_socket=args.root_control_socket,
+                expected_software_view=args.software_view,
+            )
+        elif args.command == "certify-manage-native-stage":
+            result = certify_manage_profile.stage_live(
+                output=args.output,
+                controller_project=args.controller_project,
+                root_control_socket=args.root_control_socket,
+                lifecycle_consumer_account=args.lifecycle_consumer_account,
+                generation=args.generation,
+                software_result=args.software_result,
+                host_bindings_policy=args.host_bindings_policy,
+                image_build_source=args.image_build_source,
+                certify_manage_source=args.certify_manage_source,
+            )
+        elif args.command == "host-welcome-image-progress-attest-installed":
             result = image_progress_profile.verify_installed(
                 python_executable=args.python_executable,
             )
