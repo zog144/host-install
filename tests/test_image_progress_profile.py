@@ -291,7 +291,7 @@ def test_changed_reviewed_source_is_rejected(tmp_path):
         shutil.copy2(IMAGE_BUILD_SOURCE / relative, target)
     broker = source / "src/zog/image_build/post_install_progress_broker.py"
     broker.write_bytes(broker.read_bytes() + b"\n# changed\n")
-    with pytest.raises(StateError, match="differs from reviewed revision"):
+    with pytest.raises(StateError, match="differ from reviewed revision"):
         profile.verify_reviewed_source(source)
 
 
