@@ -28,9 +28,16 @@ RESPONSE_LIMIT = 32768
 FRESH_SECONDS = 15
 STATUSES = {"verified", "pending", "unknown", "degraded", "failed"}
 _INVALID_STATE_CODES = {
-    "account-mismatch", "account-profile", "configuration-owner", "hardlink",
-    "inspection-data-invalid", "marker-mismatch", "nested-mount", "ownership-mode",
-    "record-binding", "record-fields", "state-path", "unsupported-feature",
+    # Protected bytes/records were readable enough to classify but are malformed,
+    # internally inconsistent, or violate the fixed STATE trust contract.
+    "account-mismatch", "account-profile", "boot-provenance", "ca-digest",
+    "ca-path", "configuration-owner", "control-authority", "duplicate-field",
+    "generation", "hardlink", "host-root-device", "identity-binding", "initialization-policy",
+    "inspection-data-invalid", "installation-mode", "invalid-digest",
+    "invalid-integer", "invalid-json", "invalid-number", "invalid-uuid",
+    "marker-mismatch", "nested-mount", "ownership-mode", "record-binding",
+    "record-fields", "record-size", "registry", "security-claim", "slot",
+    "slot-binding", "state-path", "state-schema", "unsupported-feature",
     "unsupported-schema", "unsafe-path", "wrong-mount", "wrong-volume",
 }
 _IDENTITY_PENDING_CODES = {

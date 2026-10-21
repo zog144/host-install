@@ -7,6 +7,7 @@ from unittest.mock import patch
 import pytest
 
 from zog.host_install.state_contract import StateError
+from zog.host_install import state_contract
 from zog.host_install import welcome_readiness as welcome
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -97,8 +98,55 @@ def test_verified_snapshot_is_sanitized_and_headless_complete():
         ("required-path-missing", "unknown", "state-unavailable"),
         ("record-fields", "failed", "state-invalid"),
         ("marker-mismatch", "failed", "state-invalid"),
+        ("invalid-json", "failed", "state-invalid"),
+        ("duplicate-field", "failed", "state-invalid"),
+        ("invalid-number", "failed", "state-invalid"),
+        ("record-size", "failed", "state-invalid"),
+        ("host-root-device", "failed", "state-invalid"),
     ],
 )
+def test_reviewed_invalid_state_code_taxonomy_is_closed():
+    assert welcome._INVALID_STATE_CODES == {
+        "account-mismatch",
+        "account-profile",
+        "boot-provenance",
+        "ca-digest",
+        "ca-path",
+        "configuration-owner",
+        "control-authority",
+        "duplicate-field",
+        "generation",
+        "hardlink",
+        "host-root-device",
+        "identity-binding",
+        "initialization-policy",
+        "inspection-data-invalid",
+        "installation-mode",
+        "invalid-digest",
+        "invalid-integer",
+        "invalid-json",
+        "invalid-number",
+        "invalid-uuid",
+        "marker-mismatch",
+        "nested-mount",
+        "ownership-mode",
+        "record-binding",
+        "record-fields",
+        "record-size",
+        "registry",
+        "security-claim",
+        "slot",
+        "slot-binding",
+        "state-path",
+        "state-schema",
+        "unsupported-feature",
+        "unsupported-schema",
+        "unsafe-path",
+        "wrong-mount",
+        "wrong-volume",
+    }
+
+
 def test_early_or_corrupt_state_fails_closed_without_green_status(code, status, message):
     now = datetime(2026, 10, 16, 17, 0, tzinfo=timezone.utc)
     with patch.object(welcome.os, "geteuid", return_value=0),          patch.object(welcome, "boot_id", return_value="11111111-1111-4111-8111-111111111111"),          patch.object(welcome, "inspect_live", side_effect=StateError(code, "synthetic")):
@@ -108,6 +156,105 @@ def test_early_or_corrupt_state_fails_closed_without_green_status(code, status, 
     }
     assert value["headless_installation"]["status"] != "verified"
     assert value["host_identity"]["status"] == "unknown"
+
+
+def _snapshot_from_protected_bytes(raw, *, validate=None):
+    def inspect():
+        value = state_contract.decode(raw)
+        if validate is not None:
+            validate(value)
+        raise AssertionError("fixture must fail before STATE inspection completes")
+
+    now = datetime(2026, 10, 16, 17, 0, tzinfo=timezone.utc)
+    with patch.object(welcome.os, "geteuid", return_value=0), \
+         patch.object(
+             welcome,
+             "boot_id",
+             return_value="11111111-1111-4111-8111-111111111111",
+         ), \
+         patch.object(welcome, "inspect_live", side_effect=inspect):
+        return welcome.snapshot_live(now=now)
+
+
+@pytest.mark.parametrize(
+    "raw,validate",
+    [
+        (b"{malformed", None),
+        (b'{"schema":1,"schema":1}', None),
+        (b"\xff", None),
+        (b"NaN", None),
+        (b"1.5", None),
+        (b"x" * 65537, None),
+        (
+            b"{}",
+            lambda value: state_contract.fields(
+                value, "schema kind profile installation_id"
+            ),
+        ),
+    ],
+)
+def test_real_decoder_failures_are_sanitized_as_invalid_state(raw, validate):
+    value = _snapshot_from_protected_bytes(raw, validate=validate)
+    assert value["state_integrity"] == {
+        "status": "failed",
+        "message_code": "state-invalid",
+        "evidence_ref": None,
+    }
+    assert value["installation"] == {
+        "status": "unknown",
+        "message_code": "installation-unavailable",
+        "evidence_ref": None,
+    }
+    assert value["host_identity"]["status"] == "unknown"
+    assert value["headless_installation"]["status"] == "failed"
+
+    encoded = json.dumps(value, sort_keys=True)
+    assert "malformed" not in encoded
+    assert "schema" not in value["state_integrity"]
+    assert "duplicate-field" not in encoded
+    assert "invalid-json" not in encoded
+    assert "invalid-number" not in encoded
+    assert "record-size" not in encoded
+    assert "record-fields" not in encoded
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        "state-not-mounted",
+        "required-path-missing",
+        "state-access-denied",
+        "state-io-failure",
+        "state-inspection-io",
+        "topology-unavailable",
+        "volume-ambiguous-or-missing",
+        "host-root-ambiguous",
+        "record-changed",
+        "mount-changed",
+        "state-read-only",
+    ],
+)
+def test_absent_or_unsafe_to_read_state_remains_unknown(code):
+    now = datetime(2026, 10, 16, 17, 0, tzinfo=timezone.utc)
+    with patch.object(welcome.os, "geteuid", return_value=0), \
+         patch.object(
+             welcome,
+             "boot_id",
+             return_value="11111111-1111-4111-8111-111111111111",
+         ), \
+         patch.object(
+             welcome,
+             "inspect_live",
+             side_effect=StateError(code, "sensitive diagnostic"),
+         ):
+        value = welcome.snapshot_live(now=now)
+    assert value["state_integrity"] == {
+        "status": "unknown",
+        "message_code": "state-unavailable",
+        "evidence_ref": None,
+    }
+    assert "sensitive diagnostic" not in json.dumps(value, sort_keys=True)
+    assert value["headless_installation"]["status"] != "verified"
 
 
 def test_incomplete_identity_is_pending_not_installation_success():

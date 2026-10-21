@@ -238,3 +238,33 @@ returned matrix always leaves host-deploy's root-observation to
 `policy_sha256` owner binding NOT RUN; native Gate B/HTTPS Gate C therefore
 remain blocked until host-deploy Regular and Work complete their separate
 contracts.
+
+
+## Malformed protected STATE classification — 0.13.1
+
+The welcome readiness producer now uses a reviewed closed allowlist for
+**readable-but-invalid/untrusted protected STATE** failures. Decoder failures
+(`invalid-json`, `duplicate-field`, `invalid-number`, `record-size`) and
+closed-contract structural/binding violations sanitize to:
+
+```json
+{"status":"failed","message_code":"state-invalid","evidence_ref":null}
+```
+
+The sanitized projection never exposes the raw corrupt bytes, decoder exception,
+path, or internal StateError code.
+
+Unavailable/unsafe-to-complete observations remain distinct and sanitize to
+`unknown/state-unavailable`: missing/not-mounted STATE, access denial, I/O or
+topology unavailability, a record changing while read, mount replacement/race,
+and read-only transition are not promoted to corruption merely because
+inspection could not complete.
+
+Regression coverage exercises the actual `state_contract.decode()` path through
+`welcome_readiness.snapshot_live()` for malformed JSON, duplicate keys,
+invalid UTF-8, forbidden JSON constants/floats, oversized input, and valid JSON
+with invalid structure. Nonce, current-boot/freshness validation, peer UID and
+the read-only capability projection are unchanged.
+
+Native Gate A still requires disposable-host re-test through the packaged
+systemd AF_UNIX socket before issue #3 can close.
