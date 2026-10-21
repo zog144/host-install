@@ -91,20 +91,6 @@ def test_verified_snapshot_is_sanitized_and_headless_complete():
     assert context.checks == 1
 
 
-@pytest.mark.parametrize(
-    "code,status,message",
-    [
-        ("state-not-mounted", "unknown", "state-unavailable"),
-        ("required-path-missing", "unknown", "state-unavailable"),
-        ("record-fields", "failed", "state-invalid"),
-        ("marker-mismatch", "failed", "state-invalid"),
-        ("invalid-json", "failed", "state-invalid"),
-        ("duplicate-field", "failed", "state-invalid"),
-        ("invalid-number", "failed", "state-invalid"),
-        ("record-size", "failed", "state-invalid"),
-        ("host-root-device", "failed", "state-invalid"),
-    ],
-)
 def test_reviewed_invalid_state_code_taxonomy_is_closed():
     assert welcome._INVALID_STATE_CODES == {
         "account-mismatch",
@@ -147,6 +133,20 @@ def test_reviewed_invalid_state_code_taxonomy_is_closed():
     }
 
 
+@pytest.mark.parametrize(
+    "code,status,message",
+    [
+        ("state-not-mounted", "unknown", "state-unavailable"),
+        ("required-path-missing", "unknown", "state-unavailable"),
+        ("record-fields", "failed", "state-invalid"),
+        ("marker-mismatch", "failed", "state-invalid"),
+        ("invalid-json", "failed", "state-invalid"),
+        ("duplicate-field", "failed", "state-invalid"),
+        ("invalid-number", "failed", "state-invalid"),
+        ("record-size", "failed", "state-invalid"),
+        ("host-root-device", "failed", "state-invalid"),
+    ],
+)
 def test_early_or_corrupt_state_fails_closed_without_green_status(code, status, message):
     now = datetime(2026, 10, 16, 17, 0, tzinfo=timezone.utc)
     with patch.object(welcome.os, "geteuid", return_value=0),          patch.object(welcome, "boot_id", return_value="11111111-1111-4111-8111-111111111111"),          patch.object(welcome, "inspect_live", side_effect=StateError(code, "synthetic")):
