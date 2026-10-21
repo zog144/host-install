@@ -2,7 +2,7 @@
   "schema": 2,
   "program": "host-install",
   "python_package": "zog.host_install",
-  "version": "0.13.2",
+  "version": "0.13.3",
   "scripts": {
     "host-install": "zog.host_install.cli:main"
   },

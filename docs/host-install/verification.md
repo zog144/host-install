@@ -296,3 +296,23 @@ prove that host-welcome validates the broker reply's kernel `SCM_CREDENTIALS`
 against the protected producer UID, rejects a wrong sender UID, survives
 authorized client disconnect without broker restart, serves a subsequent client
 from the same process, and retains read-only state/offline getty behavior.
+
+
+## Image-progress consumer provenance correction — 0.13.3
+
+The reviewed native progress pass used host-welcome
+`1bb771b00be9f5e1a52e5419af9f78662c7913e8`, which contains the
+SCM_CREDENTIALS response-authentication and rejection paths. host-install 0.13.2
+still wrote the older consumer revision into `profile.json` despite staging the
+correct image-build runtime/deployment pair.
+
+0.13.3 changes only that manifest provenance pin and adds a regression requiring
+the staged `host_welcome_consumer_commit` to equal the exact reviewed consumer
+revision. The policy, runtime source `7348ec73…`, deployment reference
+`10d5c89f…`, service/socket templates, live UID resolution and production
+NO-GO remain unchanged.
+
+Native Work should rerun the corrected consistent bundle and retain the remaining
+malformed/duplicate/truncated ancillary and malformed/oversized frame results
+without weakening the already-passed installed-byte, wrong-UID, disconnect,
+reboot or getty gates.

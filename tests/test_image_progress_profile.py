@@ -46,6 +46,9 @@ def test_reviewed_deployment_reference_and_runtime_inventory_are_exact():
         "7348ec730a3181f1a8ecc62a6e4d633ce191674a"
     )
     assert profile.IMAGE_BUILD_REPOSITORY == "zog144/image-build"
+    assert profile.HOST_WELCOME_CONSUMER_COMMIT == (
+        "1bb771b00be9f5e1a52e5419af9f78662c7913e8"
+    )
     assert len(observed["runtime_modules"]) == 13
     assert set(observed["runtime_modules"]) == set(profile.IMAGE_BUILD_MODULE_BLOBS)
     assert profile.TRANSPORT_AUTH == (
@@ -119,6 +122,12 @@ def test_stage_matches_exact_producer_policy_and_unit_reference(tmp_path, monkey
     )
     assert manifest["image_build_deployment_reference_commit"] == (
         profile.IMAGE_BUILD_DEPLOYMENT_COMMIT
+    )
+    assert manifest["host_welcome_consumer_commit"] == (
+        "1bb771b00be9f5e1a52e5419af9f78662c7913e8"
+    )
+    assert manifest["host_welcome_consumer_commit"] == (
+        profile.HOST_WELCOME_CONSUMER_COMMIT
     )
 
 

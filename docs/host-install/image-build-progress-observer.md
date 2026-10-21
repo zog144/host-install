@@ -1,8 +1,9 @@
 # Dedicated host-welcome image-build progress observer
 
-**Status:** host-install 0.11.0 source/deployment implementation aligned to
-image-build native-deployment contract v1. Production activation remains
-**NO-GO** until disposable-host Work acceptance.
+**Status:** host-install 0.13.3 source/deployment implementation aligned to
+image-build native-deployment contract v2. Native transport/lifecycle evidence
+exists, but production activation remains **NO-GO** until the consistent bundle
+rerun and remaining malformed-response cases are dispositioned.
 
 ## Exact producer contracts
 
@@ -14,12 +15,12 @@ Producer-owned deployment reference:
 - deployment module:
   `zog.image_build.post_install_progress_deployment`
 - deployment module Git blob:
-  `bd0d13be67bcebc380001fb64b646f6e04400640`
+  `0ed5e383f0aeaa49761a82cfc94b7cc3148075da`
 - contract: `image-build-post-install-progress-native-deployment-v2`
 - socket template blob:
   `8e7e7bbd6af41572441f33e8db178f6588e117d6`
 - service template blob:
-  `8c9b548d0e47b1f5a82fe511d2db81c4865dfab3`
+  `111d878e873a0c393153cedb148c2003b227cbc7`
 
 The authenticated runtime projection/source binding intentionally remains:
 
@@ -35,7 +36,7 @@ policy therefore continues to name `7348ec73...`; the root-owned staging
 manifest separately records `10d5c89f...` as the deployment reference.
 
 Reviewed host-welcome consumer:
-`6edb11140a44a10061e5308fab03a43d9008dbfc`.
+`1bb771b00be9f5e1a52e5419af9f78662c7913e8`.
 
 ## Fixed v1 role
 
@@ -233,3 +234,18 @@ thirteen modules. A successful source/installed-byte gate does not authorize
 production. Native Work must still prove response `SCM_CREDENTIALS`, wrong
 sender rejection, disconnect containment with the same broker process,
 socket stop/start and reboot, read-only state, and offline getty fallback.
+
+
+## 0.13.3 consumer provenance correction
+
+The staged profile manifest now identifies the exact reviewed host-welcome
+SCM_CREDENTIALS consumer as
+`1bb771b00be9f5e1a52e5419af9f78662c7913e8`.
+
+This field is provenance metadata only. It does not change the consumer-visible
+policy schema, numeric consumer/producer UID authority, image-build runtime pin,
+deployment reference, unit templates, transport authentication, socket DAC,
+or production activation state.
+
+Regression coverage requires the generated `profile.json` field
+`host_welcome_consumer_commit` to equal the reviewed consumer revision exactly.

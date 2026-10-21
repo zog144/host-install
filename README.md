@@ -1,6 +1,6 @@
 # host-install
 
-Version 0.13.2 adopts the corrected image-build post-install progress runtime `7348ec730a3181f1a8ecc62a6e4d633ce191674a` and deployment reference `10d5c89f9ad865f3f58094ba2b5a629c211d918d`. The staged role remains systemd socket-activated with distinct live consumer/producer UIDs and read-only state; installed-byte attestation now pins the corrected broker blob and records Linux `SCM_CREDENTIALS` transport. Production activation remains unauthorized pending native Work rerun.
+Version 0.13.3 corrects the image-progress staging manifest to identify the reviewed host-welcome SCM_CREDENTIALS consumer `1bb771b00be9f5e1a52e5419af9f78662c7913e8`. The image-build runtime `7348ec73…`, deployment reference `10d5c89f…`, Linux-credentials transport, distinct live identities, read-only state model, and production NO-GO remain unchanged.
 
 Version 0.11.0 adds the [dedicated host-welcome image-build progress observer](docs/host-install/image-build-progress-observer.md), aligned to producer deployment contract `image-build-post-install-progress-native-deployment-v1` at `b5cf3d761087c157b71724986bc94503089932a2` while preserving runtime/source binding `fcc12f3db959afe395b1adfb5b0b4dc1f16a3258`. It resolves real host identities, stages the exact producer-owned unit pair and five-application v1 allowlist, verifies the 13 security-critical runtime modules plus aggregate wheel `RECORD`, and remains disabled pending disposable-host DAC/`SO_PEERCRED`/SELinux/reboot/getty acceptance.
 
