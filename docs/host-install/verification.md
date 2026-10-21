@@ -268,3 +268,31 @@ the read-only capability projection are unchanged.
 
 Native Gate A still requires disposable-host re-test through the packaged
 systemd AF_UNIX socket before issue #3 can close.
+
+
+## Image-build progress observer transport correction — 0.13.2
+
+The image-progress deployment profile now pins runtime
+`image-build@7348ec730a3181f1a8ecc62a6e4d633ce191674a` and deployment reference
+`10d5c89f9ad865f3f58094ba2b5a629c211d918d`.
+
+The exact producer-owned deployment contract is
+`image-build-post-install-progress-native-deployment-v2` with transport
+`image-build-post-install-progress-linux-credentials-v1`. The socket
+template remains unchanged; the service template now fixes the corrected runtime
+revision. Of the thirteen attested image-build runtime modules, only the broker
+blob changes to `e7ba6eab10e70e91fc5921bba1eec26f31ace1db`; all twelve supporting
+module pins remain the previously reviewed identities.
+
+Source regression verifies the exact deployment module, socket/service templates,
+thirteen-module inventory, rendered policy/unit source revision, and installed
+aggregate attestation including the corrected broker Git blob plus wheel
+`RECORD` hash. The manifest and installed attestation explicitly report the
+Linux credential transport.
+
+Native acceptance remains required. Under systemd socket activation listener
+`SO_PEERCRED` may report PID 1/root and is not producer identity. Work must
+prove that host-welcome validates the broker reply's kernel `SCM_CREDENTIALS`
+against the protected producer UID, rejects a wrong sender UID, survives
+authorized client disconnect without broker restart, serves a subsequent client
+from the same process, and retains read-only state/offline getty behavior.

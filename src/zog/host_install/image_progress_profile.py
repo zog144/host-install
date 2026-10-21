@@ -28,7 +28,8 @@ from .welcome_readiness import welcome_account
 
 
 PROFILE_KIND = "zog-host-welcome-image-progress-observer-profile-v1"
-DEPLOYMENT_CONTRACT = "image-build-post-install-progress-native-deployment-v1"
+DEPLOYMENT_CONTRACT = "image-build-post-install-progress-native-deployment-v2"
+TRANSPORT_AUTH = "image-build-post-install-progress-linux-credentials-v1"
 POLICY_SCHEMA = "zog-host-welcome-image-progress-observer-v1"
 POLICY_PATH = "/etc/zog/host-welcome-image-progress-observer.json"
 SOCKET_PATH = "/run/host-welcome/image-progress.sock"
@@ -36,11 +37,11 @@ UNIT_SOCKET = "zog-host-welcome-image-progress.socket"
 UNIT_SERVICE = "zog-host-welcome-image-progress.service"
 
 IMAGE_BUILD_REPOSITORY = "zog144/image-build"
-IMAGE_BUILD_COMMIT = "fcc12f3db959afe395b1adfb5b0b4dc1f16a3258"
-IMAGE_BUILD_DEPLOYMENT_COMMIT = "b5cf3d761087c157b71724986bc94503089932a2"
-IMAGE_BUILD_DEPLOYMENT_MODULE_BLOB = "bd0d13be67bcebc380001fb64b646f6e04400640"
+IMAGE_BUILD_COMMIT = "7348ec730a3181f1a8ecc62a6e4d633ce191674a"
+IMAGE_BUILD_DEPLOYMENT_COMMIT = "10d5c89f9ad865f3f58094ba2b5a629c211d918d"
+IMAGE_BUILD_DEPLOYMENT_MODULE_BLOB = "0ed5e383f0aeaa49761a82cfc94b7cc3148075da"
 IMAGE_BUILD_SOCKET_TEMPLATE_BLOB = "8e7e7bbd6af41572441f33e8db178f6588e117d6"
-IMAGE_BUILD_SERVICE_TEMPLATE_BLOB = "8c9b548d0e47b1f5a82fe511d2db81c4865dfab3"
+IMAGE_BUILD_SERVICE_TEMPLATE_BLOB = "111d878e873a0c393153cedb148c2003b227cbc7"
 HOST_WELCOME_CONSUMER_COMMIT = "6edb11140a44a10061e5308fab03a43d9008dbfc"
 
 GRAPHICAL_APPLICATIONS = (
@@ -53,7 +54,7 @@ GRAPHICAL_APPLICATIONS = (
 
 IMAGE_BUILD_MODULE_BLOBS = {
     "zog.image_build.post_install_progress_broker":
-        "fc50a6f86b5e1ddc088dc5b33e443a516a0c9189",
+        "e7ba6eab10e70e91fc5921bba1eec26f31ace1db",
     "zog.image_build.post_install_progress":
         "5c4e03e1f496b704935caabebfa7eca63188f89e",
     "zog.image_build.application_software":
@@ -416,6 +417,7 @@ def verify_installed(*, python_executable="/usr/bin/python3"):
         "schema": "zog-host-welcome-image-progress-installed-attestation-v1",
         "status": "image-build-observer-installed-software-verified",
         "deployment_contract": DEPLOYMENT_CONTRACT,
+        "transport_auth": TRANSPORT_AUTH,
         "image_build_source_repository": IMAGE_BUILD_REPOSITORY,
         "image_build_source_commit": IMAGE_BUILD_COMMIT,
         "image_build_deployment_reference_commit": IMAGE_BUILD_DEPLOYMENT_COMMIT,
@@ -514,6 +516,7 @@ def stage(*, output, image_build_state_root, consumer_uid, producer_uid,
         "schema": 1,
         "kind": PROFILE_KIND,
         "deployment_contract": DEPLOYMENT_CONTRACT,
+        "transport_auth": TRANSPORT_AUTH,
         "runtime_model": "host-rootfs-bootstrap-consumer",
         "consumer_uid": consumer_uid,
         "producer_uid": producer_uid,

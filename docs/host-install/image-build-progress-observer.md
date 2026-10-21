@@ -10,12 +10,12 @@ Producer-owned deployment reference:
 
 - repository: `zog144/image-build`
 - deployment-reference revision:
-  `b5cf3d761087c157b71724986bc94503089932a2`
+  `10d5c89f9ad865f3f58094ba2b5a629c211d918d`
 - deployment module:
   `zog.image_build.post_install_progress_deployment`
 - deployment module Git blob:
   `bd0d13be67bcebc380001fb64b646f6e04400640`
-- contract: `image-build-post-install-progress-native-deployment-v1`
+- contract: `image-build-post-install-progress-native-deployment-v2`
 - socket template blob:
   `8e7e7bbd6af41572441f33e8db178f6588e117d6`
 - service template blob:
@@ -24,15 +24,15 @@ Producer-owned deployment reference:
 The authenticated runtime projection/source binding intentionally remains:
 
 - source revision:
-  `fcc12f3db959afe395b1adfb5b0b4dc1f16a3258`
+  `7348ec730a3181f1a8ecc62a6e4d633ce191674a`
 - projection: `image-build-post-install-progress-v2`
 - wire: `image-build-post-install-progress-rpc-v2`
 - source binding: `image-build-post-install-source-v1`
 
 The 13 security-critical snapshot modules are byte-identical between the
 runtime revision and the later deployment-reference revision. The consumer
-policy therefore continues to name `fcc12f3...`; the root-owned staging
-manifest separately records `b5cf3d...` as the deployment reference.
+policy therefore continues to name `7348ec73...`; the root-owned staging
+manifest separately records `10d5c89f...` as the deployment reference.
 
 Reviewed host-welcome consumer:
 `6edb11140a44a10061e5308fab03a43d9008dbfc`.
@@ -50,7 +50,7 @@ with schema `zog-host-welcome-image-progress-observer-v1` and only:
 - independently resolved numeric `consumer_uid`;
 - independently resolved, distinct numeric `producer_uid`;
 - `socket=/run/host-welcome/image-progress.sock`;
-- `image_build_source_commit=fcc12f3db959afe395b1adfb5b0b4dc1f16a3258`.
+- `image_build_source_commit=7348ec730a3181f1a8ecc62a6e4d633ce191674a`.
 
 The first-wave immutable allowlist is exactly:
 
@@ -83,7 +83,7 @@ No UI-supplied identity is accepted.
 ## Exact producer-owned unit pair
 
 Host-install packages the producer templates byte-for-byte and verifies them
-against the pinned `b5cf3d...` checkout before staging.
+against the pinned `10d5c89f...` checkout before staging.
 
 The socket is:
 
@@ -109,7 +109,7 @@ python -m zog.image_build.post_install_progress_broker
   --application i3
   --application xorg-server
   --source-repository zog144/image-build
-  --source-revision fcc12f3db959afe395b1adfb5b0b4dc1f16a3258
+  --source-revision 7348ec730a3181f1a8ecc62a6e4d633ce191674a
 ```
 
 The reference service clears inherited `PYTHONPATH`, restricts networking to
@@ -125,10 +125,12 @@ read-only `snapshot` operation.
 
 Before rendering the overlay, host-install verifies:
 
-- the exact deployment module blob at `b5cf3d...`;
+- the exact deployment module blob at `10d5c89f...`;
 - the exact producer socket and service template blobs;
 - the producer-defined 13 security-critical runtime module Git blobs associated
-  with `fcc12f3...`.
+  with `7348ec73...`.
+
+The deployment contract also records transport `image-build-post-install-progress-linux-credentials-v1`. Under systemd socket activation the listener `SO_PEERCRED` may identify PID 1/root; consumer authentication of the producer therefore requires the broker's explicit reply `SCM_CREDENTIALS`, matched to the protected policy producer UID. The broker authenticates the client with accepted-connection `SO_PEERCRED` before request parsing.
 
 The 13 modules are the broker, projection, application software/view readers,
 build views, errors, filesystem, metadata, engine, rootfs compatibility,
@@ -174,14 +176,14 @@ cancel, publish, install or start services.
 host-install host-welcome-image-progress-stage \
   --output /path/to/new-overlay \
   --image-build-state-root /fixed/image-build/state/root \
-  --image-build-source /path/to/image-build@b5cf3d761087c157b71724986bc94503089932a2 \
+  --image-build-source /path/to/image-build@10d5c89f9ad865f3f58094ba2b5a629c211d918d \
   --python-executable /usr/bin/python3
 ```
 
 `--image-build-source` names the deployment-reference checkout. host-install
 uses it to validate the later deployment contract/templates and the 13
 byte-identical runtime modules. The consumer-visible policy still pins
-`fcc12f3...`.
+`7348ec73...`.
 
 Staging writes only a new root-owned overlay. It never calls systemctl, enables
 the socket, mutates image-build state or grants graphical readiness.
@@ -207,3 +209,27 @@ Disposable-host acceptance must still return:
 - disposal/cleanup evidence.
 
 Passing source CI is not production activation authorization.
+
+
+## 0.13.2 correction
+
+The reviewed runtime source is now
+`7348ec730a3181f1a8ecc62a6e4d633ce191674a`; the root-controlled deployment
+reference is
+`10d5c89f9ad865f3f58094ba2b5a629c211d918d`. Of the thirteen installed
+runtime modules, only `zog.image_build.post_install_progress_broker` changed:
+its reviewed Git blob is
+`e7ba6eab10e70e91fc5921bba1eec26f31ace1db`. The other twelve module pins
+remain unchanged.
+
+The socket template remains blob
+`8e7e7bbd6af41572441f33e8db178f6588e117d6`; the service template is now
+`111d878e873a0c393153cedb148c2003b227cbc7`, and the deployment module is
+`0ed5e383f0aeaa49761a82cfc94b7cc3148075da`.
+
+Installed-software attestation continues to require the protected aggregate
+`zog` wheel, exact Git-blob identity and wheel `RECORD` SHA-256 for all
+thirteen modules. A successful source/installed-byte gate does not authorize
+production. Native Work must still prove response `SCM_CREDENTIALS`, wrong
+sender rejection, disconnect containment with the same broker process,
+socket stop/start and reboot, read-only state, and offline getty fallback.

@@ -40,14 +40,20 @@ def stage(tmp_path, monkeypatch, **overrides):
 def test_reviewed_deployment_reference_and_runtime_inventory_are_exact():
     observed = profile.verify_reviewed_source(IMAGE_BUILD_SOURCE)
     assert profile.IMAGE_BUILD_DEPLOYMENT_COMMIT == (
-        "b5cf3d761087c157b71724986bc94503089932a2"
+        "10d5c89f9ad865f3f58094ba2b5a629c211d918d"
     )
     assert profile.IMAGE_BUILD_COMMIT == (
-        "fcc12f3db959afe395b1adfb5b0b4dc1f16a3258"
+        "7348ec730a3181f1a8ecc62a6e4d633ce191674a"
     )
     assert profile.IMAGE_BUILD_REPOSITORY == "zog144/image-build"
     assert len(observed["runtime_modules"]) == 13
     assert set(observed["runtime_modules"]) == set(profile.IMAGE_BUILD_MODULE_BLOBS)
+    assert profile.TRANSPORT_AUTH == (
+        "image-build-post-install-progress-linux-credentials-v1"
+    )
+    assert profile.IMAGE_BUILD_MODULE_BLOBS[
+        "zog.image_build.post_install_progress_broker"
+    ] == "e7ba6eab10e70e91fc5921bba1eec26f31ace1db"
     assert observed["deployment_reference"][
         "src/zog/image_build/post_install_progress_deployment.py"
     ]["git_blob"] == profile.IMAGE_BUILD_DEPLOYMENT_MODULE_BLOB
@@ -106,7 +112,10 @@ def test_stage_matches_exact_producer_policy_and_unit_reference(tmp_path, monkey
     assert "application-progress.sock" not in service
 
     assert manifest["deployment_contract"] == (
-        "image-build-post-install-progress-native-deployment-v1"
+        "image-build-post-install-progress-native-deployment-v2"
+    )
+    assert manifest["transport_auth"] == (
+        "image-build-post-install-progress-linux-credentials-v1"
     )
     assert manifest["image_build_deployment_reference_commit"] == (
         profile.IMAGE_BUILD_DEPLOYMENT_COMMIT
@@ -382,6 +391,12 @@ def test_installed_attestation_checks_all_13_modules_and_wheel_record(
     result = profile.verify_installed(python_executable="/usr/bin/python3")
     assert result["status"] == "image-build-observer-installed-software-verified"
     assert result["image_build_source_commit"] == profile.IMAGE_BUILD_COMMIT
+    assert result["transport_auth"] == (
+        "image-build-post-install-progress-linux-credentials-v1"
+    )
+    assert result["modules"]["zog.image_build.post_install_progress_broker"][
+        "git_blob"
+    ] == "e7ba6eab10e70e91fc5921bba1eec26f31ace1db"
     assert result["image_build_deployment_reference_commit"] == (
         profile.IMAGE_BUILD_DEPLOYMENT_COMMIT
     )
