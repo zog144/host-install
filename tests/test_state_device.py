@@ -229,7 +229,8 @@ class PlanTests(unittest.TestCase):
         value = build_plan(
             BUNDLE, pristine, [], 'wwn:nvme.1d0f-state',
             'aws-ebs:vol-0123456789abcdef0')
-        observed, resolved, resolved_part = state_device._device_state(value, snap)
+        with patch('zog.host_install.state_device.signatures', return_value=[]):
+            observed, resolved, resolved_part = state_device._device_state(value, snap)
         self.assertEqual(observed, 'partitioned')
         self.assertEqual(resolved['path'], '/dev/state-disk')
         self.assertEqual(resolved_part['path'], '/dev/state-part')
