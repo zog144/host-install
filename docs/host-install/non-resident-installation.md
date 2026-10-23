@@ -124,7 +124,7 @@ dedicated STATE disk:
 python3 -m zog.host_install state-device-plan \
   examples/non-resident-state-v1/bundle.json \
   --identity serial:EXPECTED_STABLE_VOLUME_IDENTITY \
-  --volume-reference EXPECTED_PROVIDER_VOLUME
+  --volume-reference aws-ebs:vol-EXPECTEDHEX
 
 sudo python3 -m zog.host_install state-device-apply \
   examples/non-resident-state-v1/bundle.json saved-plan.json \
@@ -133,7 +133,9 @@ sudo python3 -m zog.host_install state-device-apply \
 ```
 
 Planning is read-only. It binds the operator-selected provider volume reference
-to a unique currently observed stable disk identity, reuses the physical-target
+to a unique currently observed stable disk identity. For EC2, `aws-ebs:vol-...`
+must match the EBS NVMe `SERIAL` identity (`serial:vol...`); other providers use
+`identity:<exact-stable-identity>`. It reuses the physical-target
 root/mount/holder/swap checks, and additionally requires a partitionless target
 with no filesystem/partition-table metadata or `wipefs` signatures. The mutable
 `/dev` path is observation only and is rediscovered from the stable identity
