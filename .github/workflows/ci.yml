@@ -114,7 +114,7 @@ jobs:
       - name: Confirm CLI and namespace
         run: |
           host-install --help >/dev/null
-          python -c 'import zog.host_install as h; assert h.__version__ == "0.14.0"'
+          python -c 'import zog.host_install as h; assert h.__version__ == "0.14.1"'
           test ! -e src/zog/__init__.py
 
   host-discover-compatibility:
