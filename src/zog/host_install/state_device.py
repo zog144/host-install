@@ -18,7 +18,7 @@ from . import InstallError
 from .preflight import assess as assess_target, collect as collect_base
 from .state_contract import (ACCOUNTS, CONFIG, canonical, decode, digest,
                              installation_mode, require, validate)
-from .state_inspect import accounts_match, assess_mount, mounts, topology
+from .state_inspect import accounts_match, assess_mount, directory, mounts, topology
 from .state_io import ensure_directory, publish
 from .state_provision import prepare_live
 
@@ -272,6 +272,8 @@ def validate_plan(plan, bundle):
 def _device_state(plan, snapshot):
     """Return pristine/partitioned/formatted only for exact expected topology."""
     target = _by_identity(snapshot, plan['target_identity'])
+    require(target['size'] == plan['target_observation']['size'],
+            'target-changed', 'stable identity resolved to a different-sized device')
     assess_target(_base_inventory(snapshot), target['path'], plan['target_identity'],
                   MINIMUM_STATE_BYTES)
     children = _descendants(snapshot, target['path'])
@@ -304,17 +306,23 @@ def _device_state(plan, snapshot):
 def _operation_directory(path):
     require(os.geteuid() == 0, 'root-required', 'STATE device apply requires root')
     path = Path(path).absolute()
-    require(path.name not in ('', '.', '..'), 'unsafe-path', 'operation directory required')
+    require(path.name not in ('', '.', '..') and
+            str(path) != '/state' and not str(path).startswith('/state/'),
+            'unsafe-path', 'trusted non-STATE operation directory required')
+    parent = directory(str(path.parent))
     try:
-        path.mkdir(mode=0o700)
-        parent = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        st = os.fstat(parent)
+        require(st.st_uid == st.st_gid == 0 and not stat.S_IMODE(st.st_mode) & 0o022,
+                'operation-directory', 'operation parent must be root-owned and not writable by others')
         try:
+            os.mkdir(path.name, 0o700, dir_fd=parent)
             os.fsync(parent)
-        finally:
-            os.close(parent)
-    except FileExistsError:
-        pass
-    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        except FileExistsError:
+            pass
+        fd = os.open(path.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                     dir_fd=parent)
+    finally:
+        os.close(parent)
     st = os.fstat(fd)
     require((st.st_uid, st.st_gid, stat.S_IMODE(st.st_mode)) == (0, 0, 0o700),
             'operation-directory', 'operation directory must be root:root 0700')
