@@ -2,7 +2,8 @@
 import hashlib
 import os
 from pathlib import Path
-from .state_contract import CONFIG, StateError, canonical, digest, host_slots, require, validate
+from .state_contract import (CONFIG, StateError, canonical, digest, host_slots,
+                             installation_mode, require, validate)
 from .state_inspect import VerifiedState, _mount, accounts_match, directory, load_configuration, metadata
 from .state_io import ensure_directory, lock, publish, raw
 
@@ -26,18 +27,26 @@ def transition(bundle, previous):
     require(bundle['installation']['record_id'] != previous['installation']['record_id'], 'transition-conflict', 'record ID must change')
     old_install = previous['installation']
     new_install = bundle['installation']
-    selected = new_install['installer_recorded']['expected_slot']
-    if 'host_slots' in old_install['installer_recorded']:
-        require('host_slots' in new_install['installer_recorded'],
-                'transition-conflict', 'known slot provenance cannot be dropped')
-    if old_install['installer_recorded']['expected_slot'] != selected:
-        require('host_slots' in new_install['installer_recorded'],
-                'transition-conflict', 'slot switch must preserve both slot identities')
-    old_slots, new_slots = host_slots(old_install), host_slots(new_install)
-    for slot in ('HOST-A', 'HOST-B'):
-        if slot != selected:
-            require(canonical(new_slots[slot]) == canonical(old_slots[slot]),
-                    'transition-conflict', 'inactive host slot provenance changed')
+    old_mode, new_mode = installation_mode(old_install), installation_mode(new_install)
+    require(old_mode == new_mode, 'transition-conflict',
+            'installation mode changes require an explicit migration operation')
+    if new_mode == 'resident':
+        selected = new_install['installer_recorded']['expected_slot']
+        if 'host_slots' in old_install['installer_recorded']:
+            require('host_slots' in new_install['installer_recorded'],
+                    'transition-conflict', 'known slot provenance cannot be dropped')
+        if old_install['installer_recorded']['expected_slot'] != selected:
+            require('host_slots' in new_install['installer_recorded'],
+                    'transition-conflict', 'slot switch must preserve both slot identities')
+        old_slots, new_slots = host_slots(old_install), host_slots(new_install)
+        for slot in ('HOST-A', 'HOST-B'):
+            if slot != selected:
+                require(canonical(new_slots[slot]) == canonical(old_slots[slot]),
+                        'transition-conflict', 'inactive host slot provenance changed')
+    else:
+        require(canonical(new_install['installer_recorded']['host_os']) ==
+                canonical(old_install['installer_recorded']['host_os']),
+                'transition-conflict', 'external host ownership changed')
 
 
 def stage_overlay(bundle, output, previous=None, ca_bytes=None, checkpoint=lambda _: None):
