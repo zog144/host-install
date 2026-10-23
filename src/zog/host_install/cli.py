@@ -61,7 +61,7 @@ def main(argv=None):
     cmd.add_argument("bundle", type=Path)
     cmd = sub.add_parser("state-device-plan", help="inspect a fresh dedicated disk and bind a non-resident STATE device plan")
     cmd.add_argument("bundle", type=Path)
-    cmd.add_argument("--identity", required=True, help="stable observed disk identity such as serial:...")
+    cmd.add_argument("--identity", required=True, help="stable observed whole-disk alias such as serial:... or wwn:...")
     cmd.add_argument("--volume-reference", required=True, help="operator-selected cloud/provider volume reference")
     cmd = sub.add_parser("state-device-apply", help="explicitly partition, format, mount and prepare a planned fresh STATE disk")
     cmd.add_argument("bundle", type=Path)
