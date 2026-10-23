@@ -19,7 +19,7 @@ from .preflight import assess as assess_target, collect as collect_base
 from .state_contract import (ACCOUNTS, CONFIG, canonical, decode, digest,
                              installation_mode, require, validate)
 from .state_inspect import accounts_match, assess_mount, directory, mounts, topology
-from .state_io import ensure_directory, publish
+from .state_io import ensure_directory, lock, publish
 from .state_provision import prepare_live
 
 MIB = 1024 * 1024
@@ -622,75 +622,92 @@ def apply_live(bundle, plan, operation_directory, fresh_volume_id, ca_bytes=None
             'format-authorization', 'explicit fresh STATE volume ID required')
     path, fd = _operation_directory(operation_directory)
     try:
-        operation = _load_operation(fd)
-        if operation is None:
-            operation = _new_operation(plan)
-            _write_operation(fd, operation)
-        else:
-            operation = _validate_operation(operation, plan)
-
-        if operation['phase'] in ('mounted', 'configured', 'prepared'):
-            _verify_expected_mount(plan)
-        else:
-            # If activation completed but the phase record did not, recognize only
-            # the exact expected mount. A different /state remains a hard failure.
-            if operation['phase'] == 'formatted' and any(
-                    row['target'] == '/state'
-                    for row in mounts(Path('/proc/self/mountinfo').read_text())):
-                _verify_expected_mount(plan)
-                operation = _advance(fd, operation, 'mounted')
+        # The operation-directory lock serializes the complete provisioning
+        # transaction, not merely metadata publication. All authoritative device
+        # observations occur after it is held, closing the plan/apply race between
+        # an earlier read-only plan and destructive partition/format work.
+        with lock(fd, '.state-device.lock'):
+            operation = _load_operation(fd)
+            if operation is None:
+                operation = _new_operation(plan)
+                _write_operation(fd, operation)
             else:
-                snapshot = collect_inventory()
-                observed, target, part = _device_state(plan, snapshot)
-                phase_index = {'planned': 0, 'partitioned': 1, 'formatted': 2}
-                observed_index = {'pristine': 0, 'partitioned': 1, 'formatted': 2}[observed]
-                require(observed_index >= phase_index[operation['phase']],
-                        'device-state-uncertain', 'device appears rolled back')
-                if observed_index > phase_index[operation['phase']]:
-                    operation = _advance(
-                        fd, operation,
-                        'partitioned' if observed == 'partitioned' else 'formatted')
+                operation = _validate_operation(operation, plan)
 
-                if observed == 'pristine':
-                    require(operation['phase'] == 'planned', 'device-state-uncertain',
-                            'pristine disk after destructive phase')
-                    _partition(target['path'], plan['state']['partition_partuuid'])
-                    observed, target, part = _device_state(plan, collect_inventory())
-                    require(observed == 'partitioned', 'partition-verification',
-                            'expected STATE partition not observed')
-                    operation = _advance(fd, operation, 'partitioned')
-
-                if observed == 'partitioned':
-                    _format(part['path'], plan['state']['filesystem_uuid'])
-                    observed, target, part = _device_state(plan, collect_inventory())
-                    require(observed == 'formatted', 'format-verification',
-                            'expected ext4 STATE filesystem not observed')
-                    operation = _advance(fd, operation, 'formatted')
-
-                if operation['phase'] == 'formatted':
-                    _install_mount_unit(plan)
+            if operation['phase'] in ('mounted', 'configured', 'prepared'):
+                # Revalidate the already-activated device/mount while serialized.
+                _verify_expected_mount(plan)
+            else:
+                # If activation completed but the phase record did not, recognize only
+                # the exact expected mount. A different /state remains a hard failure.
+                if operation['phase'] == 'formatted' and any(
+                        row['target'] == '/state'
+                        for row in mounts(Path('/proc/self/mountinfo').read_text())):
+                    _verify_expected_mount(plan)
                     operation = _advance(fd, operation, 'mounted')
+                else:
+                    # This is the first authoritative raw-device observation for
+                    # apply and deliberately occurs only after the transaction lock.
+                    snapshot = collect_inventory()
+                    observed, target, part = _device_state(plan, snapshot)
+                    phase_index = {'planned': 0, 'partitioned': 1, 'formatted': 2}
+                    observed_index = {
+                        'pristine': 0, 'partitioned': 1, 'formatted': 2
+                    }[observed]
+                    require(observed_index >= phase_index[operation['phase']],
+                            'device-state-uncertain', 'device appears rolled back')
+                    if observed_index > phase_index[operation['phase']]:
+                        operation = _advance(
+                            fd, operation,
+                            'partitioned' if observed == 'partitioned' else 'formatted')
 
-        if operation['phase'] == 'mounted':
-            ensure_accounts()
-            publish_configuration(bundle, ca_bytes)
-            operation = _advance(fd, operation, 'configured')
+                    if observed == 'pristine':
+                        require(operation['phase'] == 'planned',
+                                'device-state-uncertain',
+                                'pristine disk after destructive phase')
+                        _partition(target['path'],
+                                   plan['state']['partition_partuuid'])
+                        observed, target, part = _device_state(
+                            plan, collect_inventory())
+                        require(observed == 'partitioned',
+                                'partition-verification',
+                                'expected STATE partition not observed')
+                        operation = _advance(fd, operation, 'partitioned')
 
-        if operation['phase'] == 'configured':
-            prepare_live(plan['state']['state_volume_id'])
-            operation = _advance(fd, operation, 'prepared')
+                    if observed == 'partitioned':
+                        _format(part['path'],
+                                plan['state']['filesystem_uuid'])
+                        observed, target, part = _device_state(
+                            plan, collect_inventory())
+                        require(observed == 'formatted',
+                                'format-verification',
+                                'expected ext4 STATE filesystem not observed')
+                        operation = _advance(fd, operation, 'formatted')
 
-        return {
-            'status': 'non-resident-state-prepared',
-            'installation_id': plan['installation_id'],
-            'state_volume_id': plan['state']['state_volume_id'],
-            'target_identity': plan['target_identity'],
-            'selected_volume_reference': plan['selected_volume_reference'],
-            'operation': str(path),
-            'phase': operation['phase'],
-            'identity_created': False,
-            'identity_authorized': False,
-            'host_os_boot_owned': False,
-        }
+                    if operation['phase'] == 'formatted':
+                        _install_mount_unit(plan)
+                        operation = _advance(fd, operation, 'mounted')
+
+            if operation['phase'] == 'mounted':
+                ensure_accounts()
+                publish_configuration(bundle, ca_bytes)
+                operation = _advance(fd, operation, 'configured')
+
+            if operation['phase'] == 'configured':
+                prepare_live(plan['state']['state_volume_id'])
+                operation = _advance(fd, operation, 'prepared')
+
+            return {
+                'status': 'non-resident-state-prepared',
+                'installation_id': plan['installation_id'],
+                'state_volume_id': plan['state']['state_volume_id'],
+                'target_identity': plan['target_identity'],
+                'selected_volume_reference': plan['selected_volume_reference'],
+                'operation': str(path),
+                'phase': operation['phase'],
+                'identity_created': False,
+                'identity_authorized': False,
+                'host_os_boot_owned': False,
+            }
     finally:
         os.close(fd)
