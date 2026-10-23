@@ -1,10 +1,12 @@
 import copy
+from contextlib import contextmanager
 import json
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
 
+from zog.host_install import state_device
 from zog.host_install.state_contract import StateError, digest
 from zog.host_install.state_device import (
     _new_operation,
@@ -219,6 +221,115 @@ class ApplyTests(unittest.TestCase):
                 self.assertEqual(result['phase'], 'prepared')
                 do_partition.assert_not_called()
                 do_format.assert_called_once()
+
+    def test_complete_apply_transaction_is_serialized_before_device_observation(self):
+        value = plan()
+        locked = {'value': False}
+        events = []
+        observed = iter([
+            ('pristine', inventory()['devices'][-1], None),
+            ('partitioned', partitioned()['devices'][-2],
+             partitioned()['devices'][-1]),
+            ('formatted', formatted()['devices'][-2],
+             formatted()['devices'][-1]),
+        ])
+        snapshots = iter([inventory(), partitioned(), formatted()])
+        original_load = state_device._load_operation
+
+        @contextmanager
+        def transaction_lock(fd, name):
+            self.assertEqual(name, '.state-device.lock')
+            self.assertFalse(locked['value'])
+            locked['value'] = True
+            events.append('lock-enter')
+            try:
+                yield
+            finally:
+                events.append('lock-exit')
+                locked['value'] = False
+
+        def must_be_locked(label, result=None):
+            self.assertTrue(locked['value'], label)
+            events.append(label)
+            return result
+
+        def checked_load(fd):
+            must_be_locked('load-operation')
+            return original_load(fd)
+
+        def checked_inventory():
+            return must_be_locked('collect-inventory', next(snapshots))
+
+        def checked_device_state(plan_value, snapshot):
+            return must_be_locked('device-state', next(observed))
+
+        with tempfile.TemporaryDirectory() as temp, \
+             patch('zog.host_install.state_device.lock', transaction_lock), \
+             patch('zog.host_install.state_device._load_operation',
+                   side_effect=checked_load), \
+             patch('zog.host_install.state_device.collect_inventory',
+                   side_effect=checked_inventory), \
+             patch('zog.host_install.state_device._device_state',
+                   side_effect=checked_device_state), \
+             patch('zog.host_install.state_device._partition',
+                   side_effect=lambda *a: must_be_locked('partition')), \
+             patch('zog.host_install.state_device._format',
+                   side_effect=lambda *a: must_be_locked('format')), \
+             patch('zog.host_install.state_device._install_mount_unit',
+                   side_effect=lambda *a: must_be_locked('mount')), \
+             patch('zog.host_install.state_device.ensure_accounts',
+                   side_effect=lambda *a: must_be_locked('accounts')), \
+             patch('zog.host_install.state_device.publish_configuration',
+                   side_effect=lambda *a, **k: must_be_locked('configuration')), \
+             patch('zog.host_install.state_device.prepare_live',
+                   side_effect=lambda *a: must_be_locked('prepare')):
+            result = apply_live(
+                BUNDLE, value, Path(temp) / 'operation',
+                value['state']['state_volume_id'])
+
+        self.assertEqual(result['phase'], 'prepared')
+        self.assertEqual(events[0], 'lock-enter')
+        self.assertEqual(events[-1], 'lock-exit')
+        for label in (
+                'load-operation', 'collect-inventory', 'device-state',
+                'partition', 'format', 'mount', 'accounts',
+                'configuration', 'prepare'):
+            self.assertIn(label, events)
+        self.assertLess(events.index('lock-enter'), events.index('collect-inventory'))
+        self.assertLess(events.index('prepare'), events.index('lock-exit'))
+
+    def test_post_lock_revalidation_rejects_changed_target_before_partition(self):
+        value = plan()
+        changed = inventory()
+        target = next(
+            row for row in changed['devices']
+            if row['identity'] == value['target_identity'])
+        target['size'] += 4096
+        locked = {'value': False}
+
+        @contextmanager
+        def transaction_lock(fd, name):
+            self.assertEqual(name, '.state-device.lock')
+            locked['value'] = True
+            try:
+                yield
+            finally:
+                locked['value'] = False
+
+        def checked_inventory():
+            self.assertTrue(locked['value'])
+            return changed
+
+        with tempfile.TemporaryDirectory() as temp, \
+             patch('zog.host_install.state_device.lock', transaction_lock), \
+             patch('zog.host_install.state_device.collect_inventory',
+                   side_effect=checked_inventory), \
+             patch('zog.host_install.state_device._partition') as do_partition:
+            with self.assertRaisesRegex(StateError, 'different-sized device'):
+                apply_live(
+                    BUNDLE, value, Path(temp) / 'operation',
+                    value['state']['state_volume_id'])
+            do_partition.assert_not_called()
 
     def test_saved_plan_digest_prevents_plan_substitution(self):
         value = plan()
