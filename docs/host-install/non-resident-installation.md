@@ -142,8 +142,16 @@ with no filesystem/partition-table metadata or `wipefs` signatures. The mutable
 during apply.
 
 Apply is a distinct root operation. It requires the exact saved plan and an
-explicit fresh-volume UUID equal to the bundle's STATE volume identity. Before
-any partitioning it durably records the plan digest and target binding. It then
+explicit fresh-volume UUID equal to the bundle's STATE volume identity. The
+trusted non-STATE operation directory contains a durable `.state-device.lock`;
+one apply process holds that lock across operation-record reconciliation,
+partitioning, formatting, mount activation, account/configuration publication,
+STATE preparation and final phase publication. Only after acquiring the lock
+does apply perform its first authoritative current device/topology/signature
+observation (or exact mounted-STATE verification for a resumed later phase).
+The earlier read-only plan therefore cannot authorize writes if the target has
+changed before the serialized apply transaction. Before any partitioning apply
+durably records the plan digest and target binding. It then
 creates one GPT Linux-filesystem partition with the exact planned PARTUUID,
 formats only that exact partition as ext4 with the exact planned filesystem
 UUID, installs the root-owned `state.mount`, and verifies the live writable
