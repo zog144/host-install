@@ -115,27 +115,57 @@ operation and is not implied by uninstalling services.
 This is important because STATE may contain durable host identity, trust,
 controller history, certificate application state and recovery evidence.
 
-## What remains for physical STATE provisioning
+## Dedicated physical STATE provisioning
 
-This source contract does not yet format or partition a live block device.
-The next implementation stage must add an inspect/plan/apply workflow for a
-dedicated volume that:
+The source now provides a separate inspect/plan/apply workflow for one fresh
+dedicated STATE disk:
 
-1. binds an explicitly selected cloud volume to the currently observed block
-   device using stable identity evidence rather than a mutable `/dev` name;
-2. refuses the running root disk, mounted/in-use devices, existing unexpected
-   signatures and populated media;
-3. requires explicit fresh-volume formatting authority;
-4. records partition/format/mount/publication progress durably so interruption
-   cannot cause a second blind format;
-5. verifies the actual writable `/state` mount before creating Zog directories
-   or allowing identity initialization.
+```sh
+python3 -m zog.host_install state-device-plan \
+  examples/non-resident-state-v1/bundle.json \
+  --identity serial:EXPECTED_STABLE_VOLUME_IDENTITY \
+  --volume-reference EXPECTED_PROVIDER_VOLUME
 
-The first native target is a fresh disposable EC2 host with a separate EBS
-volume, GPT STATE partition and ext4 filesystem. Cloud creation, formatting,
-reboot and native execution are Work/host-deploy activities and require a
-bounded authorized run; this document and the plan-only CLI grant none of those
-permissions.
+sudo python3 -m zog.host_install state-device-apply \
+  examples/non-resident-state-v1/bundle.json saved-plan.json \
+  --operation /var/lib/zog/host-install/state-device/OPERATION \
+  --fresh-volume-id EXPECTED_STATE_VOLUME_UUID
+```
+
+Planning is read-only. It binds the operator-selected provider volume reference
+to a unique currently observed stable disk identity, reuses the physical-target
+root/mount/holder/swap checks, and additionally requires a partitionless target
+with no filesystem/partition-table metadata or `wipefs` signatures. The mutable
+`/dev` path is observation only and is rediscovered from the stable identity
+during apply.
+
+Apply is a distinct root operation. It requires the exact saved plan and an
+explicit fresh-volume UUID equal to the bundle's STATE volume identity. Before
+any partitioning it durably records the plan digest and target binding. It then
+creates one GPT Linux-filesystem partition with the exact planned PARTUUID,
+formats only that exact partition as ext4 with the exact planned filesystem
+UUID, installs the root-owned `state.mount`, and verifies the live writable
+mount before publishing configuration or preparing the STATE tree.
+
+Interruption after partitioning or formatting is reconciled only when the
+observed PARTUUID/filesystem UUID exactly match the saved plan. Unexpected
+topology, signatures, identities, rollback, mounted/in-use media or replacement
+plans fail closed instead of triggering another format. An interruption around
+mount activation likewise resumes only if the live `/state` mount verifies
+against the exact planned identities.
+
+Fixed service accounts are created only when both their names and numeric IDs
+are unoccupied; partial exact creation is resumable and collisions fail closed.
+Configuration records are root-owned and published without replacing
+conflicting bytes. STATE preparation reuses the existing explicit marker/tree
+transaction. Neither formatting, mounting nor preparation authorizes host
+identity initialization; `state-authorize` remains a separate transaction.
+
+The implementation is still **native-NOT-RUN**. The first native target remains
+a fresh disposable EC2 host with a separate EBS volume. Cloud creation,
+attachment, actual formatting, reboot and issuer integration are Work/host-deploy
+activities requiring a bounded authorized run; adding this source path did not
+touch a cloud resource or live block device.
 
 ## Issuer integration relation
 
