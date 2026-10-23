@@ -37,12 +37,12 @@ UNIT_SOCKET = "zog-host-welcome-image-progress.socket"
 UNIT_SERVICE = "zog-host-welcome-image-progress.service"
 
 IMAGE_BUILD_REPOSITORY = "zog144/image-build"
-IMAGE_BUILD_COMMIT = "7348ec730a3181f1a8ecc62a6e4d633ce191674a"
-IMAGE_BUILD_DEPLOYMENT_COMMIT = "10d5c89f9ad865f3f58094ba2b5a629c211d918d"
-IMAGE_BUILD_DEPLOYMENT_MODULE_BLOB = "0ed5e383f0aeaa49761a82cfc94b7cc3148075da"
+IMAGE_BUILD_COMMIT = "7b653e8be3f89730a52688d71df28513456f9cf3"
+IMAGE_BUILD_DEPLOYMENT_COMMIT = "890da58d5ff5b09fa4daf189e3d35e374bcb46a6"
+IMAGE_BUILD_DEPLOYMENT_MODULE_BLOB = "f3662a3c61784b289e7f21e9f253266823302ae8"
 IMAGE_BUILD_SOCKET_TEMPLATE_BLOB = "8e7e7bbd6af41572441f33e8db178f6588e117d6"
-IMAGE_BUILD_SERVICE_TEMPLATE_BLOB = "111d878e873a0c393153cedb148c2003b227cbc7"
-HOST_WELCOME_CONSUMER_COMMIT = "1bb771b00be9f5e1a52e5419af9f78662c7913e8"
+IMAGE_BUILD_SERVICE_TEMPLATE_BLOB = "a3ebc63202ee5bb4b361c5493c5415a759941141"
+HOST_WELCOME_CONSUMER_COMMIT = "cf22abc98fef05231b0c6dabc9f6f7930862affc"
 
 GRAPHICAL_APPLICATIONS = (
     "agreety",
@@ -56,7 +56,7 @@ IMAGE_BUILD_MODULE_BLOBS = {
     "zog.image_build.post_install_progress_broker":
         "e7ba6eab10e70e91fc5921bba1eec26f31ace1db",
     "zog.image_build.post_install_progress":
-        "5c4e03e1f496b704935caabebfa7eca63188f89e",
+        "f5de79b847b77ab55a0c6bca432a067853628609",
     "zog.image_build.application_software":
         "736cffeb3e42811f93bebb50a0fa9c52e4a7b52b",
     "zog.image_build.application_views":
