@@ -1,5 +1,7 @@
 # host-install
 
+Version 0.14.0 adds the [non-resident installation contract](docs/host-install/non-resident-installation.md): schema-2 installation records explicitly separate host-OS ownership from fresh/upgrade/recovery lifecycle, reuse the canonical verified `/state` boundary without inventing HOST slots, and expose a plan-only disposable-host projection. Legacy schema-1 resident validation is unchanged. No physical volume formatting, cloud run, identity authorization or resident-boot acceptance is implied.
+
 Version 0.13.3 corrects the image-progress staging manifest to identify the reviewed host-welcome SCM_CREDENTIALS consumer `1bb771b00be9f5e1a52e5419af9f78662c7913e8`. The image-build runtime `7348ec73…`, deployment reference `10d5c89f…`, Linux-credentials transport, distinct live identities, read-only state model, and production NO-GO remain unchanged.
 
 Version 0.11.0 adds the [dedicated host-welcome image-build progress observer](docs/host-install/image-build-progress-observer.md), aligned to producer deployment contract `image-build-post-install-progress-native-deployment-v1` at `b5cf3d761087c157b71724986bc94503089932a2` while preserving runtime/source binding `fcc12f3db959afe395b1adfb5b0b4dc1f16a3258`. It resolves real host identities, stages the exact producer-owned unit pair and five-application v1 allowlist, verifies the 13 security-critical runtime modules plus aggregate wheel `RECORD`, and remains disabled pending disposable-host DAC/`SO_PEERCRED`/SELinux/reboot/getty acceptance.
