@@ -10,6 +10,7 @@ from .state_inspect import inspect_report
 from .state_probe import probe_live
 from .state_provision import stage_overlay, prepare_live
 from .non_resident import build_plan as build_non_resident_plan
+from . import state_device
 from .state_initialize import authorize_live, initialize_live
 from .state_admission import serve_stdin, serve_listener
 from .certificate_gate import decide as certificate_decide
@@ -58,6 +59,16 @@ def main(argv=None):
     cmd.add_argument("bundle", type=Path)
     cmd = sub.add_parser("non-resident-plan", help="project a validated non-resident bundle into a plan-only installation contract")
     cmd.add_argument("bundle", type=Path)
+    cmd = sub.add_parser("state-device-plan", help="inspect a fresh dedicated disk and bind a non-resident STATE device plan")
+    cmd.add_argument("bundle", type=Path)
+    cmd.add_argument("--identity", required=True, help="stable observed disk identity such as serial:...")
+    cmd.add_argument("--volume-reference", required=True, help="operator-selected cloud/provider volume reference")
+    cmd = sub.add_parser("state-device-apply", help="explicitly partition, format, mount and prepare a planned fresh STATE disk")
+    cmd.add_argument("bundle", type=Path)
+    cmd.add_argument("plan", type=Path)
+    cmd.add_argument("--operation", type=Path, required=True)
+    cmd.add_argument("--fresh-volume-id", required=True)
+    cmd.add_argument("--ca-directory", type=Path)
     sub.add_parser("state-inspect", help="read-only inspection of canonical live STATE")
     sub.add_parser("state-probe", help="explicit STATE write probe as UID/GID 970")
     cmd = sub.add_parser("state-stage", help="publish a new offline configuration overlay")
@@ -259,6 +270,24 @@ def main(argv=None):
             result = authorize_live(args.initialization_id)
         elif args.command == "state-initialize":
             result = initialize_live()
+        elif args.command == "state-device-apply":
+            with args.bundle.open("rb") as stream:
+                bundle = validate(decode(stream.read(65537)))
+            with args.plan.open("rb") as stream:
+                plan = decode(stream.read(65537))
+            ca = {}
+            if args.ca_directory:
+                for reg in bundle["bootstrap"]["registries"]:
+                    if reg["ca"] is not None:
+                        with (args.ca_directory / (reg["registry_id"] + ".pem")).open("rb") as stream:
+                            ca[reg["registry_id"]] = stream.read(65537)
+            result = state_device.apply_live(
+                bundle, plan, args.operation, args.fresh_volume_id, ca)
+        elif args.command == "state-device-plan":
+            with args.bundle.open("rb") as stream:
+                bundle = validate(decode(stream.read(65537)))
+            result = state_device.plan_live(
+                bundle, args.identity, args.volume_reference)
         elif args.command == "non-resident-plan":
             with args.bundle.open("rb") as stream:
                 bundle = validate(decode(stream.read(65537)))
