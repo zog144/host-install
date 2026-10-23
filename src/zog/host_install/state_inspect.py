@@ -9,7 +9,8 @@ import re
 import stat
 import subprocess
 from pathlib import Path
-from .state_contract import ACCOUNTS, CONFIG, PROFILE, StateError, canonical, decode, host_slots, require, validate
+from .state_contract import (ACCOUNTS, CONFIG, PROFILE, StateError, canonical, decode,
+                             host_slots, installation_mode, require, validate)
 
 
 def directory(path):
@@ -142,10 +143,31 @@ def root_partition_partuuid():
 
 
 def host_generation_report(context):
-    """Verified host-generation metadata; read-only and bound to current STATE."""
+    """Verified host ownership/generation metadata, bound to current STATE."""
     context.recheck()
     installation = context.bundle['installation']
     recorded = installation['installer_recorded']
+    mode = installation_mode(installation)
+    if mode == 'non-resident':
+        result = {
+            'schema': 2,
+            'source': 'verified-host-install-state-v2',
+            'installation': {
+                'installation_id': installation['installation_id'],
+                'record_id': installation['record_id'],
+                'record_schema': installation['schema'],
+                'operation': installation['operation'],
+                'installation_mode': mode,
+            },
+            'host_os': recorded['host_os'],
+            'selected_slot': None,
+            'booted_slot': None,
+            'slots': {'HOST-A': None, 'HOST-B': None},
+            'transitional_boot_bundle': None,
+        }
+        context.recheck()
+        return result
+
     slots = host_slots(installation)
     root_partuuid = root_partition_partuuid()
     booted = [
