@@ -231,6 +231,7 @@ class ApplyTests(unittest.TestCase):
                 import os
                 os.close(fd)
             substituted = copy.deepcopy(value)
+            substituted['target_identity'] = 'serial:different-volume'
             substituted['selected_volume_reference'] = 'identity:serial:different-volume'
             with self.assertRaisesRegex(StateError, 'operation binding'):
                 with patch('zog.host_install.state_device.collect_inventory'):
