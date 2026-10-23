@@ -1,3 +1,4 @@
+import copy
 import io
 import json
 import os
@@ -81,6 +82,29 @@ class SafetyTests(unittest.TestCase):
     def test_duplicate_identity(self):
         inv = inventory(); inv["devices"][0]["identity"] = "serial:target"
         with self.assertRaises(InstallError): self.check(inv)
+
+    def test_alias_identity_is_unique_across_whole_disks_not_partitions(self):
+        inv = inventory()
+        target = inv["devices"][3]
+        target["identity"] = "wwn:target"
+        target["identities"] = ["wwn:target", "serial:target"]
+
+        # A descendant may inherit a controller WWN/serial without becoming a
+        # second eligible whole-disk target.
+        child = inv["devices"][4]
+        child["identity"] = "wwn:target"
+        child["identities"] = ["wwn:target", "serial:target"]
+        report = self.check(inv, identity="serial:target")
+        self.assertEqual(report["target"]["identity"], "serial:target")
+
+        duplicate = copy.deepcopy(inv)
+        other = copy.deepcopy(target)
+        other["path"] = "/dev/other-target"
+        other["devno"] = "8:32"
+        other["parents"] = []
+        duplicate["devices"].append(other)
+        with self.assertRaisesRegex(InstallError, "ambiguous whole-disk"):
+            self.check(duplicate, identity="serial:target")
 
     def test_missing_root(self):
         inv = inventory(); inv["root_devnos"] = ["0:99"]
