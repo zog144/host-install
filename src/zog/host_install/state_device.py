@@ -438,6 +438,18 @@ def _mount_unit(plan):
     ).encode('utf-8')
 
 
+def _verify_expected_mount(plan):
+    return assess_mount(
+        mounts(Path('/proc/self/mountinfo').read_text()),
+        topology(),
+        {
+            'partition_partuuid': plan['state']['partition_partuuid'],
+            'filesystem_uuid': plan['state']['filesystem_uuid'],
+        },
+        f"{os.major(os.stat('/').st_dev)}:{os.minor(os.stat('/').st_dev)}",
+    )
+
+
 def _install_mount_unit(plan):
     _safe_mountpoint()
     system = os.open('/etc/systemd/system', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
@@ -447,12 +459,7 @@ def _install_mount_unit(plan):
         os.close(system)
     _run(['systemctl', 'daemon-reload'])
     _run(['systemctl', 'enable', '--now', 'state.mount'], timeout=60)
-    row = assess_mount(mounts(Path('/proc/self/mountinfo').read_text()), topology(),
-                       {
-                           'partition_partuuid': plan['state']['partition_partuuid'],
-                           'filesystem_uuid': plan['state']['filesystem_uuid'],
-                       }, f"{os.major(os.stat('/').st_dev)}:{os.minor(os.stat('/').st_dev)}")
-    return row
+    return _verify_expected_mount(plan)
 
 
 def _lookup_group(name, gid):
@@ -582,43 +589,47 @@ def apply_live(bundle, plan, operation_directory, fresh_volume_id, ca_bytes=None
         else:
             operation = _validate_operation(operation, plan)
 
-        snapshot = collect_inventory()
-        observed, target, part = _device_state(plan, snapshot)
-        phase_index = {'planned': 0, 'partitioned': 1, 'formatted': 2,
-                       'mounted': 3, 'configured': 4, 'prepared': 5}
-        observed_index = {'pristine': 0, 'partitioned': 1, 'formatted': 2}[observed]
-        require(observed_index >= min(phase_index[operation['phase']], 2),
-                'device-state-uncertain', 'device appears rolled back')
-        if observed_index > min(phase_index[operation['phase']], 2):
-            operation = _advance(fd, operation,
-                                 'partitioned' if observed == 'partitioned' else 'formatted')
-
-        if observed == 'pristine':
-            require(operation['phase'] == 'planned', 'device-state-uncertain',
-                    'pristine disk after destructive phase')
-            _partition(target['path'], plan['state']['partition_partuuid'])
-            observed, target, part = _device_state(plan, collect_inventory())
-            require(observed == 'partitioned', 'partition-verification',
-                    'expected STATE partition not observed')
-            operation = _advance(fd, operation, 'partitioned')
-
-        if observed == 'partitioned':
-            _format(part['path'], plan['state']['filesystem_uuid'])
-            observed, target, part = _device_state(plan, collect_inventory())
-            require(observed == 'formatted', 'format-verification',
-                    'expected ext4 STATE filesystem not observed')
-            operation = _advance(fd, operation, 'formatted')
-
-        if operation['phase'] == 'formatted':
-            _install_mount_unit(plan)
-            operation = _advance(fd, operation, 'mounted')
+        if operation['phase'] in ('mounted', 'configured', 'prepared'):
+            _verify_expected_mount(plan)
         else:
-            # A resumed mounted/configured operation must still prove the same mount.
-            assess_mount(mounts(Path('/proc/self/mountinfo').read_text()), topology(),
-                         {
-                             'partition_partuuid': plan['state']['partition_partuuid'],
-                             'filesystem_uuid': plan['state']['filesystem_uuid'],
-                         }, f"{os.major(os.stat('/').st_dev)}:{os.minor(os.stat('/').st_dev)}")
+            # If activation completed but the phase record did not, recognize only
+            # the exact expected mount. A different /state remains a hard failure.
+            if operation['phase'] == 'formatted' and any(
+                    row['target'] == '/state'
+                    for row in mounts(Path('/proc/self/mountinfo').read_text())):
+                _verify_expected_mount(plan)
+                operation = _advance(fd, operation, 'mounted')
+            else:
+                snapshot = collect_inventory()
+                observed, target, part = _device_state(plan, snapshot)
+                phase_index = {'planned': 0, 'partitioned': 1, 'formatted': 2}
+                observed_index = {'pristine': 0, 'partitioned': 1, 'formatted': 2}[observed]
+                require(observed_index >= phase_index[operation['phase']],
+                        'device-state-uncertain', 'device appears rolled back')
+                if observed_index > phase_index[operation['phase']]:
+                    operation = _advance(
+                        fd, operation,
+                        'partitioned' if observed == 'partitioned' else 'formatted')
+
+                if observed == 'pristine':
+                    require(operation['phase'] == 'planned', 'device-state-uncertain',
+                            'pristine disk after destructive phase')
+                    _partition(target['path'], plan['state']['partition_partuuid'])
+                    observed, target, part = _device_state(plan, collect_inventory())
+                    require(observed == 'partitioned', 'partition-verification',
+                            'expected STATE partition not observed')
+                    operation = _advance(fd, operation, 'partitioned')
+
+                if observed == 'partitioned':
+                    _format(part['path'], plan['state']['filesystem_uuid'])
+                    observed, target, part = _device_state(plan, collect_inventory())
+                    require(observed == 'formatted', 'format-verification',
+                            'expected ext4 STATE filesystem not observed')
+                    operation = _advance(fd, operation, 'formatted')
+
+                if operation['phase'] == 'formatted':
+                    _install_mount_unit(plan)
+                    operation = _advance(fd, operation, 'mounted')
 
         if operation['phase'] == 'mounted':
             ensure_accounts()
