@@ -250,6 +250,18 @@ def validate_plan(plan, bundle):
             }, 'plan-layout', 'unsupported STATE disk layout')
     require(type(plan['target_identity']) is str and plan['target_identity'].strip(),
             'stable-target-identity', 'missing stable identity')
+    observation = plan['target_observation']
+    require(type(observation) is dict and set(observation) == {
+                'path', 'devno', 'size', 'inventory_sha256', 'signatures',
+            }, 'record-fields', 'unexpected target observation fields')
+    require(type(observation['path']) is str and observation['path'].startswith('/dev/') and
+            type(observation['devno']) is str and observation['devno'] and
+            type(observation['size']) is int and type(observation['size']) is not bool and
+            observation['size'] >= MINIMUM_STATE_BYTES and
+            type(observation['inventory_sha256']) is str and
+            re.fullmatch(r'[0-9a-f]{64}', observation['inventory_sha256']) is not None and
+            observation['signatures'] == [],
+            'target-observation', 'invalid fresh target observation')
     binding = _volume_binding(plan['selected_volume_reference'],
                               plan['target_identity'])
     require(plan['volume_binding_method'] == binding['method'],
