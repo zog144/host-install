@@ -8,7 +8,7 @@ Sockets=zog-host-welcome-image-progress.socket
 User=@IMAGE_BUILD_UID@
 Group=@IMAGE_BUILD_GID@
 Environment=PYTHONPATH=
-ExecStart=@PYTHON_EXECUTABLE@ -m zog.image_build.post_install_progress_broker --state-dir @IMAGE_BUILD_STATE@ --authorized-uid @WELCOME_UID@ --application agreety --application firefox-esr --application greetd --application i3 --application xorg-server --source-repository zog144/image-build --source-revision 7348ec730a3181f1a8ecc62a6e4d633ce191674a
+ExecStart=@PYTHON_EXECUTABLE@ -m zog.image_build.post_install_progress_broker --state-dir @IMAGE_BUILD_STATE@ --authorized-uid @WELCOME_UID@ --application agreety --application firefox-esr --application greetd --application i3 --application xorg-server --source-repository zog144/image-build --source-revision 7b653e8be3f89730a52688d71df28513456f9cf3
 NoNewPrivileges=yes
 PrivateTmp=yes
 PrivateDevices=yes
