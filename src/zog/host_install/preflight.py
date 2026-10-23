@@ -19,14 +19,24 @@ def assess(snapshot, target, expected_identity, required_bytes):
     require(isinstance(nodes, list) and nodes, "no block-device inventory")
     indexed = {}
     for n in nodes:
-        require(isinstance(n, dict) and set(n) == {"path", "devno", "type", "size", "read_only",
-                "identity", "parents", "mounts", "holders"}, "invalid device inventory fields")
+        base_fields = {"path", "devno", "type", "size", "read_only",
+                       "identity", "parents", "mounts", "holders"}
+        require(isinstance(n, dict) and set(n) in (base_fields, base_fields | {"identities"}),
+                "invalid device inventory fields")
         require(n["path"] not in indexed, "duplicate device path")
         indexed[n["path"]] = n
         require(type(n["size"]) is int and n["size"] > 0 and type(n["read_only"]) is bool,
                 "invalid device size or read-only flag")
         require(all(isinstance(n[k], list) for k in ("parents", "mounts", "holders")),
                 "invalid device relationships")
+        identities = n.get("identities")
+        if identities is not None:
+            require(isinstance(identities, list) and
+                    all(isinstance(x, str) and x.strip() for x in identities) and
+                    len(identities) == len(set(identities)),
+                    "invalid stable device aliases")
+            require(n["identity"] is None or n["identity"] in identities,
+                    "primary device identity missing from aliases")
     require(target in indexed, "explicit target absent from inventory")
     require(all(parent in indexed for n in nodes for parent in n["parents"]),
             "unresolved parent device")
@@ -53,9 +63,22 @@ def assess(snapshot, target, expected_identity, required_bytes):
     require(target not in root_backing, "target contains the running root")
     node = indexed[target]
     require(node["type"] == "disk" and not node["parents"], "target must be a whole physical disk")
-    require(isinstance(expected_identity, str) and expected_identity.strip() and
-            node["identity"] == expected_identity, "stable target identity missing or mismatched")
-    require(sum(n["identity"] == expected_identity for n in nodes) == 1, "ambiguous target identity")
+    require(isinstance(expected_identity, str) and expected_identity.strip(),
+            "stable target identity missing or mismatched")
+    def identities(n):
+        aliases = n.get("identities")
+        return aliases if aliases is not None else (
+            [n["identity"]] if n["identity"] is not None else []
+        )
+    require(expected_identity in identities(node),
+            "stable target identity missing or mismatched")
+    eligible = [
+        n for n in nodes
+        if n["type"] == "disk" and not n["parents"]
+        and expected_identity in identities(n)
+    ]
+    require(len(eligible) == 1 and eligible[0]["path"] == target,
+            "ambiguous whole-disk target identity")
     descendants = [n for n in nodes if target in ancestors([n["path"]])]
     require(not any(n["mounts"] for n in descendants), "target or descendant is mounted/in swap")
     require(not any(n["holders"] for n in descendants), "target has active device holders")
@@ -76,11 +99,19 @@ def collect():
     def walk(items, parent=None):
         for item in items:
             path = item["name"]
-            entry = merged.setdefault(path, dict(path=path, devno=item["maj:min"], type=item["type"],
+            aliases = []
+            if item.get("wwn") and item["wwn"].strip():
+                aliases.append("wwn:" + item["wwn"].strip())
+            if item.get("serial") and item["serial"].strip():
+                aliases.append("serial:" + item["serial"].strip())
+            aliases = list(dict.fromkeys(aliases))
+            entry = merged.setdefault(path, dict(
+                path=path, devno=item["maj:min"], type=item["type"],
                 size=int(item["size"]), read_only=bool(item["ro"]),
-                identity=("wwn:" + item["wwn"].strip()) if item.get("wwn") else
-                         ("serial:" + item["serial"].strip()) if item.get("serial") else None,
-                parents=[], mounts=[x for x in item.get("mountpoints", []) if x], holders=[]))
+                identity=aliases[0] if aliases else None,
+                identities=aliases,
+                parents=[], mounts=[x for x in item.get("mountpoints", []) if x],
+                holders=[]))
             pk = item.get("pkname") or parent
             if pk and pk not in entry["parents"]:
                 entry["parents"].append(pk)
