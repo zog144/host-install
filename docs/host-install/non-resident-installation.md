@@ -133,9 +133,12 @@ sudo python3 -m zog.host_install state-device-apply \
 ```
 
 Planning is read-only. It binds the operator-selected provider volume reference
-to a unique currently observed stable disk identity. For EC2, `aws-ebs:vol-...`
-must match the EBS NVMe `SERIAL` identity (`serial:vol...`); other providers use
-`identity:<exact-stable-identity>`. It reuses the physical-target
+to a unique currently observed stable disk identity. For EC2, `aws-ebs:vol-...` is converted to the expected EBS NVMe serial alias
+(`serial:vol...`). Linux inventory preserves both `SERIAL` and `WWN` aliases;
+the caller's `--identity` may name either observed stable alias, but the unique
+selected **whole disk** must carry both that alias and the provider-derived
+serial. Child partitions that inherit a WWN/serial are never target candidates.
+Other providers use `identity:<exact-stable-identity>`. It reuses the physical-target
 root/mount/holder/swap checks, and additionally requires a partitionless target
 with no filesystem/partition-table metadata or `wipefs` signatures. The mutable
 `/dev` path is observation only and is rediscovered from the stable identity
@@ -158,7 +161,8 @@ UUID, installs the root-owned `state.mount`, and verifies the live writable
 mount before publishing configuration or preparing the STATE tree.
 
 Interruption after partitioning or formatting is reconciled only when the
-observed PARTUUID/filesystem UUID exactly match the saved plan. Unexpected
+provider binding, complete saved whole-disk alias set, disk size,
+PARTUUID/filesystem UUID and topology still exactly match the saved plan. Unexpected
 topology, signatures, identities, rollback, mounted/in-use media or replacement
 plans fail closed instead of triggering another format. An interruption around
 mount activation likewise resumes only if the live `/state` mount verifies
