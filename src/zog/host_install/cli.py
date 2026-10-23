@@ -9,6 +9,7 @@ from .state_contract import StateError, decode, validate
 from .state_inspect import inspect_report
 from .state_probe import probe_live
 from .state_provision import stage_overlay, prepare_live
+from .non_resident import build_plan as build_non_resident_plan
 from .state_initialize import authorize_live, initialize_live
 from .state_admission import serve_stdin, serve_listener
 from .certificate_gate import decide as certificate_decide
@@ -54,6 +55,8 @@ def main(argv=None):
     cmd.add_argument("--mib", type=int, required=True)
     cmd.add_argument("--filesystem-uuid", required=True)
     cmd = sub.add_parser("state-validate", help="validate an offline synthetic record bundle")
+    cmd.add_argument("bundle", type=Path)
+    cmd = sub.add_parser("non-resident-plan", help="project a validated non-resident bundle into a plan-only installation contract")
     cmd.add_argument("bundle", type=Path)
     sub.add_parser("state-inspect", help="read-only inspection of canonical live STATE")
     sub.add_parser("state-probe", help="explicit STATE write probe as UID/GID 970")
@@ -256,6 +259,10 @@ def main(argv=None):
             result = authorize_live(args.initialization_id)
         elif args.command == "state-initialize":
             result = initialize_live()
+        elif args.command == "non-resident-plan":
+            with args.bundle.open("rb") as stream:
+                bundle = validate(decode(stream.read(65537)))
+            result = build_non_resident_plan(bundle)
         elif args.command == "state-validate":
             with args.bundle.open("rb") as stream:
                 validate(decode(stream.read(65537)))
