@@ -81,8 +81,23 @@ def header(value, kind, names):
             'unsupported-schema', kind)
 
 
+def installation_mode(installation):
+    """Return the host ownership mode without weakening legacy resident records."""
+    schema = installation.get('schema') if type(installation) is dict else None
+    require(type(schema) is int and type(schema) is not bool, 'unsupported-schema',
+            'installation record schema')
+    if schema == 1:
+        return 'resident'
+    require(schema == 2, 'unsupported-schema', 'installation record schema')
+    require(installation.get('installation_mode') in ('resident', 'non-resident'),
+            'installation-mode', 'resident or non-resident required')
+    return installation['installation_mode']
+
+
 def host_slots(installation):
-    """Normalize optional A/B slot evidence without inventing an inactive slot."""
+    """Normalize resident A/B slot evidence; non-resident hosts have no Zog HOST slots."""
+    if installation_mode(installation) == 'non-resident':
+        return {'HOST-A': None, 'HOST-B': None}
     r = installation['installer_recorded']
     raw = r.get('host_slots')
     if raw is None:
@@ -123,26 +138,59 @@ def validate(bundle):
     for key in ('installation_id', 'state_volume_id', 'partition_partuuid', 'filesystem_uuid'):
         identifier(m[key])
     require(m['account_profile'] == PROFILE, 'account-profile', 'marker profile')
-    header(i, 'zog-host-installation', 'record_id installation_id operation installer_recorded security')
+    require(type(i) is dict, 'record-fields', 'installation record required')
+    schema = i.get('schema')
+    require(type(schema) is int and type(schema) is not bool and schema in (1, 2),
+            'unsupported-schema', 'zog-host-installation')
+    if schema == 1:
+        fields(i, 'schema kind record_id installation_id operation installer_recorded security')
+        require(i['kind'] == 'zog-host-installation', 'unsupported-schema', 'zog-host-installation')
+    else:
+        fields(i, 'schema kind record_id installation_id operation installation_mode installer_recorded security')
+        require(i['kind'] == 'zog-host-installation', 'unsupported-schema', 'zog-host-installation')
+    mode = installation_mode(i)
     identifier(i['record_id']); identifier(i['installation_id'])
-    require(i['operation'] in ('fresh', 'upgrade', 'reinstall', 'migration', 'recovery'), 'installation-mode', 'operation')
+    require(i['operation'] in ('fresh', 'upgrade', 'reinstall', 'migration', 'recovery'),
+            'installation-operation', 'fresh/upgrade/reinstall/migration/recovery required')
     r = i['installer_recorded']
-    base = set('expected_artifact_id expected_host_generation expected_slot root_partuuid account_profile accounts_sha256 marker_sha256 foreign_boot_bundle state_schemas'.split())
-    require(type(r) is dict and set(r) in (base, base | {'host_slots'}),
-            'record-fields', 'unexpected installer_recorded fields')
-    sha(r['expected_artifact_id']); identifier(r['root_partuuid'])
-    require(type(r['expected_host_generation']) is str and re.fullmatch('[A-Za-z0-9._-]{1,128}', r['expected_host_generation']), 'generation', 'invalid generation')
-    require(r['expected_slot'] in ('HOST-A', 'HOST-B'), 'slot', 'unsupported slot')
-    host_slots(i)
-    require(r['account_profile'] == PROFILE and r['accounts_sha256'] == digest(a) and r['marker_sha256'] == digest(m), 'record-binding', 'accounts/marker mismatch')
-    f = r['foreign_boot_bundle']
-    if f is not None:
-        fields(f, 'kind provider record_reference record_sha256')
-        require(f['kind'] == 'foreign' and type(f['provider']) is str and 0 < len(f['provider']) <= 128,
-                'boot-provenance', 'invalid provider')
-        identifier(f['record_reference']); sha(f['record_sha256'])
-    require(canonical(r['state_schemas']) == canonical({'identity': 1, 'trust': 1, 'control': 1, 'controller': 1}), 'state-schema', 'v1 implementation accepts schema 1 only')
-    require(i['security'] == {'secure_boot': 'not-assessed', 'measured_boot': 'not-assessed', 'remote_attestation': 'not-implemented'}, 'security-claim', 'unsupported security claim')
+    common = set('account_profile accounts_sha256 marker_sha256 state_schemas'.split())
+    if mode == 'resident':
+        resident = common | set('expected_artifact_id expected_host_generation expected_slot root_partuuid foreign_boot_bundle'.split())
+        require(type(r) is dict and set(r) in (resident, resident | {'host_slots'}),
+                'record-fields', 'unexpected resident installer_recorded fields')
+        sha(r['expected_artifact_id']); identifier(r['root_partuuid'])
+        require(type(r['expected_host_generation']) is str and
+                re.fullmatch('[A-Za-z0-9._-]{1,128}', r['expected_host_generation']),
+                'generation', 'invalid generation')
+        require(r['expected_slot'] in ('HOST-A', 'HOST-B'), 'slot', 'unsupported slot')
+        host_slots(i)
+        f = r['foreign_boot_bundle']
+        if f is not None:
+            fields(f, 'kind provider record_reference record_sha256')
+            require(f['kind'] == 'foreign' and type(f['provider']) is str and
+                    0 < len(f['provider']) <= 128,
+                    'boot-provenance', 'invalid provider')
+            identifier(f['record_reference']); sha(f['record_sha256'])
+    else:
+        require(schema == 2, 'unsupported-schema', 'non-resident requires installation schema 2')
+        require(type(r) is dict and set(r) == common | {'host_os'},
+                'record-fields', 'unexpected non-resident installer_recorded fields')
+        fields(r['host_os'], 'management boot root_filesystem')
+        require(r['host_os'] == {
+                    'management': 'externally-managed',
+                    'boot': 'externally-managed',
+                    'root_filesystem': 'externally-managed',
+                }, 'host-os-management', 'non-resident host OS must remain externally managed')
+    require(r['account_profile'] == PROFILE and r['accounts_sha256'] == digest(a) and
+            r['marker_sha256'] == digest(m), 'record-binding', 'accounts/marker mismatch')
+    require(canonical(r['state_schemas']) ==
+            canonical({'identity': 1, 'trust': 1, 'control': 1, 'controller': 1}),
+            'state-schema', 'v1 implementation accepts schema 1 only')
+    require(i['security'] == {
+                'secure_boot': 'not-assessed',
+                'measured_boot': 'not-assessed',
+                'remote_attestation': 'not-implemented',
+            }, 'security-claim', 'unsupported security claim')
     header(b, 'zog-host-bootstrap', 'profile installation_id configuration_revision mode required_features state initialization registries control_authority installation_record')
     require(b['profile'] == 'state-contract-v1' and b['required_features'] == [], 'unsupported-feature', 'profile/features')
     integer(b['configuration_revision']); identifier(b['installation_id'])
