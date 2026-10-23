@@ -84,14 +84,8 @@ class ContractTests(unittest.TestCase):
         new['bootstrap']['installation_record']['sha256'] = digest(new['installation'])
         transition(new, NON_RESIDENT)
 
-        resident_upgrade = copy.deepcopy(RESIDENT)
-        resident_upgrade['installation']['operation'] = 'upgrade'
-        resident_upgrade['installation']['record_id'] = '99999998-9998-4998-8998-999999999998'
-        resident_upgrade['bootstrap']['configuration_revision'] = 2
-        resident_upgrade['bootstrap']['mode'] = 'existing'
-        resident_upgrade['bootstrap']['installation_record']['sha256'] = digest(resident_upgrade['installation'])
         with self.assertRaisesRegex(StateError, 'installation mode'):
-            transition(new, resident_upgrade)
+            transition(new, RESIDENT)
 
 
 class PlanTests(unittest.TestCase):
