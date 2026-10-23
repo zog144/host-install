@@ -1,6 +1,6 @@
 """Zog host installation, provisional contract version 1."""
 
-__version__ = "0.14.2"
+__version__ = "0.14.3"
 
 
 class InstallError(Exception):
