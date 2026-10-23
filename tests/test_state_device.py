@@ -52,7 +52,7 @@ def inventory():
 
 
 def plan():
-    return build_plan(BUNDLE, inventory(), [], 'serial:vol-state', 'vol-state')
+    return build_plan(BUNDLE, inventory(), [], 'serial:vol-state', 'identity:serial:vol-state')
 
 
 def partitioned():
@@ -90,7 +90,8 @@ class PlanTests(unittest.TestCase):
         value = plan()
         self.assertEqual(validate_plan(copy.deepcopy(value), BUNDLE), value)
         self.assertEqual(value['target_identity'], 'serial:vol-state')
-        self.assertEqual(value['selected_volume_reference'], 'vol-state')
+        self.assertEqual(value['selected_volume_reference'], 'identity:serial:vol-state')
+        self.assertEqual(value['volume_binding_method'], 'exact-stable-identity-v1')
         self.assertFalse(value['authority']['formatting_authorized'])
         self.assertEqual(
             value['state']['partition_partuuid'],
@@ -99,7 +100,7 @@ class PlanTests(unittest.TestCase):
 
     def test_root_target_existing_partition_and_signature_are_rejected(self):
         with self.assertRaises(Exception):
-            build_plan(BUNDLE, inventory(), [], 'serial:root', 'root-volume')
+            build_plan(BUNDLE, inventory(), [], 'serial:root', 'identity:serial:root')
 
         snap = inventory()
         snap['devices'].append({
@@ -118,13 +119,26 @@ class PlanTests(unittest.TestCase):
             'pttype': None,
         })
         with self.assertRaisesRegex(StateError, 'target-not-fresh'):
-            build_plan(BUNDLE, snap, [], 'serial:vol-state', 'vol-state')
+            build_plan(BUNDLE, snap, [], 'serial:vol-state', 'identity:serial:vol-state')
 
         with self.assertRaisesRegex(StateError, 'target-signatures'):
             build_plan(
                 BUNDLE, inventory(),
                 [{'offset': '0x438', 'type': 'ext4', 'uuid': 'old', 'label': None}],
-                'serial:vol-state', 'vol-state')
+                'serial:vol-state', 'identity:serial:vol-state')
+
+    def test_aws_ebs_reference_must_match_nvme_serial(self):
+        snap = inventory()
+        target = next(row for row in snap['devices'] if row['path'] == '/dev/state-disk')
+        target['identity'] = 'serial:vol0123456789abcdef0'
+        value = build_plan(
+            BUNDLE, snap, [], 'serial:vol0123456789abcdef0',
+            'aws-ebs:vol-0123456789abcdef0')
+        self.assertEqual(value['volume_binding_method'], 'aws-ebs-nvme-serial-v1')
+        with self.assertRaisesRegex(StateError, 'volume-binding'):
+            build_plan(
+                BUNDLE, snap, [], 'serial:vol0123456789abcdef0',
+                'aws-ebs:vol-fffffffffffffffff')
 
     def test_plan_is_bound_to_exact_bundle(self):
         value = plan()
@@ -217,7 +231,7 @@ class ApplyTests(unittest.TestCase):
                 import os
                 os.close(fd)
             substituted = copy.deepcopy(value)
-            substituted['selected_volume_reference'] = 'different-volume'
+            substituted['selected_volume_reference'] = 'identity:serial:different-volume'
             with self.assertRaisesRegex(StateError, 'operation binding'):
                 with patch('zog.host_install.state_device.collect_inventory'):
                     apply_live(
