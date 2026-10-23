@@ -40,14 +40,14 @@ def stage(tmp_path, monkeypatch, **overrides):
 def test_reviewed_deployment_reference_and_runtime_inventory_are_exact():
     observed = profile.verify_reviewed_source(IMAGE_BUILD_SOURCE)
     assert profile.IMAGE_BUILD_DEPLOYMENT_COMMIT == (
-        "10d5c89f9ad865f3f58094ba2b5a629c211d918d"
+        "890da58d5ff5b09fa4daf189e3d35e374bcb46a6"
     )
     assert profile.IMAGE_BUILD_COMMIT == (
-        "7348ec730a3181f1a8ecc62a6e4d633ce191674a"
+        "7b653e8be3f89730a52688d71df28513456f9cf3"
     )
     assert profile.IMAGE_BUILD_REPOSITORY == "zog144/image-build"
     assert profile.HOST_WELCOME_CONSUMER_COMMIT == (
-        "1bb771b00be9f5e1a52e5419af9f78662c7913e8"
+        "cf22abc98fef05231b0c6dabc9f6f7930862affc"
     )
     assert len(observed["runtime_modules"]) == 13
     assert set(observed["runtime_modules"]) == set(profile.IMAGE_BUILD_MODULE_BLOBS)
@@ -57,6 +57,9 @@ def test_reviewed_deployment_reference_and_runtime_inventory_are_exact():
     assert profile.IMAGE_BUILD_MODULE_BLOBS[
         "zog.image_build.post_install_progress_broker"
     ] == "e7ba6eab10e70e91fc5921bba1eec26f31ace1db"
+    assert profile.IMAGE_BUILD_MODULE_BLOBS[
+        "zog.image_build.post_install_progress"
+    ] == "f5de79b847b77ab55a0c6bca432a067853628609"
     assert observed["deployment_reference"][
         "src/zog/image_build/post_install_progress_deployment.py"
     ]["git_blob"] == profile.IMAGE_BUILD_DEPLOYMENT_MODULE_BLOB
@@ -124,7 +127,7 @@ def test_stage_matches_exact_producer_policy_and_unit_reference(tmp_path, monkey
         profile.IMAGE_BUILD_DEPLOYMENT_COMMIT
     )
     assert manifest["host_welcome_consumer_commit"] == (
-        "1bb771b00be9f5e1a52e5419af9f78662c7913e8"
+        "cf22abc98fef05231b0c6dabc9f6f7930862affc"
     )
     assert manifest["host_welcome_consumer_commit"] == (
         profile.HOST_WELCOME_CONSUMER_COMMIT
