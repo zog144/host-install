@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import pwd
+import re
 import shutil
 import stat
 import subprocess
@@ -133,6 +134,24 @@ def _descendants(snapshot, target):
     return result
 
 
+def _volume_binding(selected_volume_reference, expected_identity):
+    require(type(selected_volume_reference) is str and
+            0 < len(selected_volume_reference.strip()) <= 256,
+            'volume-reference', 'selected volume reference required')
+    reference = selected_volume_reference.strip()
+    if reference.startswith('aws-ebs:'):
+        volume = reference[len('aws-ebs:'):]
+        require(re.fullmatch(r'vol-[0-9a-f]{8,32}', volume) is not None,
+                'volume-reference', 'canonical AWS EBS volume ID required')
+        require(expected_identity == 'serial:' + volume.replace('-', ''),
+                'volume-binding', 'AWS EBS volume does not match observed NVMe serial')
+        return {'reference': reference, 'method': 'aws-ebs-nvme-serial-v1'}
+    require(reference == 'identity:' + expected_identity,
+            'volume-binding',
+            'non-AWS volume reference must repeat the exact stable identity')
+    return {'reference': reference, 'method': 'exact-stable-identity-v1'}
+
+
 def build_plan(bundle, snapshot, observed_signatures, expected_identity,
                selected_volume_reference):
     validate(bundle)
@@ -140,9 +159,7 @@ def build_plan(bundle, snapshot, observed_signatures, expected_identity,
             'installation-mode', 'non-resident installation required')
     require(type(expected_identity) is str and expected_identity.strip(),
             'stable-target-identity', 'expected stable identity required')
-    require(type(selected_volume_reference) is str and
-            0 < len(selected_volume_reference.strip()) <= 256,
-            'volume-reference', 'selected volume reference required')
+    binding = _volume_binding(selected_volume_reference, expected_identity)
     target = _by_identity(snapshot, expected_identity)
     assessment = assess_target(_base_inventory(snapshot), target['path'],
                                expected_identity, MINIMUM_STATE_BYTES)
@@ -159,7 +176,8 @@ def build_plan(bundle, snapshot, observed_signatures, expected_identity,
         'kind': PLAN_KIND,
         'installation_id': bundle['installation']['installation_id'],
         'bundle_sha256': digest(bundle),
-        'selected_volume_reference': selected_volume_reference.strip(),
+        'selected_volume_reference': binding['reference'],
+        'volume_binding_method': binding['method'],
         'target_identity': expected_identity,
         'target_observation': {
             'path': target['path'],
@@ -199,7 +217,8 @@ def plan_live(bundle, expected_identity, selected_volume_reference):
 def validate_plan(plan, bundle):
     require(type(plan) is dict and set(plan) == {
                 'schema', 'kind', 'installation_id', 'bundle_sha256',
-                'selected_volume_reference', 'target_identity', 'target_observation',
+                'selected_volume_reference', 'volume_binding_method',
+                'target_identity', 'target_observation',
                 'state', 'layout', 'authority',
             }, 'record-fields', 'unexpected STATE device plan fields')
     require(plan['schema'] == 1 and plan['kind'] == PLAN_KIND,
@@ -231,9 +250,10 @@ def validate_plan(plan, bundle):
             }, 'plan-layout', 'unsupported STATE disk layout')
     require(type(plan['target_identity']) is str and plan['target_identity'].strip(),
             'stable-target-identity', 'missing stable identity')
-    require(type(plan['selected_volume_reference']) is str and
-            plan['selected_volume_reference'].strip(),
-            'volume-reference', 'missing selected volume reference')
+    binding = _volume_binding(plan['selected_volume_reference'],
+                              plan['target_identity'])
+    require(plan['volume_binding_method'] == binding['method'],
+            'volume-binding', 'volume binding method mismatch')
     return plan
 
 
