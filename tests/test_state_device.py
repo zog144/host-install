@@ -21,9 +21,15 @@ ROOT = Path(__file__).resolve().parents[1]
 BUNDLE = json.loads((ROOT / 'examples/non-resident-state-v1/bundle.json').read_text())
 
 
+@contextmanager
+def no_host_lock():
+    yield
+
+
 def inventory():
-    def row(path, devno, kind, *, identity=None, parents=None, mounts=None,
-            partuuid=None, uuid=None, fstype=None, pttype=None):
+    def row(path, devno, kind, *, identity=None, identities=None,
+            parents=None, mounts=None, partuuid=None, uuid=None,
+            fstype=None, pttype=None):
         return {
             'path': path,
             'devno': devno,
@@ -31,6 +37,7 @@ def inventory():
             'size': 1024 * 1024 * 1024,
             'read_only': False,
             'identity': identity,
+            **({'identities': identities} if identities is not None else {}),
             'parents': parents or [],
             'mounts': mounts or [],
             'holders': [],
@@ -94,6 +101,9 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(value['target_identity'], 'serial:vol-state')
         self.assertEqual(value['selected_volume_reference'], 'identity:serial:vol-state')
         self.assertEqual(value['volume_binding_method'], 'exact-stable-identity-v1')
+        self.assertEqual(value['provider_identity'], 'serial:vol-state')
+        self.assertEqual(
+            value['target_observation']['identities'], ['serial:vol-state'])
         self.assertFalse(value['authority']['formatting_authorized'])
         self.assertEqual(
             value['state']['partition_partuuid'],
@@ -129,18 +139,113 @@ class PlanTests(unittest.TestCase):
                 [{'offset': '0x438', 'type': 'ext4', 'uuid': 'old', 'label': None}],
                 'serial:vol-state', 'identity:serial:vol-state')
 
-    def test_aws_ebs_reference_must_match_nvme_serial(self):
+    def test_aws_ebs_serial_and_wwn_aliases_resolve_one_whole_disk(self):
+        snap = inventory()
+        target = next(row for row in snap['devices'] if row['path'] == '/dev/state-disk')
+        target['identity'] = 'wwn:nvme.1d0f-state'
+        target['identities'] = [
+            'wwn:nvme.1d0f-state',
+            'serial:vol0123456789abcdef0',
+        ]
+        value = build_plan(
+            BUNDLE, snap, [], 'wwn:nvme.1d0f-state',
+            'aws-ebs:vol-0123456789abcdef0')
+        self.assertEqual(value['volume_binding_method'], 'aws-ebs-nvme-serial-v1')
+        self.assertEqual(value['provider_identity'], 'serial:vol0123456789abcdef0')
+        self.assertEqual(
+            value['target_observation']['identities'],
+            ['serial:vol0123456789abcdef0', 'wwn:nvme.1d0f-state'])
+
+        # The caller may also select the provider serial alias directly even when
+        # WWN remains the inventory's primary identity.
+        serial = build_plan(
+            BUNDLE, snap, [], 'serial:vol0123456789abcdef0',
+            'aws-ebs:vol-0123456789abcdef0')
+        self.assertEqual(serial['provider_identity'], 'serial:vol0123456789abcdef0')
+
+    def test_aws_ebs_alias_mismatch_missing_and_duplicate_whole_disks_fail(self):
+        snap = inventory()
+        target = next(row for row in snap['devices'] if row['path'] == '/dev/state-disk')
+        target['identity'] = 'wwn:nvme.1d0f-state'
+        target['identities'] = [
+            'wwn:nvme.1d0f-state',
+            'serial:vol0123456789abcdef0',
+        ]
+        with self.assertRaisesRegex(StateError, 'exactly one whole disk'):
+            build_plan(
+                BUNDLE, snap, [], 'wwn:nvme.1d0f-state',
+                'aws-ebs:vol-fffffffffffffffff')
+
+        missing = copy.deepcopy(snap)
+        missing_target = next(
+            row for row in missing['devices'] if row['path'] == '/dev/state-disk')
+        missing_target['identities'] = ['wwn:nvme.1d0f-state']
+        with self.assertRaisesRegex(StateError, 'exactly one whole disk'):
+            build_plan(
+                BUNDLE, missing, [], 'wwn:nvme.1d0f-state',
+                'aws-ebs:vol-0123456789abcdef0')
+
+        duplicate = copy.deepcopy(snap)
+        other = copy.deepcopy(target)
+        other['path'] = '/dev/other-state-disk'
+        other['devno'] = '8:32'
+        duplicate['devices'].append(other)
+        with self.assertRaisesRegex(StateError, 'exactly one whole disk'):
+            build_plan(
+                BUNDLE, duplicate, [], 'wwn:nvme.1d0f-state',
+                'aws-ebs:vol-0123456789abcdef0')
+
+    def test_serial_only_device_still_resolves(self):
         snap = inventory()
         target = next(row for row in snap['devices'] if row['path'] == '/dev/state-disk')
         target['identity'] = 'serial:vol0123456789abcdef0'
+        target['identities'] = ['serial:vol0123456789abcdef0']
         value = build_plan(
             BUNDLE, snap, [], 'serial:vol0123456789abcdef0',
             'aws-ebs:vol-0123456789abcdef0')
-        self.assertEqual(value['volume_binding_method'], 'aws-ebs-nvme-serial-v1')
-        with self.assertRaisesRegex(StateError, 'volume-binding'):
+        self.assertEqual(
+            value['target_observation']['identities'],
+            ['serial:vol0123456789abcdef0'])
+
+    def test_child_partition_inherited_wwn_does_not_ambiguate_retry(self):
+        snap = partitioned()
+        disk = next(row for row in snap['devices'] if row['path'] == '/dev/state-disk')
+        disk['identity'] = 'wwn:nvme.1d0f-state'
+        disk['identities'] = [
+            'wwn:nvme.1d0f-state',
+            'serial:vol0123456789abcdef0',
+        ]
+        part = next(row for row in snap['devices'] if row['path'] == '/dev/state-part')
+        part['identity'] = 'wwn:nvme.1d0f-state'
+        part['identities'] = [
+            'wwn:nvme.1d0f-state',
+            'serial:vol0123456789abcdef0',
+        ]
+        pristine = inventory()
+        pristine_disk = next(
+            row for row in pristine['devices'] if row['path'] == '/dev/state-disk')
+        pristine_disk['identity'] = 'wwn:nvme.1d0f-state'
+        pristine_disk['identities'] = list(disk['identities'])
+        value = build_plan(
+            BUNDLE, pristine, [], 'wwn:nvme.1d0f-state',
+            'aws-ebs:vol-0123456789abcdef0')
+        observed, resolved, resolved_part = state_device._device_state(value, snap)
+        self.assertEqual(observed, 'partitioned')
+        self.assertEqual(resolved['path'], '/dev/state-disk')
+        self.assertEqual(resolved_part['path'], '/dev/state-part')
+
+    def test_aws_provider_binding_cannot_select_running_root(self):
+        snap = inventory()
+        root = next(row for row in snap['devices'] if row['path'] == '/dev/rootdisk')
+        root['identity'] = 'wwn:nvme.root'
+        root['identities'] = [
+            'wwn:nvme.root',
+            'serial:vol0123456789abcdef0',
+        ]
+        with self.assertRaisesRegex(Exception, 'running root'):
             build_plan(
-                BUNDLE, snap, [], 'serial:vol0123456789abcdef0',
-                'aws-ebs:vol-fffffffffffffffff')
+                BUNDLE, snap, [], 'wwn:nvme.root',
+                'aws-ebs:vol-0123456789abcdef0')
 
     def test_plan_is_bound_to_exact_bundle(self):
         value = plan()
@@ -152,13 +257,17 @@ class PlanTests(unittest.TestCase):
 
 class ApplyTests(unittest.TestCase):
     def test_apply_requires_explicit_matching_fresh_volume_id(self):
-        with tempfile.TemporaryDirectory() as temp:
+        with tempfile.TemporaryDirectory() as temp, \
+             patch('zog.host_install.state_device._host_transaction_lock',
+                   no_host_lock):
             with self.assertRaisesRegex(StateError, 'format-authorization'):
                 apply_live(BUNDLE, plan(), Path(temp) / 'operation', 'wrong-volume')
 
     def test_fresh_apply_advances_once_and_never_authorizes_identity(self):
         value = plan()
         with tempfile.TemporaryDirectory() as temp, \
+             patch('zog.host_install.state_device._host_transaction_lock',
+                   no_host_lock), \
              patch('zog.host_install.state_device.collect_inventory',
                    side_effect=[inventory(), partitioned(), formatted()]), \
              patch('zog.host_install.state_device._device_state',
@@ -200,7 +309,9 @@ class ApplyTests(unittest.TestCase):
 
             part_snap = partitioned()
             fmt_snap = formatted()
-            with patch('zog.host_install.state_device.collect_inventory',
+            with patch('zog.host_install.state_device._host_transaction_lock',
+                       no_host_lock), \
+                 patch('zog.host_install.state_device.collect_inventory',
                        side_effect=[part_snap, fmt_snap]), \
                  patch('zog.host_install.state_device._device_state',
                        side_effect=[
@@ -237,16 +348,25 @@ class ApplyTests(unittest.TestCase):
         original_load = state_device._load_operation
 
         @contextmanager
-        def transaction_lock(fd, name):
-            self.assertEqual(name, '.state-device.lock')
+        def host_lock():
             self.assertFalse(locked['value'])
             locked['value'] = True
-            events.append('lock-enter')
+            events.append('host-lock-enter')
             try:
                 yield
             finally:
-                events.append('lock-exit')
+                events.append('host-lock-exit')
                 locked['value'] = False
+
+        @contextmanager
+        def operation_lock(fd, name):
+            self.assertEqual(name, '.state-device.lock')
+            self.assertTrue(locked['value'])
+            events.append('operation-lock-enter')
+            try:
+                yield
+            finally:
+                events.append('operation-lock-exit')
 
         def must_be_locked(label, result=None):
             self.assertTrue(locked['value'], label)
@@ -264,7 +384,9 @@ class ApplyTests(unittest.TestCase):
             return must_be_locked('device-state', next(observed))
 
         with tempfile.TemporaryDirectory() as temp, \
-             patch('zog.host_install.state_device.lock', transaction_lock), \
+             patch('zog.host_install.state_device._host_transaction_lock',
+                   host_lock), \
+             patch('zog.host_install.state_device.lock', operation_lock), \
              patch('zog.host_install.state_device._load_operation',
                    side_effect=checked_load), \
              patch('zog.host_install.state_device.collect_inventory',
@@ -288,15 +410,23 @@ class ApplyTests(unittest.TestCase):
                 value['state']['state_volume_id'])
 
         self.assertEqual(result['phase'], 'prepared')
-        self.assertEqual(events[0], 'lock-enter')
-        self.assertEqual(events[-1], 'lock-exit')
+        self.assertEqual(events[0], 'host-lock-enter')
+        self.assertEqual(events[-1], 'host-lock-exit')
+        self.assertIn('operation-lock-enter', events)
+        self.assertIn('operation-lock-exit', events)
         for label in (
                 'load-operation', 'collect-inventory', 'device-state',
                 'partition', 'format', 'mount', 'accounts',
                 'configuration', 'prepare'):
             self.assertIn(label, events)
-        self.assertLess(events.index('lock-enter'), events.index('collect-inventory'))
-        self.assertLess(events.index('prepare'), events.index('lock-exit'))
+        self.assertLess(
+            events.index('host-lock-enter'), events.index('operation-lock-enter'))
+        self.assertLess(
+            events.index('operation-lock-enter'), events.index('collect-inventory'))
+        self.assertLess(
+            events.index('prepare'), events.index('operation-lock-exit'))
+        self.assertLess(
+            events.index('operation-lock-exit'), events.index('host-lock-exit'))
 
     def test_post_lock_revalidation_rejects_changed_target_before_partition(self):
         value = plan()
@@ -308,20 +438,27 @@ class ApplyTests(unittest.TestCase):
         locked = {'value': False}
 
         @contextmanager
-        def transaction_lock(fd, name):
-            self.assertEqual(name, '.state-device.lock')
+        def host_lock():
             locked['value'] = True
             try:
                 yield
             finally:
                 locked['value'] = False
 
+        @contextmanager
+        def operation_lock(fd, name):
+            self.assertEqual(name, '.state-device.lock')
+            self.assertTrue(locked['value'])
+            yield
+
         def checked_inventory():
             self.assertTrue(locked['value'])
             return changed
 
         with tempfile.TemporaryDirectory() as temp, \
-             patch('zog.host_install.state_device.lock', transaction_lock), \
+             patch('zog.host_install.state_device._host_transaction_lock',
+                   host_lock), \
+             patch('zog.host_install.state_device.lock', operation_lock), \
              patch('zog.host_install.state_device.collect_inventory',
                    side_effect=checked_inventory), \
              patch('zog.host_install.state_device._partition') as do_partition:
@@ -343,9 +480,14 @@ class ApplyTests(unittest.TestCase):
                 os.close(fd)
             substituted = copy.deepcopy(value)
             substituted['target_identity'] = 'serial:different-volume'
+            substituted['provider_identity'] = 'serial:different-volume'
             substituted['selected_volume_reference'] = 'identity:serial:different-volume'
+            substituted['target_observation']['identities'] = [
+                'serial:different-volume']
             with self.assertRaisesRegex(StateError, 'operation binding'):
-                with patch('zog.host_install.state_device.collect_inventory'):
+                with patch('zog.host_install.state_device._host_transaction_lock',
+                           no_host_lock), \
+                     patch('zog.host_install.state_device.collect_inventory'):
                     apply_live(
                         BUNDLE, substituted, operation_path,
                         substituted['state']['state_volume_id'])
