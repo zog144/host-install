@@ -4,6 +4,7 @@ Planning is read-only. Apply is an explicit root operation against a previously
 recorded stable identity and fresh-volume authorization. Reruns reconcile exact
 PARTUUID/filesystem UUID results; they never blindly reformat an uncertain disk.
 """
+from contextlib import contextmanager
 import grp
 import json
 import os
@@ -93,23 +94,44 @@ def signatures(path):
 
 
 def _base_inventory(snapshot):
+    fields = ('path', 'devno', 'type', 'size', 'read_only',
+              'identity', 'parents', 'mounts', 'holders')
+    devices = []
+    for row in snapshot['devices']:
+        item = {k: row[k] for k in fields}
+        if 'identities' in row:
+            item['identities'] = list(row['identities'])
+        devices.append(item)
     return {
         'schema': snapshot['schema'],
         'complete': snapshot['complete'],
         'root_devnos': snapshot['root_devnos'],
-        'devices': [
-            {k: row[k] for k in ('path', 'devno', 'type', 'size', 'read_only',
-                                  'identity', 'parents', 'mounts', 'holders')}
-            for row in snapshot['devices']
-        ],
+        'devices': devices,
     }
 
 
-def _by_identity(snapshot, identity):
-    rows = [row for row in snapshot['devices'] if row.get('identity') == identity]
-    require(len(rows) == 1, 'stable-target-identity',
-            'selected stable identity must resolve to exactly one device')
-    return rows[0]
+def _aliases(row):
+    values = row.get('identities')
+    if values is None:
+        values = [row['identity']] if row.get('identity') is not None else []
+    require(type(values) is list and
+            all(type(value) is str and value.strip() for value in values) and
+            len(values) == len(set(values)),
+            'stable-target-identity', 'invalid stable identity aliases')
+    require(row.get('identity') is None or row['identity'] in values,
+            'stable-target-identity', 'primary identity missing from aliases')
+    return values
+
+
+def _whole_disk_matches(snapshot, identities):
+    required = set(identities)
+    rows = []
+    for row in snapshot['devices']:
+        if row['type'] != 'disk' or row['parents']:
+            continue
+        if required.issubset(set(_aliases(row))):
+            rows.append(row)
+    return rows
 
 
 def _descendants(snapshot, target):
@@ -139,17 +161,37 @@ def _volume_binding(selected_volume_reference, expected_identity):
             0 < len(selected_volume_reference.strip()) <= 256,
             'volume-reference', 'selected volume reference required')
     reference = selected_volume_reference.strip()
+    require(type(expected_identity) is str and expected_identity.strip(),
+            'stable-target-identity', 'expected stable identity required')
     if reference.startswith('aws-ebs:'):
         volume = reference[len('aws-ebs:'):]
         require(re.fullmatch(r'vol-[0-9a-f]{8,32}', volume) is not None,
                 'volume-reference', 'canonical AWS EBS volume ID required')
-        require(expected_identity == 'serial:' + volume.replace('-', ''),
-                'volume-binding', 'AWS EBS volume does not match observed NVMe serial')
-        return {'reference': reference, 'method': 'aws-ebs-nvme-serial-v1'}
+        provider_identity = 'serial:' + volume.replace('-', '')
+        return {
+            'reference': reference,
+            'method': 'aws-ebs-nvme-serial-v1',
+            'provider_identity': provider_identity,
+        }
     require(reference == 'identity:' + expected_identity,
             'volume-binding',
             'non-AWS volume reference must repeat the exact stable identity')
-    return {'reference': reference, 'method': 'exact-stable-identity-v1'}
+    return {
+        'reference': reference,
+        'method': 'exact-stable-identity-v1',
+        'provider_identity': expected_identity,
+    }
+
+
+def _resolve_target(snapshot, expected_identity, selected_volume_reference):
+    binding = _volume_binding(selected_volume_reference, expected_identity)
+    required = [expected_identity]
+    if binding['provider_identity'] not in required:
+        required.append(binding['provider_identity'])
+    rows = _whole_disk_matches(snapshot, required)
+    require(len(rows) == 1, 'stable-target-identity',
+            'stable aliases must resolve to exactly one whole disk')
+    return rows[0], binding
 
 
 def build_plan(bundle, snapshot, observed_signatures, expected_identity,
@@ -157,10 +199,8 @@ def build_plan(bundle, snapshot, observed_signatures, expected_identity,
     validate(bundle)
     require(installation_mode(bundle['installation']) == 'non-resident',
             'installation-mode', 'non-resident installation required')
-    require(type(expected_identity) is str and expected_identity.strip(),
-            'stable-target-identity', 'expected stable identity required')
-    binding = _volume_binding(selected_volume_reference, expected_identity)
-    target = _by_identity(snapshot, expected_identity)
+    target, binding = _resolve_target(
+        snapshot, expected_identity, selected_volume_reference)
     assessment = assess_target(_base_inventory(snapshot), target['path'],
                                expected_identity, MINIMUM_STATE_BYTES)
     require(not _descendants(snapshot, target['path']), 'target-not-fresh',
@@ -178,11 +218,13 @@ def build_plan(bundle, snapshot, observed_signatures, expected_identity,
         'bundle_sha256': digest(bundle),
         'selected_volume_reference': binding['reference'],
         'volume_binding_method': binding['method'],
+        'provider_identity': binding['provider_identity'],
         'target_identity': expected_identity,
         'target_observation': {
             'path': target['path'],
             'devno': target['devno'],
             'size': target['size'],
+            'identities': sorted(_aliases(target)),
             'inventory_sha256': assessment['inventory_sha256'],
             'signatures': [],
         },
@@ -209,16 +251,17 @@ def build_plan(bundle, snapshot, observed_signatures, expected_identity,
 
 def plan_live(bundle, expected_identity, selected_volume_reference):
     snapshot = collect_inventory()
-    target = _by_identity(snapshot, expected_identity)
-    return build_plan(bundle, snapshot, signatures(target['path']), expected_identity,
-                      selected_volume_reference)
+    target, _ = _resolve_target(
+        snapshot, expected_identity, selected_volume_reference)
+    return build_plan(bundle, snapshot, signatures(target['path']),
+                      expected_identity, selected_volume_reference)
 
 
 def validate_plan(plan, bundle):
     require(type(plan) is dict and set(plan) == {
                 'schema', 'kind', 'installation_id', 'bundle_sha256',
                 'selected_volume_reference', 'volume_binding_method',
-                'target_identity', 'target_observation',
+                'provider_identity', 'target_identity', 'target_observation',
                 'state', 'layout', 'authority',
             }, 'record-fields', 'unexpected STATE device plan fields')
     require(plan['schema'] == 1 and plan['kind'] == PLAN_KIND,
@@ -252,28 +295,40 @@ def validate_plan(plan, bundle):
             'stable-target-identity', 'missing stable identity')
     observation = plan['target_observation']
     require(type(observation) is dict and set(observation) == {
-                'path', 'devno', 'size', 'inventory_sha256', 'signatures',
+                'path', 'devno', 'size', 'identities',
+                'inventory_sha256', 'signatures',
             }, 'record-fields', 'unexpected target observation fields')
     require(type(observation['path']) is str and observation['path'].startswith('/dev/') and
             type(observation['devno']) is str and observation['devno'] and
             type(observation['size']) is int and type(observation['size']) is not bool and
             observation['size'] >= MINIMUM_STATE_BYTES and
+            type(observation['identities']) is list and
+            observation['identities'] == sorted(set(observation['identities'])) and
+            all(type(x) is str and x.strip() for x in observation['identities']) and
+            plan['target_identity'] in observation['identities'] and
+            plan['provider_identity'] in observation['identities'] and
             type(observation['inventory_sha256']) is str and
             re.fullmatch(r'[0-9a-f]{64}', observation['inventory_sha256']) is not None and
             observation['signatures'] == [],
             'target-observation', 'invalid fresh target observation')
     binding = _volume_binding(plan['selected_volume_reference'],
                               plan['target_identity'])
-    require(plan['volume_binding_method'] == binding['method'],
-            'volume-binding', 'volume binding method mismatch')
+    require(plan['volume_binding_method'] == binding['method'] and
+            plan['provider_identity'] == binding['provider_identity'],
+            'volume-binding', 'volume binding mismatch')
     return plan
 
 
 def _device_state(plan, snapshot):
     """Return pristine/partitioned/formatted only for exact expected topology."""
-    target = _by_identity(snapshot, plan['target_identity'])
+    target, binding = _resolve_target(
+        snapshot, plan['target_identity'], plan['selected_volume_reference'])
+    require(binding['provider_identity'] == plan['provider_identity'],
+            'volume-binding', 'provider identity changed')
     require(target['size'] == plan['target_observation']['size'],
             'target-changed', 'stable identity resolved to a different-sized device')
+    require(sorted(_aliases(target)) == plan['target_observation']['identities'],
+            'target-changed', 'stable identity aliases changed')
     assess_target(_base_inventory(snapshot), target['path'], plan['target_identity'],
                   MINIMUM_STATE_BYTES)
     children = _descendants(snapshot, target['path'])
@@ -614,100 +669,118 @@ def publish_configuration(bundle, ca_bytes=None):
             os.close(parent)
 
 
+@contextmanager
+def _host_transaction_lock():
+    """Serialize every STATE device apply on this host, across operation directories."""
+    root = directory('/run/lock')
+    try:
+        st = os.fstat(root)
+        require(st.st_uid == 0 and st.st_gid == 0 and not stat.S_IMODE(st.st_mode) & 0o002,
+                'transaction-lock', '/run/lock must be root-owned and not world-writable')
+        with lock(root, 'zog-host-install-state-device.lock'):
+            yield
+    finally:
+        os.close(root)
+
+
 def apply_live(bundle, plan, operation_directory, fresh_volume_id, ca_bytes=None):
     """Provision exactly one fresh dedicated STATE disk; never authorizes identity."""
     require(os.geteuid() == 0, 'root-required', 'STATE device apply requires root')
     validate_plan(plan, bundle)
     require(fresh_volume_id == plan['state']['state_volume_id'],
             'format-authorization', 'explicit fresh STATE volume ID required')
-    path, fd = _operation_directory(operation_directory)
-    try:
-        # The operation-directory lock serializes the complete provisioning
-        # transaction, not merely metadata publication. All authoritative device
-        # observations occur after it is held, closing the plan/apply race between
-        # an earlier read-only plan and destructive partition/format work.
-        with lock(fd, '.state-device.lock'):
-            operation = _load_operation(fd)
-            if operation is None:
-                operation = _new_operation(plan)
-                _write_operation(fd, operation)
-            else:
-                operation = _validate_operation(operation, plan)
 
-            if operation['phase'] in ('mounted', 'configured', 'prepared'):
-                # Revalidate the already-activated device/mount while serialized.
-                _verify_expected_mount(plan)
-            else:
-                # If activation completed but the phase record did not, recognize only
-                # the exact expected mount. A different /state remains a hard failure.
-                if operation['phase'] == 'formatted' and any(
-                        row['target'] == '/state'
-                        for row in mounts(Path('/proc/self/mountinfo').read_text())):
-                    _verify_expected_mount(plan)
-                    operation = _advance(fd, operation, 'mounted')
+    # Serialize the singleton /state + block-device mutation boundary across every
+    # operation directory. The per-operation lock then protects that operation's
+    # durable journal and no-replacement metadata publications.
+    with _host_transaction_lock():
+        path, fd = _operation_directory(operation_directory)
+        try:
+            with lock(fd, '.state-device.lock'):
+                operation = _load_operation(fd)
+                if operation is None:
+                    operation = _new_operation(plan)
+                    _write_operation(fd, operation)
                 else:
-                    # This is the first authoritative raw-device observation for
-                    # apply and deliberately occurs only after the transaction lock.
-                    snapshot = collect_inventory()
-                    observed, target, part = _device_state(plan, snapshot)
-                    phase_index = {'planned': 0, 'partitioned': 1, 'formatted': 2}
-                    observed_index = {
-                        'pristine': 0, 'partitioned': 1, 'formatted': 2
-                    }[observed]
-                    require(observed_index >= phase_index[operation['phase']],
-                            'device-state-uncertain', 'device appears rolled back')
-                    if observed_index > phase_index[operation['phase']]:
-                        operation = _advance(
-                            fd, operation,
-                            'partitioned' if observed == 'partitioned' else 'formatted')
+                    operation = _validate_operation(operation, plan)
 
-                    if observed == 'pristine':
-                        require(operation['phase'] == 'planned',
-                                'device-state-uncertain',
-                                'pristine disk after destructive phase')
-                        _partition(target['path'],
-                                   plan['state']['partition_partuuid'])
-                        observed, target, part = _device_state(
-                            plan, collect_inventory())
-                        require(observed == 'partitioned',
-                                'partition-verification',
-                                'expected STATE partition not observed')
-                        operation = _advance(fd, operation, 'partitioned')
-
-                    if observed == 'partitioned':
-                        _format(part['path'],
-                                plan['state']['filesystem_uuid'])
-                        observed, target, part = _device_state(
-                            plan, collect_inventory())
-                        require(observed == 'formatted',
-                                'format-verification',
-                                'expected ext4 STATE filesystem not observed')
-                        operation = _advance(fd, operation, 'formatted')
-
-                    if operation['phase'] == 'formatted':
-                        _install_mount_unit(plan)
+                if operation['phase'] in ('mounted', 'configured', 'prepared'):
+                    # Revalidate the already-activated device/mount while serialized.
+                    _verify_expected_mount(plan)
+                else:
+                    # If activation completed but the phase record did not, recognize
+                    # only the exact expected mount. A different /state is a hard failure.
+                    if operation['phase'] == 'formatted' and any(
+                            row['target'] == '/state'
+                            for row in mounts(Path('/proc/self/mountinfo').read_text())):
+                        _verify_expected_mount(plan)
                         operation = _advance(fd, operation, 'mounted')
+                    else:
+                        # First authoritative apply observation: after both host-wide
+                        # and operation locks. Re-resolve provider + stable aliases and
+                        # require one whole disk before any destructive action.
+                        snapshot = collect_inventory()
+                        observed, target, part = _device_state(plan, snapshot)
+                        phase_index = {'planned': 0, 'partitioned': 1, 'formatted': 2}
+                        observed_index = {
+                            'pristine': 0, 'partitioned': 1, 'formatted': 2
+                        }[observed]
+                        require(observed_index >= phase_index[operation['phase']],
+                                'device-state-uncertain', 'device appears rolled back')
+                        if observed_index > phase_index[operation['phase']]:
+                            operation = _advance(
+                                fd, operation,
+                                'partitioned' if observed == 'partitioned'
+                                else 'formatted')
 
-            if operation['phase'] == 'mounted':
-                ensure_accounts()
-                publish_configuration(bundle, ca_bytes)
-                operation = _advance(fd, operation, 'configured')
+                        if observed == 'pristine':
+                            require(operation['phase'] == 'planned',
+                                    'device-state-uncertain',
+                                    'pristine disk after destructive phase')
+                            _partition(target['path'],
+                                       plan['state']['partition_partuuid'])
+                            observed, target, part = _device_state(
+                                plan, collect_inventory())
+                            require(observed == 'partitioned',
+                                    'partition-verification',
+                                    'expected STATE partition not observed')
+                            operation = _advance(fd, operation, 'partitioned')
 
-            if operation['phase'] == 'configured':
-                prepare_live(plan['state']['state_volume_id'])
-                operation = _advance(fd, operation, 'prepared')
+                        if observed == 'partitioned':
+                            _format(part['path'],
+                                    plan['state']['filesystem_uuid'])
+                            observed, target, part = _device_state(
+                                plan, collect_inventory())
+                            require(observed == 'formatted',
+                                    'format-verification',
+                                    'expected ext4 STATE filesystem not observed')
+                            operation = _advance(fd, operation, 'formatted')
 
-            return {
-                'status': 'non-resident-state-prepared',
-                'installation_id': plan['installation_id'],
-                'state_volume_id': plan['state']['state_volume_id'],
-                'target_identity': plan['target_identity'],
-                'selected_volume_reference': plan['selected_volume_reference'],
-                'operation': str(path),
-                'phase': operation['phase'],
-                'identity_created': False,
-                'identity_authorized': False,
-                'host_os_boot_owned': False,
-            }
-    finally:
-        os.close(fd)
+                        if operation['phase'] == 'formatted':
+                            _install_mount_unit(plan)
+                            operation = _advance(fd, operation, 'mounted')
+
+                if operation['phase'] == 'mounted':
+                    ensure_accounts()
+                    publish_configuration(bundle, ca_bytes)
+                    operation = _advance(fd, operation, 'configured')
+
+                if operation['phase'] == 'configured':
+                    prepare_live(plan['state']['state_volume_id'])
+                    operation = _advance(fd, operation, 'prepared')
+
+                return {
+                    'status': 'non-resident-state-prepared',
+                    'installation_id': plan['installation_id'],
+                    'state_volume_id': plan['state']['state_volume_id'],
+                    'target_identity': plan['target_identity'],
+                    'provider_identity': plan['provider_identity'],
+                    'selected_volume_reference': plan['selected_volume_reference'],
+                    'operation': str(path),
+                    'phase': operation['phase'],
+                    'identity_created': False,
+                    'identity_authorized': False,
+                    'host_os_boot_owned': False,
+                }
+        finally:
+            os.close(fd)
