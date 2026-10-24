@@ -114,7 +114,7 @@ jobs:
       - name: Confirm CLI and namespace
         run: |
           host-install --help >/dev/null
-          python -c 'import zog.host_install as h; assert h.__version__ == "0.14.4"'
+          python -c 'import zog.host_install as h; assert h.__version__ == "0.14.5"'
           test ! -e src/zog/__init__.py
 
   host-discover-compatibility:
@@ -240,6 +240,7 @@ jobs:
                         'src/zog/host_install/host_welcome_progress_profile.py',
                         'tests/test_host_welcome_progress_profile.py',
                         'tests/test_host_discover_compatibility.py',
+                        'docs/host-install/host-discover-compatibility-2026-10-24.md',
                         'docs/host-install/host-discover-compatibility-2026-10-18.md',
                         'examples/systemd/zog-host-welcome-controller-progress.socket.in',
                         'examples/systemd/zog-host-welcome-controller-progress.service.in',
