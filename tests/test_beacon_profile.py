@@ -92,9 +92,9 @@ def test_reviewed_successor_rejects_predecessor_reporting_bytes(tmp_path):
 class FakeDistribution:
     def __init__(self, root, files, record):
         self.root = Path(root)
-        self.version = "0.1.0"
+        self.version = "0.4.11"
         self.files = files
-        self.metadata = {"Name": "zog"}
+        self.metadata = {"Name": "host-discover"}
         self._record = record
 
     def locate_file(self, value):
@@ -184,11 +184,11 @@ def test_installed_host_discover_attestation_rejects_modified_reporting_module(
     monkeypatch.setattr(
         profile.importlib.metadata, "distribution", lambda name: distribution
     )
-    monkeypatch.setattr(
-        profile.importlib, "import_module", lambda name: mapping[name]
-    )
     with pytest.raises(StateError, match="differ from reviewed successor"):
-        profile.verify_installed(python_executable="/usr/bin/python3")
+        profile.verify_installed(
+            python_executable="/usr/bin/python3",
+            distribution_name="host-discover",
+        )
 
 
 def test_offline_profile_is_repeatable_exclusive_and_has_no_preparation(tmp_path):
