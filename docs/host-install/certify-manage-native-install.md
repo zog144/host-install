@@ -1,6 +1,6 @@
 # Native certify-manage issuer installation
 
-**Status:** host-install 0.14.4 source/deployment successor. The immutable issuer producer is rebound to the reviewed image-build recovery/profile successor. Native ACME, systemd, nginx and HTTPS acceptance remains **NO-GO** until host-deploy Work completes the isolated gate.
+**Status:** host-install 0.14.6 source/deployment contract. The immutable issuer producer remains bound to the reviewed image-build recovery/profile successor, and host-install now also owns the independent managed certificate owner ledger/local consumer binding needed for host-deploy PR #3. Native ACME, delivery, nginx and HTTPS acceptance remains **NO-GO** until the station authority is genuinely installed and host-deploy Work completes Gate B / HTTPS Gate C.
 
 This profile supplies the host-install-owned native issuer substrate identified by
 host-deploy PR #3 Work acceptance. It does **not** install hostname authority,
@@ -225,7 +225,7 @@ key/fingerprint and stages exactly:
 ```
 
 as root:root mode 0444. The managed supervisor source is pinned to
-`host-discover@69ef2620f644a83ccc309f13b71b7f0e30a684aa`; its reviewed
+`host-discover@9e741d9a86bb2fd466ac46b252be0b78528eeff7` (0.4.11); its reviewed
 supervisor and certificate-assignment module Git blobs are checked before the
 profile is staged. The existing STATE account contract remains unchanged:
 `host-discover` UID/GID 970 with groups 972/973, a root supervisor, and a
@@ -288,9 +288,16 @@ lineage, reboot/upgrade without a fresh authenticated selected `inspect`
 changes the persistent evidence to `uncertain` and blocks issuance. Storage
 identity alone is not treated as proof that account/lineage content survived.
 
-The adapter deliberately leaves
-`host_deploy_owner_policy_binding = NOT RUN` and
-`host_deploy_native_gate_handoff_ready = false`. host-deploy Regular owns the
-separate conversion of the root host-discover observation to the exact local
-consumer and `policy_sha256`; host-install neither fabricates that receipt nor
-uses the UID-970 file as a shortcut.
+The adapter now also reads host-install's independent second owner ledger when
+one exists. That ledger is documented in
+[Managed certificate owner authority](certificate-owner-authority.md) and binds
+the signed root assignment to the exact local delivery service,
+`policy_sha256`, credential revision, prepared issuer grant/storage and
+reviewed host-deploy PR #3 consumer implementation.
+
+Without that retained ledger the matrix keeps
+`host_deploy_owner_policy_binding` at BLOCKED/NOT RUN. With a matching
+approved ledger, prepared issuer and genuine selected authenticated `inspect`,
+the adapter may expose `host_deploy_native_gate_handoff_ready = true`. That
+flag only hands control to host-deploy Work for native Gate B; it does not
+authorize ACME, certificate delivery, nginx reload or HTTPS cutover.
