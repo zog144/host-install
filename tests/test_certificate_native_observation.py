@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from zog.host_install import certificate_native_observation as native
+from zog.host_install import certificate_owner_authority as owner_authority
 from zog.host_install.certificate_lifecycle import reconcile
 from zog.host_install.state_contract import StateError
 
@@ -188,7 +189,7 @@ class FakeContext:
     def close(self): return None
 
 
-def test_native_observer_never_claims_host_deploy_policy_binding(tmp_path, monkeypatch):
+def test_native_observer_does_not_promote_missing_owner_binding(tmp_path, monkeypatch):
     ctx = FakeContext()
     monkeypatch.setattr(native, "inspect_live", lambda: ctx)
     monkeypatch.setattr(native, "observe_state_admission", lambda context: {
@@ -199,7 +200,7 @@ def test_native_observer_never_claims_host_deploy_policy_binding(tmp_path, monke
             "marker_sha256": "8" * 64,
         },
     })
-    monkeypatch.setattr(native, "_installed_host_discover", lambda: {
+    monkeypatch.setattr(native, "_installed_host_discover", lambda **kwargs: {
         "source_commit": native.HOST_DISCOVER_COMMIT,
     })
     monkeypatch.setattr(native, "_authority", lambda context: {
@@ -249,6 +250,13 @@ def test_native_observer_never_claims_host_deploy_policy_binding(tmp_path, monke
     monkeypatch.setattr(native, "_policy", lambda project: policy())
     monkeypatch.setattr(native, "_prepared", lambda *args: prepared())
     monkeypatch.setattr(native, "_inspect_selected", lambda *args: inspection())
+    monkeypatch.setattr(
+        owner_authority,
+        "inspect_live_owner",
+        lambda: (_ for _ in ()).throw(
+            StateError("certificate-owner-unavailable", "missing")
+        ),
+    )
     monkeypatch.setattr(native.os, "geteuid", lambda: 0)
     monkeypatch.setattr(native.sys, "executable", "/usr/bin/python3")
 
@@ -278,10 +286,11 @@ def test_native_observer_never_claims_host_deploy_policy_binding(tmp_path, monke
     assert result["managed_authority_ready"] is True
     assert result["host_deploy_native_gate_handoff_ready"] is False
     assert result["host_deploy_blocker"] == (
-        "host-deploy-policy-sha256-binding-required"
+        "host-install-owner-or-selected-inspection-incomplete"
     )
     owner = result["matrix"]["host_deploy_owner_policy_binding"]
     assert owner["status"] == "NOT RUN"
+    assert owner["code"] == "certificate-owner-unavailable"
     assert owner["evidence"] == {
         "root_assignment_sha256": "a" * 64,
         "local_policy_sha256": "f" * 64,
@@ -289,6 +298,143 @@ def test_native_observer_never_claims_host_deploy_policy_binding(tmp_path, monke
     assert json.loads(record.read_text())["kind"] == (
         "zog-certificate-lifecycle-record"
     )
+
+
+def test_native_observer_handoff_ready_only_with_owner_ledger_and_selected_inspection(
+    tmp_path, monkeypatch
+):
+    ctx = FakeContext()
+    authority = {
+        "status": "approved",
+        "origin": "managed",
+        "verified_by": "signed-host-discover",
+        "host_id": "44444444-4444-4444-8444-444444444444",
+        "installation_id": ctx.bundle["bootstrap"]["installation_id"],
+        "state_volume_id": ctx.bundle["bootstrap"]["state"]["state_volume_id"],
+        "registry_id": "primary",
+        "authority_key_id": "9" * 64,
+        "revision": 4,
+        "operation_id": "55555555-5555-4555-8555-555555555555",
+        "assignment_sha256": "a" * 64,
+        "consumer": "host-nginx-https",
+        "certificate_id": "station",
+        "challenge": "dns-01",
+        "hostnames_count": 1,
+        "hostnames_sha256": "b" * 64,
+        "expires_at": 2_000_000_000,
+    }
+    monkeypatch.setattr(native, "inspect_live", lambda: ctx)
+    monkeypatch.setattr(native, "observe_state_admission", lambda context: {
+        "recovery_hold": False,
+        "bindings": {
+            "boot_id": "33333333-3333-4333-8333-333333333333",
+            "bootstrap_sha256": "7" * 64,
+            "marker_sha256": "8" * 64,
+        },
+    })
+    monkeypatch.setattr(
+        native, "_installed_host_discover",
+        lambda **kwargs: {"source_commit": native.HOST_DISCOVER_COMMIT},
+    )
+    monkeypatch.setattr(native, "_authority", lambda context: authority)
+    monkeypatch.setattr(native, "_project_owner", lambda *args: {
+        "uid": 11021,
+        "gid": 11022,
+        "account": "controller",
+        "root_control_socket": "/run/zog/root-control.sock",
+    })
+    monkeypatch.setattr(
+        native, "attest_installed_controller",
+        lambda **kwargs: {
+            "box_control_source_commit": "a3e939b7",
+            "root_control_source_commit": "3a2dd9c9",
+        },
+    )
+    software_binding = {
+        "view": "sha256:" + "d" * 64,
+        "binding_digest": "sha256:" + "e" * 64,
+        "view_manifest_digest": "sha256:" + "f" * 64,
+        "reclamation_protection": {"artifacts": ["sha256:" + "1" * 64]},
+        "mount_point": "/applications/certify-manage",
+    }
+    monkeypatch.setattr(
+        native,
+        "_software_and_preparation",
+        lambda *args: (
+            SimpleNamespace(),
+            SimpleNamespace(generation="c" * 64),
+            software_binding,
+            {"state": "ready"},
+        ),
+    )
+    monkeypatch.setattr(native, "_policy", lambda project: policy())
+    monkeypatch.setattr(native, "_prepared", lambda *args: prepared())
+    monkeypatch.setattr(native, "_inspect_selected", lambda *args: inspection())
+    monkeypatch.setattr(native.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(native.sys, "executable", "/usr/bin/python3")
+    monkeypatch.setattr(owner_authority, "inspect_live_owner", lambda: {
+        "schema": "zog-host-install-certificate-owner-inspection-v1",
+        "status": "retained",
+        "installation_id": ctx.bundle["bootstrap"]["installation_id"],
+        "state_volume_id": ctx.bundle["bootstrap"]["state"]["state_volume_id"],
+        "registry_id": "primary",
+        "authority_key_id": "9" * 64,
+        "service_id": "candidate-nginx",
+        "certificate_id": "station",
+        "revision": 4,
+        "operation_id": authority["operation_id"],
+        "assignment_sha256": authority["assignment_sha256"],
+        "status_authority": "approved",
+        "binding_path": owner_authority.BINDING_PATH,
+        "binding_sha256": "c" * 64,
+        "owner_authority_path": owner_authority.OWNER_PATH,
+        "owner_authority_sha256": "d" * 64,
+        "delivery_policy_sha256": "e" * 64,
+        "local_intent_sha256": "f" * 64,
+        "issuer": {
+            "storage_id": prepared()["storage_id"],
+            "grant_id": prepared()["grant_id"],
+            "uid": prepared()["issuer_uid"],
+            "gid": prepared()["issuer_gid"],
+            "software_view": "sha256:" + "d" * 64,
+            "certificate_data_path": prepared()["certificate_data_path"],
+            "controller_record_sha256": "1" * 64,
+        },
+        "pending_transaction": None,
+        "production_activation_authorized": False,
+    })
+
+    import zog.box_control.project as project_mod
+    import zog.box_control.runtime.root_control as root_mod
+
+    class FakeProject:
+        def __init__(self, path):
+            self.path = Path(path)
+
+    class FakeTransport:
+        def __init__(self, path):
+            self.path = path
+
+    monkeypatch.setattr(project_mod, "Project", FakeProject)
+    monkeypatch.setattr(root_mod, "RootControlSystemdTransport", FakeTransport)
+
+    result = native.observe_live(
+        controller_project="/home/controller/project",
+        root_control_socket="/run/zog/root-control.sock",
+        generation="c" * 64,
+        software_view="sha256:" + "d" * 64,
+        lifecycle_record=tmp_path / "lifecycle-owner-ready.json",
+        event="status",
+        inspect_request_id="3" * 32,
+    )
+    assert result["status"] == "PASS"
+    assert result["managed_authority_ready"] is True
+    assert result["matrix"]["host_deploy_owner_policy_binding"]["status"] == "PASS"
+    assert result["host_deploy_native_gate_handoff_ready"] is True
+    assert result["host_deploy_blocker"] is None
+    assert result["production_activation_authorized"] is False
+    assert result["live_acme_authorized"] is False
+    assert result["nginx_reload_authorized"] is False
 
 
 def test_missing_root_authority_does_not_fall_back_to_uid970(tmp_path, monkeypatch):
@@ -302,7 +448,7 @@ def test_missing_root_authority_does_not_fall_back_to_uid970(tmp_path, monkeypat
             "marker_sha256": "8" * 64,
         },
     })
-    monkeypatch.setattr(native, "_installed_host_discover", lambda: {})
+    monkeypatch.setattr(native, "_installed_host_discover", lambda **kwargs: {})
     monkeypatch.setattr(
         native, "_authority",
         lambda context: (_ for _ in ()).throw(
