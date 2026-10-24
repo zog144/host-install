@@ -32,11 +32,7 @@ APPLICATION = "certify-manage"
 PREPARATION_REVISION = "certify-manage-state-v1"
 PIN_NAME = "certificate-assignment-authority.json"
 PIN_KIND = "zog-certificate-assignment-authority-pin"
-HOST_DISCOVER_COMMIT = "69ef2620f644a83ccc309f13b71b7f0e30a684aa"
-HOST_DISCOVER_MODULE_BLOBS = {
-    "zog.host_discover.supervisor": "419c56e07e22d2784fca6cb44ccb1e7a4dd54f0f",
-    "zog.host_discover.certificate_assignment": "ac7ef69f6b22bc227c0b1eb05b76c1bf4bd389e2",
-}
+HOST_DISCOVER_COMMIT = "9e741d9a86bb2fd466ac46b252be0b78528eeff7"
 _REQUEST = re.compile(r"[0-9a-f]{32}\Z")
 _DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _HEX64 = re.compile(r"[0-9a-f]{64}\Z")
@@ -69,68 +65,22 @@ def _record_sha256(data):
     ).rstrip(b"=").decode()
 
 
-def _installed_host_discover():
-    """Verify the installed root-observation producer against reviewed source."""
-    require(not os.environ.get("PYTHONPATH") and not os.environ.get("PYTHONHOME"),
-            "certificate-native-installed",
-            "caller-selected Python import paths are not permitted")
-    try:
-        distribution = importlib.metadata.distribution("zog")
-    except importlib.metadata.PackageNotFoundError:
-        require(False, "certificate-native-installed",
-                "aggregate zog distribution is unavailable")
-    require(distribution.metadata.get("Name") == "zog",
-            "certificate-native-installed", "unexpected aggregate distribution")
-    root = Path(distribution.locate_file("")).resolve()
-    from .certify_manage_profile import _protected_ancestry
-    text = distribution.read_text("RECORD")
-    require(type(text) is str and 0 < len(text) <= 4_000_000,
-            "certificate-native-installed", "aggregate RECORD unavailable")
-    rows = {}
-    for row in csv.reader(io.StringIO(text)):
-        require(len(row) == 3 and row[0] not in rows,
-                "certificate-native-installed", "invalid aggregate RECORD")
-        rows[row[0]] = row[1]
+def _installed_host_discover(*, python_executable, distribution_name):
+    """Reuse the managed-beacon successor's exact installed-byte attestation."""
+    from .beacon_profile import verify_installed
 
-    observed = {}
-    for module, expected in HOST_DISCOVER_MODULE_BLOBS.items():
-        loaded = importlib.import_module(module)
-        origin = getattr(loaded, "__file__", None)
-        require(type(origin) is str,
-                "certificate-native-installed", "host-discover module has no origin")
-        path = Path(origin).resolve()
-        try:
-            relative = path.relative_to(root).as_posix()
-        except ValueError:
-            require(False, "certificate-native-installed",
-                    "host-discover module is outside aggregate distribution")
-        _protected_ancestry(path, root)
-        info = path.lstat()
-        require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1,
-                "certificate-native-installed",
-                "host-discover module origin is not a protected regular file")
-        data = path.read_bytes()
-        require(_git_blob(data) == expected,
-                "certificate-native-installed",
-                "installed host-discover authority bytes differ from reviewed source")
-        require(relative in rows,
-                "certificate-native-installed",
-                "host-discover module absent from aggregate RECORD")
-        algorithm, sep, encoded = rows[relative].partition("=")
-        require(sep == "=" and algorithm == "sha256"
-                and encoded == _record_sha256(data),
-                "certificate-native-installed",
-                "aggregate RECORD disagrees with host-discover module")
-        observed[module] = {
-            "origin": str(path),
-            "git_blob": expected,
-            "sha256": hashlib.sha256(data).hexdigest(),
-        }
+    result = verify_installed(
+        python_executable=python_executable,
+        distribution_name=distribution_name,
+    )
+    require(result["consumer_commit"] == HOST_DISCOVER_COMMIT,
+            "certificate-native-installed",
+            "installed hostname-authority producer is not the selected successor")
     return {
-        "source_commit": HOST_DISCOVER_COMMIT,
-        "distribution_version": distribution.version,
-        "record_sha256": hashlib.sha256(text.encode()).hexdigest(),
-        "modules": observed,
+        "source_commit": result["consumer_commit"],
+        "component_version": result["consumer_version"],
+        "distribution": result["distribution"],
+        "modules": result["modules"],
     }
 
 
@@ -630,7 +580,8 @@ def _lifecycle_observation(*, event, state_ok, recovery_hold, software_ok,
 
 def observe_live(*, controller_project, root_control_socket, generation,
                  software_view, lifecycle_record, event="status",
-                 inspect_request_id=None, python_executable="/usr/bin/python3"):
+                 inspect_request_id=None, python_executable="/usr/bin/python3",
+                 host_discover_distribution="host-discover"):
     """Return a redacted native matrix and advance only the lifecycle status record."""
     require(os.geteuid() == 0, "root-required",
             "native certificate observation requires root")
@@ -666,7 +617,10 @@ def observe_live(*, controller_project, root_control_socket, generation,
         state_ok = True
         matrix["state"] = _gate("PASS", "verified-state", state_identity)
         try:
-            installed_discover = _installed_host_discover()
+            installed_discover = _installed_host_discover(
+                python_executable=python_executable,
+                distribution_name=host_discover_distribution,
+            )
             matrix["hostname_authority_producer"] = _gate(
                 "PASS", "installed-reviewed-host-discover", installed_discover
             )
@@ -865,18 +819,58 @@ def observe_live(*, controller_project, root_control_socket, generation,
                 str(getattr(exc, "code", exc.__class__.__name__)),
             )
 
-    # host-deploy owns the managed-root-observation -> exact policy_sha256 and
-    # local delivery-service binding. Never claim it here.
-    matrix["host_deploy_owner_policy_binding"] = _gate(
-        "NOT RUN",
-        "host-deploy-policy-sha256-binding-required",
-        {
-            "root_assignment_sha256":
-                None if authority is None else authority["assignment_sha256"],
-            "local_policy_sha256":
-                None if policy is None else policy["policy_sha256"],
-        },
-    )
+    # host-install owns the second durable owner ledger and local consumer
+    # binding; host-deploy remains owner of native delivery/HTTPS acceptance.
+    owner_binding_ready = False
+    try:
+        from .certificate_owner_authority import inspect_live_owner
+        owner_state = inspect_live_owner()
+        if (
+            owner_state["status"] == "retained"
+            and owner_state["status_authority"] == "approved"
+            and authority is not None
+            and policy is not None
+            and prepared is not None
+            and owner_state["assignment_sha256"]
+                == authority["assignment_sha256"]
+            and owner_state["certificate_id"] == policy["certificate_id"]
+            and owner_state["issuer"]["storage_id"] == prepared["storage_id"]
+            and owner_state["issuer"]["grant_id"] == prepared["grant_id"]
+            and owner_state["issuer"]["uid"] == prepared["issuer_uid"]
+            and owner_state["issuer"]["gid"] == prepared["issuer_gid"]
+            and owner_state["issuer"]["certificate_data_path"]
+                == prepared["certificate_data_path"]
+        ):
+            matrix["host_deploy_owner_policy_binding"] = _gate(
+                "PASS",
+                "installer-owner-ledger-and-issuer-binding-verified",
+                owner_state,
+            )
+            owner_binding_ready = True
+        else:
+            matrix["host_deploy_owner_policy_binding"] = _gate(
+                "BLOCKED",
+                "installer-owner-binding-disagrees",
+                {
+                    "root_assignment_sha256":
+                        None if authority is None
+                        else authority["assignment_sha256"],
+                    "local_policy_sha256":
+                        None if policy is None else policy["policy_sha256"],
+                    "owner": owner_state,
+                },
+            )
+    except (StateError, OSError, ValueError, KeyError, TypeError) as exc:
+        matrix["host_deploy_owner_policy_binding"] = _gate(
+            "NOT RUN",
+            getattr(exc, "code", "host-install-owner-authority-unavailable"),
+            {
+                "root_assignment_sha256":
+                    None if authority is None else authority["assignment_sha256"],
+                "local_policy_sha256":
+                    None if policy is None else policy["policy_sha256"],
+            },
+        )
 
     observation = _lifecycle_observation(
         event=event,
@@ -920,8 +914,18 @@ def observe_live(*, controller_project, root_control_socket, generation,
         "matrix": matrix,
         "lifecycle": lifecycle,
         "managed_authority_ready": managed_ready,
-        "host_deploy_native_gate_handoff_ready": False,
-        "host_deploy_blocker": "host-deploy-policy-sha256-binding-required",
+        "host_deploy_native_gate_handoff_ready": (
+            issuer_ready and managed_ready and owner_binding_ready
+            and matrix["selected_inspection"]["status"] == "PASS"
+        ),
+        "host_deploy_blocker": (
+            None
+            if (
+                issuer_ready and managed_ready and owner_binding_ready
+                and matrix["selected_inspection"]["status"] == "PASS"
+            )
+            else "host-install-owner-or-selected-inspection-incomplete"
+        ),
         "production_activation_authorized": False,
         "live_acme_authorized": False,
         "nginx_reload_authorized": False,
