@@ -40,10 +40,10 @@ def stage(tmp_path, monkeypatch, **overrides):
 def test_reviewed_deployment_reference_and_runtime_inventory_are_exact():
     observed = profile.verify_reviewed_source(IMAGE_BUILD_SOURCE)
     assert profile.IMAGE_BUILD_DEPLOYMENT_COMMIT == (
-        "d6fe6f0386eccd2ba577b45c32fa16baf6540c69"
+        "53ad8c2166e6b73dffbc722c2e47ccf3593612ec"
     )
     assert profile.IMAGE_BUILD_COMMIT == (
-        "7b653e8be3f89730a52688d71df28513456f9cf3"
+        "fe625fd901a62ef3c877a8fbc159e3b4aae7f952"
     )
     assert profile.IMAGE_BUILD_REPOSITORY == "zog144/image-build"
     assert profile.HOST_WELCOME_CONSUMER_COMMIT == (
@@ -56,10 +56,22 @@ def test_reviewed_deployment_reference_and_runtime_inventory_are_exact():
     )
     assert profile.IMAGE_BUILD_MODULE_BLOBS[
         "zog.image_build.post_install_progress_broker"
-    ] == "e7ba6eab10e70e91fc5921bba1eec26f31ace1db"
+    ] == "997f802492f5bc60724bc6cebff2c045191f2fc1"
     assert profile.IMAGE_BUILD_MODULE_BLOBS[
         "zog.image_build.post_install_progress"
-    ] == "f5de79b847b77ab55a0c6bca432a067853628609"
+    ] == "7fa485ca5d3f067999dbe16ff66986315abcf1e3"
+    assert profile.IMAGE_BUILD_DEPLOYMENT_MODULE_BLOB == (
+        "32a0ff998087ea3337046fef117820dca29fad8f"
+    )
+    assert profile.IMAGE_BUILD_SOCKET_TEMPLATE_BLOB == (
+        "8e7e7bbd6af41572441f33e8db178f6588e117d6"
+    )
+    assert profile.IMAGE_BUILD_SERVICE_TEMPLATE_BLOB == (
+        "b2faa79886f54ec54ba15a57416acbbfa8806166"
+    )
+    assert profile.IMAGE_BUILD_CERTIFY_MANAGE_SERVICE_TEMPLATE_BLOB == (
+        "deef20a24c7ae3a6b54512e65c8c8efdffe34dde"
+    )
     assert observed["deployment_reference"][
         "src/zog/image_build/post_install_progress_deployment.py"
     ]["git_blob"] == profile.IMAGE_BUILD_DEPLOYMENT_MODULE_BLOB
@@ -472,7 +484,10 @@ def test_installed_attestation_checks_all_13_modules_and_wheel_record(
     )
     assert result["modules"]["zog.image_build.post_install_progress_broker"][
         "git_blob"
-    ] == "e7ba6eab10e70e91fc5921bba1eec26f31ace1db"
+    ] == "997f802492f5bc60724bc6cebff2c045191f2fc1"
+    assert result["modules"]["zog.image_build.post_install_progress"][
+        "git_blob"
+    ] == "7fa485ca5d3f067999dbe16ff66986315abcf1e3"
     assert result["image_build_deployment_reference_commit"] == (
         profile.IMAGE_BUILD_DEPLOYMENT_COMMIT
     )

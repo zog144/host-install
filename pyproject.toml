@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 # aggregate "zog" distribution assembled by release-build.
 [project]
 name = "host-install"
-version = "0.14.6"
+version = "0.14.7"
 description = "Offline Zog host installation planning and disposable disk-image assembly"
 requires-python = ">=3.11"
 license = "BSD-3-Clause OR GPL-3.0-only"

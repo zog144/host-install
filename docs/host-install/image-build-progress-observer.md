@@ -1,57 +1,68 @@
 # Dedicated host-welcome image-build progress observer
 
-**Status:** host-install 0.14.4 is source-bound to the reviewed profile-aware Gate C successor. The predecessor credential/framing transport remains historically accepted only for its exact old bundle. The Certbot observer profile is source-reviewed but native selection/publication/controller acceptance remains **NOT RUN / production NO-GO**.
+**Status:** host-install 0.14.7 is source-bound to the reviewed Gate C cold-start successor. The prior native Gate C run remains retained evidence: its first cold socket-activated request exceeded the unchanged 12-second consumer deadline, so native cold-start acceptance remains **BLOCKED** until Work retests the exact successor bundle after host-welcome also completes its source-pin adoption.
 
 ## Exact current producer and consumer contracts
 
 - image-build repository: `zog144/image-build`
-- runtime/source revision: `7b653e8be3f89730a52688d71df28513456f9cf3`
-- deployment-reference revision: `d6fe6f0386eccd2ba577b45c32fa16baf6540c69`
-- deployment module blob: `6326876a42a305fbcbccea2fdaab1fe5d085b7b8`
+- runtime/source revision: `fe625fd901a62ef3c877a8fbc159e3b4aae7f952`
+- deployment-reference revision: `53ad8c2166e6b73dffbc722c2e47ccf3593612ec`
+- deployment module blob: `32a0ff998087ea3337046fef117820dca29fad8f`
 - socket template blob: `8e7e7bbd6af41572441f33e8db178f6588e117d6`
-- service template blob: `a3ebc63202ee5bb4b361c5493c5415a759941141`
-- changed runtime projection blob `zog.image_build.post_install_progress`: `f5de79b847b77ab55a0c6bca432a067853628609`
-- reviewed host-welcome consumer: `cf22abc98fef05231b0c6dabc9f6f7930862affc`
+- graphical service template blob: `b2faa79886f54ec54ba15a57416acbbfa8806166`
+- Certbot Gate C service template blob: `deef20a24c7ae3a6b54512e65c8c8efdffe34dde`
+- changed broker blob `zog.image_build.post_install_progress_broker`: `997f802492f5bc60724bc6cebff2c045191f2fc1`
+- changed projection blob `zog.image_build.post_install_progress`: `7fa485ca5d3f067999dbe16ff66986315abcf1e3`
+- currently reviewed host-welcome consumer provenance: `cf22abc98fef05231b0c6dabc9f6f7930862affc`
 - deployment contract: `image-build-post-install-progress-native-deployment-v3`
+- observer-profile contract: `image-build-post-install-progress-observer-profile-v1`
 - projection: `image-build-post-install-progress-v2`
 - RPC wire: `image-build-post-install-progress-rpc-v2`
 - transport: `image-build-post-install-progress-linux-credentials-v1`
 - policy schema: `zog-host-welcome-image-progress-observer-v1`
 
-The other twelve security-critical image-build module Git blobs remain unchanged from the previously reviewed inventory. host-install verifies all thirteen against source and, after installation, against their loaded protected files plus the aggregate wheel `RECORD`.
+The two runtime modules above changed for the cold-start correction. The other eleven security-critical runtime-module blobs are unchanged from the prior reviewed inventory. host-install still verifies all thirteen against source and, after installation, against protected aggregate-wheel files plus the wheel `RECORD`.
 
-## Receipt-only successor semantics
+The host-welcome provenance field is intentionally not guessed forward here. host-welcome Regular must separately adopt `fe625fd9…` in its protected policy and snapshot producer validators and publish its own accepted successor commit. Work must not perform the targeted cold-start Gate C retest until both consumer rebinds are present in the installed bundle.
 
-The successor fixes one read-only projection gap: after a current host-install selection is established, image-build independently verifies immutable publication before pipeline lookup. A verified artifact/view publication can therefore be reported even when no matching post-install pipeline exists.
+## Cold-start successor semantics
 
-This does not invent build history or controller success. With no matching pipeline, pipeline identifiers and source-pin identity remain null, commands remain empty and runtime admission remains unobserved. Missing publication stays waiting; corrupt or mismatched publication remains unknown/conflicted; a real pipeline conflict is not hidden by a valid publication receipt.
+The broker now performs only configuration validation during construction: exact reviewed applications, producer source binding, current boot identity and canonical state-path validation. Construction performs **no full durable publication/progress snapshot**.
+
+The first actual request still performs a complete fresh `snapshot()` and therefore re-verifies current host-install selection, publication receipt, immutable artifact, immutable application view, selected rootfs generation, compatibility descriptor, consumer binding and any real retained pipeline/command evidence. A second request performs a second full validation; no publication/provenance result is cached between requests.
+
+This preserves the earlier receipt-only behavior while removing only the redundant pre-request verification. It is not a timeout relaxation, cache shortcut or inventory-verification reduction.
 
 ## Fixed protected role
 
-The root-owned policy remains exactly `/etc/zog/host-welcome-image-progress-observer.json`, with the same v1 schema and fields. Its `image_build_source_commit` is now the exact successor runtime `7b653e8be3f89730a52688d71df28513456f9cf3`.
+The root-owned policy remains exactly `/etc/zog/host-welcome-image-progress-observer.json`, with the same v1 schema and fields. Its `image_build_source_commit` is now exactly `fe625fd901a62ef3c877a8fbc159e3b4aae7f952`.
 
-The observer deployment now has two explicit and disjoint producer profiles. `graphical-first-wave-v1` remains exactly `agreety`, `firefox-esr`, `greetd`, `i3`, and `xorg-server`; it continues to use the unchanged graphical service-template blob `a3ebc63202ee5bb4b361c5493c5415a759941141`. `certify-manage-gate-c-v1` contains exactly `certify-manage` and uses its separate producer-template blob `f2b0c45e1a84cfe7aa69637315129f0be1d6d36e`. The profiles cannot be combined through staging, and an already-staged overlay cannot be silently switched to another profile.
+The two reviewed observer profiles remain disjoint. `graphical-first-wave-v1` is exactly `agreety`, `firefox-esr`, `greetd`, `i3`, and `xorg-server`; `certify-manage-gate-c-v1` is exactly `certify-manage`. No profile membership changed.
 
-The selected service template is copied byte-for-byte from deployment `d6fe6f…` and invokes the broker with `--source-revision 7b653e8b…`. Socket DAC, distinct live consumer/producer UID resolution, AF_UNIX-only service hardening, read-only image-build state and `SCM_CREDENTIALS` authentication are unchanged.
+Both packaged host-install service templates are copied byte-for-byte from deployment `53ad8c21…` and now invoke the broker with `--source-revision fe625fd9…`. The socket template is unchanged. Socket DAC, distinct live consumer/producer UID resolution, AF_UNIX-only hardening, read-only image-build state and `SCM_CREDENTIALS` authentication are unchanged.
 
 ## Source and installed-byte attestation
 
-Before staging, host-install verifies the exact successor deployment module, socket template, both reviewed service templates and all thirteen runtime module Git blobs. The selected profile name, application allowlist and producer service-template identity are retained in `profile.json`. The changed projection module remains exactly `f5de79b…`; retaining predecessor projection bytes or substituting a service template while claiming the successor source revision is rejected.
+Before staging, host-install verifies the exact deployment module, socket template, both reviewed service templates and all thirteen runtime module Git blobs. The selected profile name, exact application allowlist and reviewed source inventory are retained in `profile.json`.
 
-After the aggregate `zog` wheel is installed, `host-welcome-image-progress-attest-installed` still requires root, a protected approved interpreter, no inherited `PYTHONPATH`/`PYTHONHOME`, protected regular-file module origins, exact Git-blob identities and matching SHA-256 entries in the aggregate wheel `RECORD`. The returned RECORD SHA-256 is retained as installed-byte evidence. Successful attestation does not authorize production activation.
+After the aggregate `zog` wheel is installed, `host-welcome-image-progress-attest-installed` still requires root, a protected approved interpreter, no inherited `PYTHONPATH`/`PYTHONHOME`, protected regular-file module origins, exact Git-blob identities and matching SHA-256 entries in the aggregate wheel `RECORD`. Both changed cold-start modules are therefore required to be the accepted successor bytes before native activation can be considered.
 
-## Native Work gate
+Successful staging or installed-byte attestation remains read-only and does not authorize production activation.
 
-Work must still prove the intended installed composition using the successor tuple:
+## Targeted native Work gate
 
-1. stage and attest the reviewed aggregate observer on the chosen host;
-2. record a genuine current host-install selection and independently verified publication receipt over real immutable rootfs/application-view objects;
-3. observe that receipt through the authenticated installed host-welcome consumer;
-4. separately inspect the real controller and compare controller evidence with the observer projection;
-5. confirm the observer remains read-only and does not create selection, publication, pipeline or runtime state;
-6. retain exact PASS/BLOCKED/NOT RUN disposition for failure/cancel/interruption and other cases not actually exercised.
+After host-welcome publishes and host-install adopts the matching consumer successor provenance, Work should reuse the retained genuine Gate C environment/evidence where still valid and perform only the targeted cold-start acceptance:
 
-The historical `7348ec73… / 10d5c89f… / 1bb771b0…` transport PASS remains valid only for that predecessor bundle. It does not establish successor Gate C acceptance.
+1. install/stage and attest the exact successor bundle;
+2. prove a true cold socket activation with the broker process absent before the request;
+3. use the unchanged installed `request_image_progress()` consumer and unchanged 12-second deadline;
+4. require the **first** credential-bearing response to complete within that deadline;
+5. verify the same truthful immutable publication semantics and exact source/boot binding;
+6. retain read-only proof across the cold request;
+7. optionally record an immediate second request only as diagnostic evidence;
+8. do not count a longer-deadline branch as acceptance.
+
+The already accepted general SCM_CREDENTIALS, malformed framing, wrong-sender, disconnect and reboot suite does not need repetition. The historical 12.056-second cold-start failure remains valid retained evidence until this exact retest passes.
 
 ## 0.13.2 correction
 
