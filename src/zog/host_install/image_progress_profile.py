@@ -28,7 +28,11 @@ from .welcome_readiness import welcome_account
 
 
 PROFILE_KIND = "zog-host-welcome-image-progress-observer-profile-v1"
-DEPLOYMENT_CONTRACT = "image-build-post-install-progress-native-deployment-v2"
+DEPLOYMENT_CONTRACT = "image-build-post-install-progress-native-deployment-v3"
+OBSERVER_PROFILE_CONTRACT = "image-build-post-install-progress-observer-profile-v1"
+GRAPHICAL_OBSERVER_PROFILE = "graphical-first-wave-v1"
+CERTIFY_MANAGE_OBSERVER_PROFILE = "certify-manage-gate-c-v1"
+DEFAULT_OBSERVER_PROFILE = GRAPHICAL_OBSERVER_PROFILE
 TRANSPORT_AUTH = "image-build-post-install-progress-linux-credentials-v1"
 POLICY_SCHEMA = "zog-host-welcome-image-progress-observer-v1"
 POLICY_PATH = "/etc/zog/host-welcome-image-progress-observer.json"
@@ -38,10 +42,13 @@ UNIT_SERVICE = "zog-host-welcome-image-progress.service"
 
 IMAGE_BUILD_REPOSITORY = "zog144/image-build"
 IMAGE_BUILD_COMMIT = "7b653e8be3f89730a52688d71df28513456f9cf3"
-IMAGE_BUILD_DEPLOYMENT_COMMIT = "890da58d5ff5b09fa4daf189e3d35e374bcb46a6"
-IMAGE_BUILD_DEPLOYMENT_MODULE_BLOB = "f3662a3c61784b289e7f21e9f253266823302ae8"
+IMAGE_BUILD_DEPLOYMENT_COMMIT = "d6fe6f0386eccd2ba577b45c32fa16baf6540c69"
+IMAGE_BUILD_DEPLOYMENT_MODULE_BLOB = "6326876a42a305fbcbccea2fdaab1fe5d085b7b8"
 IMAGE_BUILD_SOCKET_TEMPLATE_BLOB = "8e7e7bbd6af41572441f33e8db178f6588e117d6"
 IMAGE_BUILD_SERVICE_TEMPLATE_BLOB = "a3ebc63202ee5bb4b361c5493c5415a759941141"
+IMAGE_BUILD_CERTIFY_MANAGE_SERVICE_TEMPLATE_BLOB = (
+    "f2b0c45e1a84cfe7aa69637315129f0be1d6d36e"
+)
 HOST_WELCOME_CONSUMER_COMMIT = "cf22abc98fef05231b0c6dabc9f6f7930862affc"
 
 GRAPHICAL_APPLICATIONS = (
@@ -51,6 +58,22 @@ GRAPHICAL_APPLICATIONS = (
     "i3",
     "xorg-server",
 )
+CERTIFY_MANAGE_APPLICATIONS = ("certify-manage",)
+CERTIFY_MANAGE_SERVICE_TEMPLATE = (
+    "zog-host-welcome-image-progress-certify-manage.service.in"
+)
+OBSERVER_PROFILES = {
+    GRAPHICAL_OBSERVER_PROFILE: {
+        "purpose": "graphical-first-wave",
+        "applications": GRAPHICAL_APPLICATIONS,
+        "service_template": UNIT_SERVICE + ".in",
+    },
+    CERTIFY_MANAGE_OBSERVER_PROFILE: {
+        "purpose": "gate-c-non-graphical-certify-manage",
+        "applications": CERTIFY_MANAGE_APPLICATIONS,
+        "service_template": CERTIFY_MANAGE_SERVICE_TEMPLATE,
+    },
+}
 
 IMAGE_BUILD_MODULE_BLOBS = {
     "zog.image_build.post_install_progress_broker":
@@ -91,6 +114,8 @@ _DEPLOYMENT_FILES = {
         IMAGE_BUILD_SOCKET_TEMPLATE_BLOB,
     "examples/systemd/zog-host-welcome-image-progress.service.in":
         IMAGE_BUILD_SERVICE_TEMPLATE_BLOB,
+    "examples/systemd/zog-host-welcome-image-progress-certify-manage.service.in":
+        IMAGE_BUILD_CERTIFY_MANAGE_SERVICE_TEMPLATE_BLOB,
 }
 
 _SIMPLE_PATH = re.compile(r"/(?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+\Z")
@@ -98,6 +123,23 @@ _VOLATILE_ROOTS = (
     Path("/run"), Path("/tmp"), Path("/var/tmp"),
     Path("/dev"), Path("/proc"), Path("/sys"),
 )
+
+
+def _observer_profile(value):
+    require(
+        type(value) is str and value in OBSERVER_PROFILES,
+        "image-progress-profile",
+        "unsupported image progress observer profile",
+    )
+    selected = OBSERVER_PROFILES[value]
+    return {
+        "schema": 1,
+        "contract": OBSERVER_PROFILE_CONTRACT,
+        "profile": value,
+        "purpose": selected["purpose"],
+        "applications": list(selected["applications"]),
+        "service_template": selected["service_template"],
+    }
 
 
 def _numeric(value, label):
@@ -447,6 +489,7 @@ def _render(name, replacements):
 
 def stage(*, output, image_build_state_root, consumer_uid, producer_uid,
           producer_gid, image_build_source, python_executable="/usr/bin/python3",
+          observer_profile=DEFAULT_OBSERVER_PROFILE,
           producer_source=None, identity_evidence=None):
     """Stage exact producer reference with already-verified numeric identities."""
     require(os.geteuid() == 0, "root-required",
@@ -464,6 +507,7 @@ def stage(*, output, image_build_state_root, consumer_uid, producer_uid,
     image_gid = _numeric(producer_gid, "image-build producer GID required")
     require(consumer_uid != producer_uid, "image-progress-profile",
             "host-welcome consumer and image-build producer must be distinct UIDs")
+    selected_profile = _observer_profile(observer_profile)
 
     reviewed = verify_reviewed_source(image_build_source)
 
@@ -474,29 +518,31 @@ def stage(*, output, image_build_state_root, consumer_uid, producer_uid,
         "IMAGE_BUILD_STATE": state_root,
         "PYTHON_EXECUTABLE": python_executable,
     }
+    service_template = selected_profile["service_template"]
     rendered = {
         UNIT_SOCKET: _render(UNIT_SOCKET + ".in", replacements),
-        UNIT_SERVICE: _render(UNIT_SERVICE + ".in", replacements),
+        UNIT_SERVICE: _render(service_template, replacements),
     }
 
-    # Packaged templates must be byte-identical to producer-owned deployment
-    # reference templates before any root-owned overlay can be staged.
-    reference_templates = {
-        UNIT_SOCKET: "examples/systemd/" + UNIT_SOCKET + ".in",
-        UNIT_SERVICE: "examples/systemd/" + UNIT_SERVICE + ".in",
-    }
-    for unit, relative in reference_templates.items():
-        reference = (Path(image_build_source) / relative).read_bytes()
-        packaged = resource_files(__package__).joinpath(
-            "systemd", unit + ".in"
+    # Packaged templates must be byte-identical to the exact producer-owned
+    # profile selected for this overlay. Selection changes require a new overlay;
+    # publish() below rejects conflicting bytes in an existing operation.
+    reference_templates = (
+        UNIT_SOCKET + ".in",
+        service_template,
+    )
+    packaged = resource_files(__package__).joinpath("systemd")
+    for template in reference_templates:
+        reference = (
+            Path(image_build_source) / "examples/systemd" / template
         ).read_bytes()
-        require(packaged == reference,
+        local = packaged.joinpath(template).read_bytes()
+        require(local == reference,
                 "image-progress-template",
                 "packaged image-build observer template differs from producer reference")
 
     if producer_source is not None:
-        packaged = resource_files(__package__).joinpath("systemd")
-        for template in (UNIT_SOCKET + ".in", UNIT_SERVICE + ".in"):
+        for template in reference_templates:
             require(
                 (Path(producer_source) / "examples/systemd" / template).read_bytes()
                 == packaged.joinpath(template).read_bytes(),
@@ -516,6 +562,7 @@ def stage(*, output, image_build_state_root, consumer_uid, producer_uid,
         "schema": 1,
         "kind": PROFILE_KIND,
         "deployment_contract": DEPLOYMENT_CONTRACT,
+        "observer_profile": selected_profile,
         "transport_auth": TRANSPORT_AUTH,
         "runtime_model": "host-rootfs-bootstrap-consumer",
         "consumer_uid": consumer_uid,
@@ -530,7 +577,7 @@ def stage(*, output, image_build_state_root, consumer_uid, producer_uid,
         "image_build_source_commit": IMAGE_BUILD_COMMIT,
         "image_build_deployment_reference_commit": IMAGE_BUILD_DEPLOYMENT_COMMIT,
         "host_welcome_consumer_commit": HOST_WELCOME_CONSUMER_COMMIT,
-        "application_allowlist": list(GRAPHICAL_APPLICATIONS),
+        "application_allowlist": list(selected_profile["applications"]),
         "image_build_reviewed_source": reviewed,
         "selection_binding": {
             "owner": "host-install",
@@ -621,6 +668,8 @@ def stage(*, output, image_build_state_root, consumer_uid, producer_uid,
             "output": str(output),
             "consumer_uid": consumer_uid,
             "producer_uid": producer_uid,
+            "observer_profile": selected_profile["profile"],
+            "application_allowlist": list(selected_profile["applications"]),
             "socket": SOCKET_PATH,
             "policy": POLICY_PATH,
             "services_enabled": False,
@@ -635,7 +684,9 @@ def stage(*, output, image_build_state_root, consumer_uid, producer_uid,
 
 
 def stage_live(*, output, image_build_state_root, image_build_source,
-               python_executable="/usr/bin/python3", producer_source=None):
+               python_executable="/usr/bin/python3",
+               observer_profile=DEFAULT_OBSERVER_PROFILE,
+               producer_source=None):
     """Resolve independent live UIDs and stage the exact producer-owned role."""
     identities = resolve_live_identities(image_build_state_root)
     return stage(
@@ -646,6 +697,7 @@ def stage_live(*, output, image_build_state_root, image_build_source,
         producer_gid=identities["producer_gid"],
         image_build_source=image_build_source,
         python_executable=python_executable,
+        observer_profile=observer_profile,
         producer_source=producer_source,
         identity_evidence=identities["evidence"],
     )

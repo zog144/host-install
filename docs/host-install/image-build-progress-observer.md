@@ -1,18 +1,18 @@
 # Dedicated host-welcome image-build progress observer
 
-**Status:** host-install 0.14.1 is source-bound to the reviewed receipt-only Gate C successor. The predecessor credential/framing transport remains historically accepted only for its exact old bundle. Successor native selection/publication/controller acceptance remains **NOT RUN / production NO-GO**.
+**Status:** host-install 0.14.4 is source-bound to the reviewed profile-aware Gate C successor. The predecessor credential/framing transport remains historically accepted only for its exact old bundle. The Certbot observer profile is source-reviewed but native selection/publication/controller acceptance remains **NOT RUN / production NO-GO**.
 
 ## Exact current producer and consumer contracts
 
 - image-build repository: `zog144/image-build`
 - runtime/source revision: `7b653e8be3f89730a52688d71df28513456f9cf3`
-- deployment-reference revision: `890da58d5ff5b09fa4daf189e3d35e374bcb46a6`
-- deployment module blob: `f3662a3c61784b289e7f21e9f253266823302ae8`
+- deployment-reference revision: `d6fe6f0386eccd2ba577b45c32fa16baf6540c69`
+- deployment module blob: `6326876a42a305fbcbccea2fdaab1fe5d085b7b8`
 - socket template blob: `8e7e7bbd6af41572441f33e8db178f6588e117d6`
 - service template blob: `a3ebc63202ee5bb4b361c5493c5415a759941141`
 - changed runtime projection blob `zog.image_build.post_install_progress`: `f5de79b847b77ab55a0c6bca432a067853628609`
 - reviewed host-welcome consumer: `cf22abc98fef05231b0c6dabc9f6f7930862affc`
-- deployment contract: `image-build-post-install-progress-native-deployment-v2`
+- deployment contract: `image-build-post-install-progress-native-deployment-v3`
 - projection: `image-build-post-install-progress-v2`
 - RPC wire: `image-build-post-install-progress-rpc-v2`
 - transport: `image-build-post-install-progress-linux-credentials-v1`
@@ -30,13 +30,13 @@ This does not invent build history or controller success. With no matching pipel
 
 The root-owned policy remains exactly `/etc/zog/host-welcome-image-progress-observer.json`, with the same v1 schema and fields. Its `image_build_source_commit` is now the exact successor runtime `7b653e8be3f89730a52688d71df28513456f9cf3`.
 
-The first-wave allowlist remains exactly `agreety`, `firefox-esr`, `greetd`, `i3`, and `xorg-server`. Chromium, TurboVNC, Weston/Wayland and non-ESR Firefox remain outside this profile.
+The observer deployment now has two explicit and disjoint producer profiles. `graphical-first-wave-v1` remains exactly `agreety`, `firefox-esr`, `greetd`, `i3`, and `xorg-server`; it continues to use the unchanged graphical service-template blob `a3ebc63202ee5bb4b361c5493c5415a759941141`. `certify-manage-gate-c-v1` contains exactly `certify-manage` and uses its separate producer-template blob `f2b0c45e1a84cfe7aa69637315129f0be1d6d36e`. The profiles cannot be combined through staging, and an already-staged overlay cannot be silently switched to another profile.
 
-The service template is copied byte-for-byte from deployment `890da58d…` and invokes the broker with `--source-revision 7b653e8b…`. Socket DAC, distinct live consumer/producer UID resolution, AF_UNIX-only service hardening, read-only image-build state and `SCM_CREDENTIALS` authentication are unchanged.
+The selected service template is copied byte-for-byte from deployment `d6fe6f…` and invokes the broker with `--source-revision 7b653e8b…`. Socket DAC, distinct live consumer/producer UID resolution, AF_UNIX-only service hardening, read-only image-build state and `SCM_CREDENTIALS` authentication are unchanged.
 
 ## Source and installed-byte attestation
 
-Before staging, host-install verifies the exact successor deployment module, socket/service templates and all thirteen runtime module Git blobs. The changed projection module must be exactly `f5de79b…`; retaining the predecessor projection bytes while claiming the successor source revision is rejected.
+Before staging, host-install verifies the exact successor deployment module, socket template, both reviewed service templates and all thirteen runtime module Git blobs. The selected profile name, application allowlist and producer service-template identity are retained in `profile.json`. The changed projection module remains exactly `f5de79b…`; retaining predecessor projection bytes or substituting a service template while claiming the successor source revision is rejected.
 
 After the aggregate `zog` wheel is installed, `host-welcome-image-progress-attest-installed` still requires root, a protected approved interpreter, no inherited `PYTHONPATH`/`PYTHONHOME`, protected regular-file module origins, exact Git-blob identities and matching SHA-256 entries in the aggregate wheel `RECORD`. The returned RECORD SHA-256 is retained as installed-byte evidence. Successful attestation does not authorize production activation.
 

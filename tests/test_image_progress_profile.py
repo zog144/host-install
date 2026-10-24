@@ -40,7 +40,7 @@ def stage(tmp_path, monkeypatch, **overrides):
 def test_reviewed_deployment_reference_and_runtime_inventory_are_exact():
     observed = profile.verify_reviewed_source(IMAGE_BUILD_SOURCE)
     assert profile.IMAGE_BUILD_DEPLOYMENT_COMMIT == (
-        "890da58d5ff5b09fa4daf189e3d35e374bcb46a6"
+        "d6fe6f0386eccd2ba577b45c32fa16baf6540c69"
     )
     assert profile.IMAGE_BUILD_COMMIT == (
         "7b653e8be3f89730a52688d71df28513456f9cf3"
@@ -69,6 +69,9 @@ def test_reviewed_deployment_reference_and_runtime_inventory_are_exact():
     assert observed["deployment_reference"][
         "examples/systemd/zog-host-welcome-image-progress.service.in"
     ]["git_blob"] == profile.IMAGE_BUILD_SERVICE_TEMPLATE_BLOB
+    assert observed["deployment_reference"][
+        "examples/systemd/zog-host-welcome-image-progress-certify-manage.service.in"
+    ]["git_blob"] == profile.IMAGE_BUILD_CERTIFY_MANAGE_SERVICE_TEMPLATE_BLOB
 
 
 def test_stage_matches_exact_producer_policy_and_unit_reference(tmp_path, monkeypatch):
@@ -118,8 +121,18 @@ def test_stage_matches_exact_producer_policy_and_unit_reference(tmp_path, monkey
     assert "application-progress.sock" not in service
 
     assert manifest["deployment_contract"] == (
-        "image-build-post-install-progress-native-deployment-v2"
+        "image-build-post-install-progress-native-deployment-v3"
     )
+    assert manifest["observer_profile"] == {
+        "schema": 1,
+        "contract": "image-build-post-install-progress-observer-profile-v1",
+        "profile": profile.GRAPHICAL_OBSERVER_PROFILE,
+        "purpose": "graphical-first-wave",
+        "applications": list(profile.GRAPHICAL_APPLICATIONS),
+        "service_template": profile.UNIT_SERVICE + ".in",
+    }
+    assert manifest["application_allowlist"] == list(profile.GRAPHICAL_APPLICATIONS)
+    assert "--application certify-manage" not in service
     assert manifest["transport_auth"] == (
         "image-build-post-install-progress-linux-credentials-v1"
     )
@@ -140,6 +153,10 @@ def test_packaged_templates_are_byte_identical_to_producer_reference():
     for name, expected in (
         (profile.UNIT_SOCKET + ".in", profile.IMAGE_BUILD_SOCKET_TEMPLATE_BLOB),
         (profile.UNIT_SERVICE + ".in", profile.IMAGE_BUILD_SERVICE_TEMPLATE_BLOB),
+        (
+            profile.CERTIFY_MANAGE_SERVICE_TEMPLATE,
+            profile.IMAGE_BUILD_CERTIFY_MANAGE_SERVICE_TEMPLATE_BLOB,
+        ),
     ):
         local = (packaged / name).read_bytes()
         upstream = (reference / name).read_bytes()
@@ -155,8 +172,55 @@ def test_first_wave_allowlist_is_exact_and_excludes_later_graphics():
         "i3",
         "xorg-server",
     )
-    forbidden = {"chromium", "turbovnc", "weston", "firefox"}
+    assert profile.CERTIFY_MANAGE_APPLICATIONS == ("certify-manage",)
+    assert set(profile.GRAPHICAL_APPLICATIONS).isdisjoint(
+        profile.CERTIFY_MANAGE_APPLICATIONS
+    )
+    forbidden = {"chromium", "turbovnc", "weston", "firefox", "certify-manage"}
     assert forbidden.isdisjoint(profile.GRAPHICAL_APPLICATIONS)
+
+
+def test_certify_manage_gate_c_profile_is_exact_and_disjoint(tmp_path, monkeypatch):
+    result = stage(
+        tmp_path,
+        monkeypatch,
+        observer_profile=profile.CERTIFY_MANAGE_OBSERVER_PROFILE,
+    )
+    assert result["observer_profile"] == profile.CERTIFY_MANAGE_OBSERVER_PROFILE
+    assert result["application_allowlist"] == ["certify-manage"]
+
+    output = tmp_path / "overlay"
+    manifest = json.loads((output / "profile.json").read_text())
+    service = (output / "etc/systemd/system" / profile.UNIT_SERVICE).read_text()
+    assert manifest["observer_profile"] == {
+        "schema": 1,
+        "contract": profile.OBSERVER_PROFILE_CONTRACT,
+        "profile": profile.CERTIFY_MANAGE_OBSERVER_PROFILE,
+        "purpose": "gate-c-non-graphical-certify-manage",
+        "applications": ["certify-manage"],
+        "service_template": profile.CERTIFY_MANAGE_SERVICE_TEMPLATE,
+    }
+    assert manifest["application_allowlist"] == ["certify-manage"]
+    assert "--application certify-manage" in service
+    for application in profile.GRAPHICAL_APPLICATIONS:
+        assert f"--application {application}" not in service
+    assert "ReadOnlyPaths=/var/lib/zog-image-build" in service
+    assert "RestrictAddressFamilies=AF_UNIX" in service
+    assert "CapabilityBoundingSet=" in service
+    assert manifest["production_activation_authorized"] is False
+
+
+def test_observer_profile_selection_fails_closed(tmp_path, monkeypatch):
+    with pytest.raises(StateError, match="unsupported"):
+        stage(tmp_path, monkeypatch, observer_profile="certify-manage-plus-firefox")
+
+    stage(tmp_path / "fixed", monkeypatch)
+    with pytest.raises(StateError, match="profile.json|record-conflict"):
+        stage(
+            tmp_path / "fixed",
+            monkeypatch,
+            observer_profile=profile.CERTIFY_MANAGE_OBSERVER_PROFILE,
+        )
 
 
 def test_live_identity_resolution_uses_state_owner_not_numeric_cli(monkeypatch):

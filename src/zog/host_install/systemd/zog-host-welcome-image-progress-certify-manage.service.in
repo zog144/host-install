@@ -1,0 +1,36 @@
+[Unit]
+Description=Read-only image-build Certbot publication progress broker for host-welcome
+After=sysinit.target
+
+[Service]
+Type=simple
+Sockets=zog-host-welcome-image-progress.socket
+User=@IMAGE_BUILD_UID@
+Group=@IMAGE_BUILD_GID@
+Environment=PYTHONPATH=
+ExecStart=@PYTHON_EXECUTABLE@ -m zog.image_build.post_install_progress_broker --state-dir @IMAGE_BUILD_STATE@ --authorized-uid @WELCOME_UID@ --application certify-manage --source-repository zog144/image-build --source-revision 7b653e8be3f89730a52688d71df28513456f9cf3
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ReadOnlyPaths=@IMAGE_BUILD_STATE@
+UMask=0077
+Restart=on-failure
+RestartSec=2s
+StandardOutput=journal
+StandardError=journal
