@@ -22,7 +22,8 @@ from .certificate_lifecycle import (
 )
 from . import (beacon_profile, application_progress_profile,
                host_welcome_progress_profile, image_progress_profile,
-               certify_manage_profile, certificate_native_observation)
+               certify_manage_profile, certificate_native_observation,
+               certificate_owner_authority)
 from .artifact import stage
 from .filesystem import build_root_fixture
 from .image import inspect, install
@@ -145,6 +146,19 @@ def main(argv=None):
     cmd.add_argument("--software-view", required=True)
     cmd = sub.add_parser("certify-manage-controller-attest-installed", help="attest installed box-control/root-control issuer controller bytes")
     cmd.add_argument("--python-executable", default="/usr/bin/python3")
+    cmd = sub.add_parser("certificate-authority-pin-install", help="install independently authenticated station assignment signer pin")
+    cmd.add_argument("--pin", type=Path, required=True)
+    cmd.add_argument("--expected-key-id", required=True)
+    cmd = sub.add_parser("certificate-owner-intent-install", help="install reviewed non-secret local delivery/credential intent")
+    cmd.add_argument("--intent", type=Path, required=True)
+    cmd = sub.add_parser("certificate-owner-reconcile", help="bind signed root authority to prepared issuer and local host-deploy consumer")
+    cmd.add_argument("--controller-project", required=True)
+    cmd.add_argument("--root-control-socket", required=True)
+    cmd.add_argument("--software-view", required=True)
+    cmd.add_argument("--delivery-policy", type=Path, required=True)
+    cmd.add_argument("--python-executable", default="/usr/bin/python3")
+    cmd.add_argument("--host-deploy-distribution", choices=("host-deploy", "zog"), default="host-deploy")
+    sub.add_parser("certificate-owner-inspect", help="read-only inspect installer-owned owner authority ledger")
     cmd = sub.add_parser("certificate-native-observe", help="gather authenticated native issuer readiness and advance the secret-free lifecycle status")
     cmd.add_argument("--controller-project", required=True)
     cmd.add_argument("--root-control-socket", required=True)
@@ -164,7 +178,26 @@ def main(argv=None):
     cmd.add_argument("--record", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
-        if args.command == "certificate-native-observe":
+        if args.command == "certificate-owner-inspect":
+            result = certificate_owner_authority.inspect_live_owner()
+        elif args.command == "certificate-owner-reconcile":
+            result = certificate_owner_authority.reconcile_live(
+                controller_project=args.controller_project,
+                root_control_socket=args.root_control_socket,
+                expected_software_view=args.software_view,
+                delivery_policy=args.delivery_policy,
+                python_executable=args.python_executable,
+                host_deploy_distribution=args.host_deploy_distribution,
+            )
+        elif args.command == "certificate-owner-intent-install":
+            result = certificate_owner_authority.install_owner_intent(
+                args.intent
+            )
+        elif args.command == "certificate-authority-pin-install":
+            result = certificate_owner_authority.install_signer_pin(
+                args.pin, args.expected_key_id
+            )
+        elif args.command == "certificate-native-observe":
             result = certificate_native_observation.observe_live(
                 controller_project=args.controller_project,
                 root_control_socket=args.root_control_socket,
