@@ -15,6 +15,7 @@ Reader-facing chapters organize the existing documentation by enduring concepts 
 - [Dedicated host-welcome controller-progress observer](host-welcome-progress-observer.md)
 - [Dedicated host-welcome image-build progress observer](image-build-progress-observer.md)
 - [Native certify-manage issuer installation](certify-manage-native-install.md)
+- [Managed certificate owner authority and prepared issuer handoff](certificate-owner-authority.md)
 - [Non-resident installation and STATE](non-resident-installation.md)
 - [host-discover 0.4.11 / host-install 0.14 compatibility](host-discover-compatibility-2026-10-24.md)
 - [Historical host-discover migration compatibility](host-discover-compatibility-2026-10-18.md)
