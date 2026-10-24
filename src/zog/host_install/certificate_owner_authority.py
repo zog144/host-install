@@ -719,21 +719,13 @@ def _advance_ledger(previous, proposed):
     require(len(previous["operations"]) < _MAX_OPERATIONS,
             "certificate-owner-ledger", "owner operation history full")
     result = dict(proposed)
-    result["operations"] = list(previous["operations"]) + [
-        _ledger_entry({
-            "revision": proposed["revision"],
-            "operation_id": proposed["operation_id"],
-            "assignment_sha256": proposed["assignment_sha256"],
-        }, {
-            "status": proposed["status"],
-        }) if False else {
-            "revision": proposed["revision"],
-            "operation_id": proposed["operation_id"],
-            "assignment_sha256": proposed["assignment_sha256"],
-            "owner_authority_sha256": proposed["owner_authority_sha256"],
-            "status": proposed["status"],
-        }
-    ]
+    result["operations"] = list(previous["operations"]) + [{
+        "revision": proposed["revision"],
+        "operation_id": proposed["operation_id"],
+        "assignment_sha256": proposed["assignment_sha256"],
+        "owner_authority_sha256": proposed["owner_authority_sha256"],
+        "status": proposed["status"],
+    }]
     return _validate_ledger(result), True
 
 
@@ -790,16 +782,68 @@ def _read_json(fd, name, *, required=False):
     return decode(raw)
 
 
-def _owner_directory(context):
+def _validate_transaction(value):
+    required = {
+        "schema", "revision", "operation_id", "assignment_sha256",
+        "owner_authority_sha256", "binding_sha256",
+        "delivery_policy_sha256", "issuer_sha256",
+    }
+    require(type(value) is dict and set(value) == required
+            and value["schema"]
+            == "zog-host-install-certificate-owner-transaction-v1"
+            and type(value["revision"]) is int
+            and 1 <= value["revision"] < 2**53
+            and type(value["operation_id"]) is str
+            and _UUID.fullmatch(value["operation_id"]),
+            "certificate-owner-ledger", "invalid pending owner transaction")
+    for key in (
+        "assignment_sha256", "owner_authority_sha256", "binding_sha256",
+        "delivery_policy_sha256", "issuer_sha256",
+    ):
+        require(type(value[key]) is str and _HEX.fullmatch(value[key]),
+                "certificate-owner-ledger",
+                "invalid pending owner transaction digest")
+    return value
+
+
+def _transaction_for(ledger):
+    return {
+        "schema": "zog-host-install-certificate-owner-transaction-v1",
+        "revision": ledger["revision"],
+        "operation_id": ledger["operation_id"],
+        "assignment_sha256": ledger["assignment_sha256"],
+        "owner_authority_sha256": ledger["owner_authority_sha256"],
+        "binding_sha256": ledger["binding_sha256"],
+        "delivery_policy_sha256": ledger["delivery_policy_sha256"],
+        "issuer_sha256": _digest(ledger["issuer"]),
+    }
+
+
+def _transaction_matches_ledger(transaction, ledger):
+    transaction = _validate_transaction(transaction)
+    return transaction == _transaction_for(ledger)
+
+
+def _owner_directory(context, *, create=True):
     host_install = os.open(
         "host-install", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
         dir_fd=context.fd,
     )
     try:
         metadata(host_install, 0, 0, 0o755)
-        owner = ensure_directory(
-            host_install, "certificate-owner-authority", 0, 0, 0o700
-        )
+        if create:
+            owner = ensure_directory(
+                host_install, "certificate-owner-authority", 0, 0, 0o700
+            )
+        else:
+            owner = os.open(
+                "certificate-owner-authority",
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                dir_fd=host_install,
+            )
+            metadata(owner, 0, 0, 0o700)
+            require(os.fstat(owner).st_dev == os.fstat(context.fd).st_dev,
+                    "nested-mount", "certificate-owner-authority")
     finally:
         os.close(host_install)
     return owner
@@ -877,33 +921,42 @@ def reconcile_live(*, controller_project, root_control_socket,
             with lock(owner_fd, LOCK_NAME):
                 previous_ledger = _read_json(owner_fd, LEDGER_NAME)
                 previous_owner = _read_json(owner_fd, OWNER_NAME)
+                pending = _read_json(owner_fd, TRANSACTION_NAME)
+                if pending is not None:
+                    _validate_transaction(pending)
                 if previous_ledger is not None:
                     _validate_ledger(previous_ledger)
-                    require(previous_owner is not None
-                            and _digest(previous_owner)
-                            == previous_ledger["owner_authority_sha256"],
+                    require(previous_owner is not None,
                             "certificate-owner-ledger",
-                            "owner receipt disagrees with durable ledger")
+                            "durable ledger has no owner receipt")
+                    owner_matches_ledger = (
+                        _digest(previous_owner)
+                        == previous_ledger["owner_authority_sha256"]
+                    )
+                    if not owner_matches_ledger:
+                        require(
+                            pending is not None
+                            and _transaction_matches_ledger(
+                                pending, previous_ledger
+                            ),
+                            "certificate-owner-ledger",
+                            "torn owner publication lacks matching transaction",
+                        )
                     _host_deploy_validate(
                         authority, pin, binding, owner, now=now,
                         previous=previous_owner,
                     )
+                else:
+                    require(previous_owner is None and pending is None,
+                            "certificate-owner-ledger",
+                            "owner state exists without durable ledger")
 
                 proposed = _candidate_ledger(
                     context, authority, binding, owner, delivery_digest,
                     issuer, controller, intent,
                 )
                 ledger, changed = _advance_ledger(previous_ledger, proposed)
-                transaction = {
-                    "schema": "zog-host-install-certificate-owner-transaction-v1",
-                    "revision": ledger["revision"],
-                    "operation_id": ledger["operation_id"],
-                    "assignment_sha256": ledger["assignment_sha256"],
-                    "owner_authority_sha256": ledger["owner_authority_sha256"],
-                    "binding_sha256": ledger["binding_sha256"],
-                    "delivery_policy_sha256": ledger["delivery_policy_sha256"],
-                    "issuer_sha256": _digest(ledger["issuer"]),
-                }
+                transaction = _transaction_for(ledger)
                 _replace_file(
                     owner_fd, TRANSACTION_NAME, canonical(transaction)
                 )
@@ -980,13 +1033,15 @@ def inspect_live_owner():
             )
         finally:
             os.close(binding_fd)
-        owner_fd = _owner_directory(context)
+        owner_fd = _owner_directory(context, create=False)
         try:
             ledger = _validate_ledger(
                 _read_json(owner_fd, LEDGER_NAME, required=True)
             )
             owner = _read_json(owner_fd, OWNER_NAME, required=True)
             transaction = _read_json(owner_fd, TRANSACTION_NAME)
+            if transaction is not None:
+                _validate_transaction(transaction)
         finally:
             os.close(owner_fd)
         require(_digest(binding) == ledger["binding_sha256"]
