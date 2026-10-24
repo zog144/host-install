@@ -2,7 +2,6 @@
 import base64
 import csv
 import hashlib
-import importlib
 import importlib.metadata
 import io
 import os
@@ -152,10 +151,13 @@ def verify_reviewed_source(discover_source):
     return observed
 
 
-def verify_installed(*, python_executable='/usr/bin/python3'):
-    """Attest exact reviewed host-discover runtime bytes in the aggregate wheel."""
+def verify_installed(*, python_executable='/usr/bin/python3',
+                     distribution_name='host-discover'):
+    """Attest exact reviewed host-discover bytes against an installed wheel RECORD."""
     require(os.geteuid() == 0, 'root-required',
             'installed host-discover attestation requires root')
+    require(distribution_name in ('host-discover', 'zog'),
+            'host-discover-installed', 'unsupported installed distribution')
     require(not os.environ.get('PYTHONPATH'), 'host-discover-installed',
             'inherited PYTHONPATH is not permitted')
     require(not os.environ.get('PYTHONHOME'), 'host-discover-installed',
@@ -170,69 +172,75 @@ def verify_installed(*, python_executable='/usr/bin/python3'):
     _protected_ancestry(running, Path('/'))
 
     try:
-        distribution = importlib.metadata.distribution('zog')
+        distribution = importlib.metadata.distribution(distribution_name)
     except importlib.metadata.PackageNotFoundError:
         require(False, 'host-discover-installed',
-                'aggregate zog distribution is not installed')
-    require(distribution.metadata.get('Name') == 'zog',
-            'host-discover-installed', 'unexpected aggregate distribution name')
+                'selected host-discover distribution is not installed')
+    expected_name = distribution_name.lower()
+    require(distribution.metadata.get('Name', '').lower() == expected_name,
+            'host-discover-installed', 'unexpected installed distribution name')
+    if distribution_name == 'host-discover':
+        require(distribution.version == CONSUMER_VERSION,
+                'host-discover-installed',
+                'standalone host-discover version differs from reviewed successor')
+
     root = Path(distribution.locate_file('')).resolve()
     _protected_ancestry(root, Path('/'))
     record_text = distribution.read_text('RECORD')
     require(type(record_text) is str and 0 < len(record_text) <= 4_000_000,
-            'host-discover-installed', 'aggregate wheel RECORD missing or excessive')
+            'host-discover-installed', 'installed wheel RECORD missing or excessive')
     rows = {}
     for row in csv.reader(io.StringIO(record_text)):
         require(len(row) == 3 and row[0] not in rows,
-                'host-discover-installed', 'invalid aggregate wheel RECORD')
+                'host-discover-installed', 'invalid installed wheel RECORD')
         rows[row[0]] = (row[1], row[2])
     record_files = [
         value for value in distribution.files or ()
         if str(value).endswith('.dist-info/RECORD')
     ]
     require(len(record_files) == 1,
-            'host-discover-installed', 'aggregate RECORD path is ambiguous')
+            'host-discover-installed', 'installed RECORD path is ambiguous')
     record_path = Path(distribution.locate_file(record_files[0]))
     _protected_ancestry(record_path, root)
     info = record_path.lstat()
     require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1,
             'host-discover-installed',
-            'aggregate RECORD is not a protected regular file')
+            'installed RECORD is not a protected regular file')
 
     observed = {}
     for module, expected_blob in HOST_DISCOVER_MODULE_BLOBS.items():
-        loaded = importlib.import_module(module)
-        origin = getattr(loaded, '__file__', None)
-        require(type(origin) is str, 'host-discover-installed',
-                'loaded host-discover module has no filesystem origin')
-        path = Path(origin)
+        source_relative = HOST_DISCOVER_SOURCE_FILES[module]
+        require(source_relative.startswith('src/'),
+                'host-discover-installed', 'invalid reviewed source path')
+        relative = source_relative[len('src/'):]
+        path = root / relative
         _protected_ancestry(path, root)
         info = path.lstat()
         require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1,
                 'host-discover-installed',
-                'loaded host-discover module is not a protected regular file')
+                'host-discover module is not a protected regular file')
         data = path.read_bytes()
+        require(0 < len(data) <= 2_000_000,
+                'host-discover-installed',
+                'installed host-discover module exceeds size bound')
         blob = _git_blob(data)
         require(blob == expected_blob, 'host-discover-installed',
                 'installed host-discover bytes differ from reviewed successor')
-        relative = path.resolve().relative_to(root).as_posix()
-        require(relative in rows, 'host-discover-installed',
-                'host-discover module absent from aggregate RECORD')
-        algorithm, separator, encoded = rows[relative][0].partition('=')
+        relative_text = Path(relative).as_posix()
+        require(relative_text in rows, 'host-discover-installed',
+                'host-discover module absent from installed RECORD')
+        algorithm, separator, encoded = rows[relative_text][0].partition('=')
         require(separator == '=' and algorithm == 'sha256'
                 and encoded == _record_sha256(data),
                 'host-discover-installed',
-                'aggregate RECORD hash disagrees with host-discover module')
+                'installed RECORD hash disagrees with host-discover module')
         observed[module] = {
             'origin': str(path.resolve()),
             'git_blob': blob,
             'sha256': hashlib.sha256(data).hexdigest(),
-            'record_path': relative,
+            'record_path': relative_text,
         }
 
-    package = importlib.import_module('zog.host_discover')
-    require(getattr(package, '__version__', None) == CONSUMER_VERSION,
-            'host-discover-installed', 'unexpected host-discover version')
     return {
         'schema': 'zog-host-install-host-discover-installed-attestation-v1',
         'status': 'host-discover-installed-software-verified',
