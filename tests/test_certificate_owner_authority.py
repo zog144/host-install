@@ -354,7 +354,7 @@ class FakeDistribution:
     def __init__(self, root, files, record):
         self.root = Path(root)
         self.files = files
-        self.version = "0.0.test"
+        self.version = "0.10.6"
         self.metadata = {"Name": "host-deploy"}
         self._record = record
 
@@ -381,7 +381,7 @@ def fake_installed_host_deploy(tmp_path):
         ).rstrip(b"=").decode()
         rows.append(f"{relative.as_posix()},sha256={digest},{len(data)}")
         files.append(relative)
-    record_relative = Path("host_deploy-0.0.test.dist-info/RECORD")
+    record_relative = Path("host_deploy-0.10.6.dist-info/RECORD")
     path = root / record_relative
     path.parent.mkdir(parents=True, exist_ok=True)
     rows.append(f"{record_relative.as_posix()},,")
