@@ -1,12 +1,12 @@
 # Explicit managed-beacon composition
 
-> **Version scope:** This page preserves the managed-beacon integration profile and its original tested companion versions. For current companion pins, consult the repository's source manifests and the [component manual](README.md); do not mix companions from different historical profiles without independent compatibility checks.
+> **Current selection:** host-discover 0.4.11 at `9e741d9a86bb2fd466ac46b252be0b78528eeff7`, reviewed against host-install 0.14.3 and retained by later 0.14.x compatibility CI. See [the 2026-10-24 successor contract](host-discover-compatibility-2026-10-24.md). Historical companion notes below describe earlier acceptance and must not override the current immutable pin.
 
 This optional profile enrolls and sends session-bound heartbeats through verified
 HTTPS using the existing host identity. Remote commands, archive delivery and
-box-control dispatch remain disabled. The current package pair uses host-discover 0.4.4's protected
-supervisor, host-identify 0.3.3 and the separately enabled station-access 0.4.19
-managed-session endpoint. No production station is changed by these commands.
+box-control dispatch remain disabled. The selected consumer is host-discover
+0.4.11 with host-identify 0.3.4. No station approval, authority export or
+certificate operation is implied by staging or restarting this profile.
 
 ## Provisioning
 
@@ -54,6 +54,15 @@ presence of profile.json does not mean a previously interrupted stage completed.
 Same-byte retries resume, different inputs refuse. Staging neither enables units
 nor writes STATE. Render/install the STATE mount separately with the verified
 PARTUUID. Install the staged units only after a successful stage operation.
+
+The current profile additionally verifies all 17 reviewed top-level host-discover
+runtime modules and records their Git blobs/SHA-256 values in `profile.json`.
+Before activating a retained installation, attest the actual installed component
+wheel with `host-install beacon-attest-installed --distribution host-discover`
+using the same protected Python interpreter that will run the beacon. The command
+checks exact module bytes against the selected wheel `RECORD`; it does not write
+STATE or authorize station approval. Use `--distribution zog` only for an
+explicit aggregate-wheel composition.
 
 Explicitly stop and disable `host-discover.service` and
 `host-discover-managed.service`; ensure no manually launched legacy writer uses
