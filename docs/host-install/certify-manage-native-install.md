@@ -1,8 +1,6 @@
 # Native certify-manage issuer installation
 
-**Status:** host-install 0.13.0 source/deployment implementation. Native ACME,
-systemd, nginx and HTTPS acceptance remains **NO-GO** until host-deploy Work
-completes the isolated gate.
+**Status:** host-install 0.14.4 source/deployment successor. The immutable issuer producer is rebound to the reviewed image-build recovery/profile successor. Native ACME, systemd, nginx and HTTPS acceptance remains **NO-GO** until host-deploy Work completes the isolated gate.
 
 This profile supplies the host-install-owned native issuer substrate identified by
 host-deploy PR #3 Work acceptance. It does **not** install hostname authority,
@@ -13,7 +11,8 @@ authorize production HTTPS.
 
 - certify-manage: `8d073ff449557fc82c12eea93e240cdeec1b0fcc`
 - image-build immutable issuer producer:
-  `b5cf3d761087c157b71724986bc94503089932a2`
+  `d6fe6f0386eccd2ba577b45c32fa16baf6540c69`
+  (`certify_manage_software.py` blob `a6216f5031c8155cd020ce4424e94307af319213`)
 - box-control selected issuer controller:
   `a3e939b7a22ef6277ae9712961ffbd5a18ccac39`
 - root-control native mechanism:
