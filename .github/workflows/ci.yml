@@ -69,6 +69,12 @@ jobs:
           repository: zog144/certify-manage
           ref: 8d073ff449557fc82c12eea93e240cdeec1b0fcc
           path: companions/certify-manage
+      - name: Check out reviewed host-deploy certificate authority consumer
+        uses: actions/checkout@v4
+        with:
+          repository: zog144/host-deploy
+          ref: 04c1006742e7592f2ec5f2103c7874404fc361a8
+          path: companions/host-deploy
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
@@ -89,12 +95,14 @@ jobs:
           test "$(git -C companions/box-control-certificate rev-parse HEAD)" = "a3e939b7a22ef6277ae9712961ffbd5a18ccac39"
           test "$(git -C companions/root-control rev-parse HEAD)" = "3a2dd9c935e332e811adaccedf04b16bd2de1ea7"
           test "$(git -C companions/certify-manage rev-parse HEAD)" = "8d073ff449557fc82c12eea93e240cdeec1b0fcc"
+          test "$(git -C companions/host-deploy rev-parse HEAD)" = "04c1006742e7592f2ec5f2103c7874404fc361a8"
       - name: Install reviewed companions and local source
         run: |
           python -m pip install './companions/host-identify' 'pytest>=8,<10'
           python -m pip install --no-deps './companions/host-discover'
           python -m pip install --no-deps './companions/image-build'
           python -m pip install --no-deps './companions/box-control-certificate/box-control'
+          python -m pip install --no-deps './companions/host-deploy'
           python -m pip install --no-deps .
       - name: Compile sources and tests
         run: python -m compileall -q src tests
@@ -107,10 +115,11 @@ jobs:
           CERTIFICATE_BOX_CONTROL_SOURCE: companions/box-control-certificate
           ROOT_CONTROL_SOURCE: companions/root-control
           CERTIFY_MANAGE_SOURCE: companions/certify-manage
+          HOST_DEPLOY_SOURCE: companions/host-deploy
         run: |
           # STATE coordination tests require real root ownership; no mocked UID.
           # The GitHub-hosted runner is disposable, not an enrolled Zog host.
-          sudo --preserve-env=HOST_IDENTIFY_SOURCE,HOST_DISCOVER_SOURCE,BOX_CONTROL_SOURCE,IMAGE_BUILD_SOURCE,CERTIFICATE_BOX_CONTROL_SOURCE,ROOT_CONTROL_SOURCE,CERTIFY_MANAGE_SOURCE "$(command -v python)" -m pytest -q tests
+          sudo --preserve-env=HOST_IDENTIFY_SOURCE,HOST_DISCOVER_SOURCE,BOX_CONTROL_SOURCE,IMAGE_BUILD_SOURCE,CERTIFICATE_BOX_CONTROL_SOURCE,ROOT_CONTROL_SOURCE,CERTIFY_MANAGE_SOURCE,HOST_DEPLOY_SOURCE "$(command -v python)" -m pytest -q tests
       - name: Confirm CLI and namespace
         run: |
           host-install --help >/dev/null
@@ -232,6 +241,8 @@ jobs:
                         'src/zog/host_install/state_contract.py',
                         'src/zog/host_install/certificate_lifecycle.py',
                         'tests/test_certificate_lifecycle.py',
+                        'src/zog/host_install/certificate_owner_authority.py',
+                        'tests/test_certificate_owner_authority.py',
                         'src/zog/host_install/welcome_readiness.py',
                         'tests/test_welcome_readiness.py',
                         'tests/test_welcome_units.py',
