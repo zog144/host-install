@@ -161,18 +161,21 @@ def build_all():
 def test_reviewed_host_deploy_pr3_source_is_exact():
     observed = owner.verify_reviewed_host_deploy_source(HOST_DEPLOY_SOURCE)
     assert owner.HOST_DEPLOY_COMMIT == (
-        "04c1006742e7592f2ec5f2103c7874404fc361a8"
+        "098b6813dc1016ae748de8c5e836648a7b244c7f"
     )
+    assert owner.HOST_DEPLOY_MODULE_BLOBS[
+        "zog.host_deploy.certificate_hostname_authority"
+    ] == "fc833cb3164e018076e2cc4a4a75aa12923c4c8d"
     assert set(observed) == set(owner.HOST_DEPLOY_MODULE_BLOBS)
     assert observed[
         "zog.host_deploy.certificate_managed_authority"
-    ]["git_blob"] == "d9e6cc0efac7b42503e887cea44f308a7f58ebda"
+    ]["git_blob"] == "f07c0655280d9724cc59a7fc8bbd7af5e5415913"
     assert observed[
         "zog.host_deploy.certificate_hostname_authority"
     ]["git_blob"] == "fc833cb3164e018076e2cc4a4a75aa12923c4c8d"
     assert observed[
         "zog.host_deploy.certificate_delivery"
-    ]["git_blob"] == "d857e426ab84d6f103e29c36d9d6bba0c4c403f3"
+    ]["git_blob"] == "d69b59afe3060f5c92bf527c82d9aafc85127493"
 
 
 def test_independent_intent_contains_no_credential_bytes():

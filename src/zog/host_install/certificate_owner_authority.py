@@ -35,14 +35,14 @@ from .state_contract import CONFIG, StateError, canonical, decode, fields, requi
 from .state_inspect import directory, inspect_live, metadata, read_at
 from .state_io import ensure_directory, lock, publish
 
-HOST_DEPLOY_COMMIT = "04c1006742e7592f2ec5f2103c7874404fc361a8"
+HOST_DEPLOY_COMMIT = "098b6813dc1016ae748de8c5e836648a7b244c7f"
 HOST_DEPLOY_MODULE_BLOBS = {
     "zog.host_deploy.certificate_managed_authority":
-        "d9e6cc0efac7b42503e887cea44f308a7f58ebda",
+        "f07c0655280d9724cc59a7fc8bbd7af5e5415913",
     "zog.host_deploy.certificate_hostname_authority":
         "fc833cb3164e018076e2cc4a4a75aa12923c4c8d",
     "zog.host_deploy.certificate_delivery":
-        "d857e426ab84d6f103e29c36d9d6bba0c4c403f3",
+        "d69b59afe3060f5c92bf527c82d9aafc85127493",
 }
 HOST_DEPLOY_SOURCE_FILES = {
     module: "src/" + module.replace(".", "/") + ".py"

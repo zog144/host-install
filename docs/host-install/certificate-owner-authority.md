@@ -1,9 +1,12 @@
 # Managed certificate owner authority and prepared issuer handoff
 
-**Status:** host-install source contract. Native authority installation and
-host-deploy Gate B / HTTPS Gate C remain separately executed and evidenced.
+**Status:** host-install 0.14.8 source contract. The reviewed host-deploy
+consumer is repinned to the second-owner-ledger-aware PR #3 successor without
+changing any accepted installation, STATE, signer, issuer, policy, credential,
+grant or owner-ledger identity. Native authority installation and host-deploy
+Gate B / HTTPS Gate C remain separately executed and evidenced.
 
-**Reviewed host-deploy consumer:** `04c1006742e7592f2ec5f2103c7874404fc361a8`
+**Reviewed host-deploy consumer:** `098b6813dc1016ae748de8c5e836648a7b244c7f`
 (PR #3 candidate, host-deploy 0.10.6)
 
 This contract joins independently authenticated station authority with a
@@ -119,17 +122,25 @@ fields, while it cannot choose `service_id` or `policy_sha256`.
 host-install pins the reviewed PR #3 modules:
 
 - `certificate_managed_authority.py`:
-  `d9e6cc0efac7b42503e887cea44f308a7f58ebda`
+  `f07c0655280d9724cc59a7fc8bbd7af5e5415913`
 - `certificate_hostname_authority.py`:
   `fc833cb3164e018076e2cc4a4a75aa12923c4c8d`
 - `certificate_delivery.py`:
-  `d857e426ab84d6f103e29c36d9d6bba0c4c403f3`
+  `d69b59afe3060f5c92bf527c82d9aafc85127493`
 
 Before reconciliation, the installed `host-deploy` 0.10.6 distribution (or an
 explicit aggregate `zog` distribution) is checked against those Git blobs and
 its wheel RECORD. Reconciliation then calls the reviewed host-deploy owner
 validators/managed derivation rather than inventing a parallel delivery
 schema.
+
+The 0.14.8 repin is **consumer-code-only**. The accepted installation UUID,
+STATE volume UUID, signer fingerprint/registry, local owner intent,
+`policy_sha256`, credential ID/revision, issuer UID/GID, issuer storage/grant,
+software view, controller record digest, root checkpoint and second owner-ledger
+identities are retained exactly. Work must upgrade/attest the reviewed
+host-deploy bytes in place and must not recreate or migrate those identities
+merely because the consumer implementation advanced.
 
 ## Reconciliation command
 

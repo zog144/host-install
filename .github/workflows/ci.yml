@@ -73,7 +73,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: zog144/host-deploy
-          ref: 04c1006742e7592f2ec5f2103c7874404fc361a8
+          ref: 098b6813dc1016ae748de8c5e836648a7b244c7f
           path: companions/host-deploy
       - uses: actions/setup-python@v5
         with:
@@ -95,7 +95,7 @@ jobs:
           test "$(git -C companions/box-control-certificate rev-parse HEAD)" = "a3e939b7a22ef6277ae9712961ffbd5a18ccac39"
           test "$(git -C companions/root-control rev-parse HEAD)" = "3a2dd9c935e332e811adaccedf04b16bd2de1ea7"
           test "$(git -C companions/certify-manage rev-parse HEAD)" = "8d073ff449557fc82c12eea93e240cdeec1b0fcc"
-          test "$(git -C companions/host-deploy rev-parse HEAD)" = "04c1006742e7592f2ec5f2103c7874404fc361a8"
+          test "$(git -C companions/host-deploy rev-parse HEAD)" = "098b6813dc1016ae748de8c5e836648a7b244c7f"
       - name: Install reviewed companions and local source
         run: |
           python -m pip install './companions/host-identify' 'pytest>=8,<10'
@@ -123,7 +123,7 @@ jobs:
       - name: Confirm CLI and namespace
         run: |
           host-install --help >/dev/null
-          python -c 'import zog.host_install as h; assert h.__version__ == "0.14.7"'
+          python -c 'import zog.host_install as h; assert h.__version__ == "0.14.8"'
           test ! -e src/zog/__init__.py
 
   host-discover-compatibility:
