@@ -90,8 +90,9 @@ def main(argv=None):
     cmd.add_argument("--output", type=Path, required=True)
     cmd.add_argument("--executable-directory", default="/usr/bin")
     cmd.add_argument("--certificate-assignment-authority-pin", type=Path)
-    cmd = sub.add_parser("beacon-attest-installed", help="attest exact reviewed host-discover runtime bytes against aggregate wheel RECORD")
+    cmd = sub.add_parser("beacon-attest-installed", help="attest exact reviewed host-discover runtime bytes against installed wheel RECORD")
     cmd.add_argument("--python-executable", default="/usr/bin/python3")
+    cmd.add_argument("--distribution", choices=("host-discover", "zog"), default="host-discover")
     sub.add_parser("state-admission-listen", help="serve the systemd listener until ordered shutdown")
     sub.add_parser("welcome-readiness-serve", help="serve one sanitized bootstrap readiness snapshot on a systemd accepted socket")
     cmd = sub.add_parser("application-progress-stage", help="stage the protected station application-progress observer profile")
@@ -251,6 +252,7 @@ def main(argv=None):
         elif args.command == "beacon-attest-installed":
             result = beacon_profile.verify_installed(
                 python_executable=args.python_executable,
+                distribution_name=args.distribution,
             )
         elif args.command == "beacon-prepare":
             result = beacon_profile.prepare_live(args.state_volume_id)
