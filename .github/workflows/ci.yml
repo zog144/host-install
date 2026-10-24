@@ -123,7 +123,7 @@ jobs:
       - name: Confirm CLI and namespace
         run: |
           host-install --help >/dev/null
-          python -c 'import zog.host_install as h; assert h.__version__ == "0.14.5"'
+          python -c 'import zog.host_install as h; assert h.__version__ == "0.14.6"'
           test ! -e src/zog/__init__.py
 
   host-discover-compatibility:
@@ -268,6 +268,7 @@ jobs:
                         'src/zog/host_install/certify_manage_profile.py',
                         'tests/test_certify_manage_profile.py',
                         'docs/host-install/certify-manage-native-install.md',
+                        'docs/host-install/certificate-owner-authority.md',
                         'src/zog/host_install/certificate_native_observation.py',
                         'tests/test_certificate_native_observation.py'):
                   assert p in files, p
