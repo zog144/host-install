@@ -182,6 +182,10 @@ def attest_installed_host_deploy(*, python_executable="/usr/bin/python3",
                 "selected host-deploy distribution is unavailable")
     require(dist.metadata.get("Name", "").lower() == distribution_name.lower(),
             "certificate-owner-installed", "unexpected distribution name")
+    if distribution_name == "host-deploy":
+        require(dist.version == "0.10.6",
+                "certificate-owner-installed",
+                "standalone host-deploy version differs from reviewed PR #3")
     root = Path(dist.locate_file("")).resolve()
     _protected_ancestry(root)
     text = dist.read_text("RECORD")
@@ -774,12 +778,17 @@ def _read_json(fd, name, *, required=False):
                 and stat.S_IMODE(info.st_mode) == 0o600
                 and info.st_nlink == 1 and info.st_size <= 65536,
                 "certificate-owner-ledger", "unsafe owner record")
-        raw = os.read(handle, 65537)
+        data = bytearray()
+        while len(data) <= 65536:
+            part = os.read(handle, min(8192, 65537 - len(data)))
+            if not part:
+                break
+            data.extend(part)
     finally:
         os.close(handle)
-    require(len(raw) <= 65536,
+    require(len(data) <= 65536,
             "certificate-owner-ledger", "owner record too large")
-    return decode(raw)
+    return decode(bytes(data))
 
 
 def _validate_transaction(value):
