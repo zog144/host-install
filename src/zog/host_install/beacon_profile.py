@@ -370,9 +370,21 @@ def stage(discover_source, producer_source, output, executable_directory='/usr/b
                     publish(current, AUTHORITY_PIN_NAME, canonical(pin), 0o444)
                 finally:
                     for fd in reversed(opened): os.close(fd)
-        return dict(status='beacon-profile-staged', output=str(output), services_enabled=False, state_modified=False,
-                    certificate_assignment_authority_pin_installed=pin is not None,
-                    certificate_assignment_authority_key_id=None if pin is None else pin['authority_key_id'])
+        return dict(
+            status='beacon-profile-staged',
+            output=str(output),
+            consumer_commit=CONSUMER_COMMIT,
+            consumer_version=CONSUMER_VERSION,
+            reviewed_runtime_modules=len(reviewed_modules),
+            installed_software_verified=False,
+            services_enabled=False,
+            state_modified=False,
+            station_approval_authorized=False,
+            certificate_assignment_authority_pin_installed=pin is not None,
+            certificate_assignment_authority_key_id=(
+                None if pin is None else pin['authority_key_id']
+            ),
+        )
     finally:
         if root is not None: os.close(root)
         os.close(parent)
