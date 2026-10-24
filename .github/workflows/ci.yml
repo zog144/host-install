@@ -31,7 +31,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: zog144/host-discover
-          ref: 69ef2620f644a83ccc309f13b71b7f0e30a684aa
+          ref: 9e741d9a86bb2fd466ac46b252be0b78528eeff7
           path: companions/host-discover
       - name: Check out reviewed public box-control observer
         uses: actions/checkout@v4
@@ -82,7 +82,7 @@ jobs:
           test -f LICENSES/BSD-3-Clause.txt
           test -f LICENSES/GPL-3.0-only.txt
           test "$(git -C companions/host-identify rev-parse HEAD)" = "1a5eac0b255c995022db6a3a4c0051efffa748cc"
-          test "$(git -C companions/host-discover rev-parse HEAD)" = "69ef2620f644a83ccc309f13b71b7f0e30a684aa"
+          test "$(git -C companions/host-discover rev-parse HEAD)" = "9e741d9a86bb2fd466ac46b252be0b78528eeff7"
           test "$(git -C companions/box-control rev-parse HEAD)" = "8249715708c6ef8a1fd30a3fb529b4034ffffe25"
           test "$(git -C companions/image-build rev-parse HEAD)" = "d6fe6f0386eccd2ba577b45c32fa16baf6540c69"
           test "$(git -C companions/host-welcome rev-parse HEAD)" = "cf22abc98fef05231b0c6dabc9f6f7930862affc"
@@ -118,7 +118,7 @@ jobs:
           test ! -e src/zog/__init__.py
 
   host-discover-compatibility:
-    name: host-discover 0.4.8 compatibility (Python ${{ matrix.python-version }})
+    name: host-discover 0.4.11 / host-install 0.14 compatibility (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -131,7 +131,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: zog144/host-discover
-          ref: 341255fd0ebdee5eedfd4be9a40829ec17391887
+          ref: 9e741d9a86bb2fd466ac46b252be0b78528eeff7
           path: companions/host-discover-compat
       - name: Check out reviewed host-identify companion
         uses: actions/checkout@v4
@@ -144,9 +144,10 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Verify exact compatibility inputs
         run: |
-          test "$(git -C companions/host-discover-compat rev-parse HEAD)" = "341255fd0ebdee5eedfd4be9a40829ec17391887"
+          test "$(git -C companions/host-discover-compat rev-parse HEAD)" = "9e741d9a86bb2fd466ac46b252be0b78528eeff7"
           test "$(git -C companions/host-identify-compat rev-parse HEAD)" = "1a5eac0b255c995022db6a3a4c0051efffa748cc"
-          grep -F '"host-install==0.4.4"' companions/host-discover-compat/pyproject.toml
+          grep -F '"host-install==0.14.3"' companions/host-discover-compat/pyproject.toml
+          grep -F '__version__ = "0.4.11"' companions/host-discover-compat/src/zog/host_discover/__init__.py
           test ! -e src/zog/__init__.py
       - name: Install exact source pair without stale standalone dependency resolution
         run: |
@@ -156,10 +157,19 @@ jobs:
       - name: Compile selected host-discover source and tests
         run: |
           python -m compileall -q companions/host-discover-compat/src companions/host-discover-compat/tests
-      - name: Run host-install consumer compatibility suite
+      - name: Run host-install 0.14 successor compatibility suite
         working-directory: companions/host-discover-compat
         run: |
-          python -m pytest -q tests/test_beacon_https.py tests/test_beacon_units.py tests/test_bootstrap.py tests/test_host_generation.py tests/test_managed.py tests/test_managed_admission.py tests/test_namespace_layout.py tests/test_narrow_admission.py
+          python -m pytest -q tests \
+            --ignore=tests/test_network_retry.py \
+            --ignore=tests/test_session_recovery.py \
+            --ignore=tests/test_supervised_beacon.py \
+            --ignore=tests/test_host_install_native_compatibility.py
+          sudo --preserve-env=PATH "$(command -v python)" -m pytest -q \
+            tests/test_network_retry.py \
+            tests/test_session_recovery.py \
+            tests/test_supervised_beacon.py \
+            tests/test_host_install_native_compatibility.py
 
   artifacts:
     name: Wheel and source distribution audit
