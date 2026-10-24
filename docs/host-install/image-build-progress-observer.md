@@ -13,7 +13,7 @@
 - Certbot Gate C service template blob: `deef20a24c7ae3a6b54512e65c8c8efdffe34dde`
 - changed broker blob `zog.image_build.post_install_progress_broker`: `997f802492f5bc60724bc6cebff2c045191f2fc1`
 - changed projection blob `zog.image_build.post_install_progress`: `7fa485ca5d3f067999dbe16ff66986315abcf1e3`
-- currently reviewed host-welcome consumer provenance: `cf22abc98fef05231b0c6dabc9f6f7930862affc`
+- currently reviewed host-welcome consumer provenance: `a1d554bb78de27e9f365f4254db25c77cc49ec27`
 - deployment contract: `image-build-post-install-progress-native-deployment-v3`
 - observer-profile contract: `image-build-post-install-progress-observer-profile-v1`
 - projection: `image-build-post-install-progress-v2`
@@ -23,7 +23,7 @@
 
 The two runtime modules above changed for the cold-start correction. The other eleven security-critical runtime-module blobs are unchanged from the prior reviewed inventory. host-install still verifies all thirteen against source and, after installation, against protected aggregate-wheel files plus the wheel `RECORD`.
 
-The host-welcome provenance field is intentionally not guessed forward here. host-welcome Regular must separately adopt `fe625fd9…` in its protected policy and snapshot producer validators and publish its own accepted successor commit. Work must not perform the targeted cold-start Gate C retest until both consumer rebinds are present in the installed bundle.
+Host-welcome Regular has independently adopted the same runtime pin at `a1d554bb78de27e9f365f4254db25c77cc49ec27` with its unchanged 12-second timeout and credential/parser contract. host-install records that exact consumer provenance in `profile.json`; Work must install and attest this combined consumer/producer tuple rather than substituting either predecessor.
 
 ## Cold-start successor semantics
 
@@ -51,7 +51,7 @@ Successful staging or installed-byte attestation remains read-only and does not 
 
 ## Targeted native Work gate
 
-After host-welcome publishes and host-install adopts the matching consumer successor provenance, Work should reuse the retained genuine Gate C environment/evidence where still valid and perform only the targeted cold-start acceptance:
+With both Regular consumers now source-bound to the same successor, Work should reuse the retained genuine Gate C environment/evidence where still valid and perform only the targeted cold-start acceptance:
 
 1. install/stage and attest the exact successor bundle;
 2. prove a true cold socket activation with the broker process absent before the request;

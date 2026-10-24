@@ -49,7 +49,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: zog144/host-welcome
-          ref: cf22abc98fef05231b0c6dabc9f6f7930862affc
+          ref: a1d554bb78de27e9f365f4254db25c77cc49ec27
           path: companions/host-welcome
       - name: Check out certificate box-control producer
         uses: actions/checkout@v4
@@ -91,7 +91,7 @@ jobs:
           test "$(git -C companions/host-discover rev-parse HEAD)" = "9e741d9a86bb2fd466ac46b252be0b78528eeff7"
           test "$(git -C companions/box-control rev-parse HEAD)" = "8249715708c6ef8a1fd30a3fb529b4034ffffe25"
           test "$(git -C companions/image-build rev-parse HEAD)" = "53ad8c2166e6b73dffbc722c2e47ccf3593612ec"
-          test "$(git -C companions/host-welcome rev-parse HEAD)" = "cf22abc98fef05231b0c6dabc9f6f7930862affc"
+          test "$(git -C companions/host-welcome rev-parse HEAD)" = "a1d554bb78de27e9f365f4254db25c77cc49ec27"
           test "$(git -C companions/box-control-certificate rev-parse HEAD)" = "a3e939b7a22ef6277ae9712961ffbd5a18ccac39"
           test "$(git -C companions/root-control rev-parse HEAD)" = "3a2dd9c935e332e811adaccedf04b16bd2de1ea7"
           test "$(git -C companions/certify-manage rev-parse HEAD)" = "8d073ff449557fc82c12eea93e240cdeec1b0fcc"
