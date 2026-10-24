@@ -1,8 +1,12 @@
 """Composition with real consumer supervisor; only mount/identity evidence is synthetic."""
+import base64
 import copy
+import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
+from types import SimpleNamespace
 from unittest.mock import patch
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -57,6 +61,135 @@ def test_unrecorded_existing_journal_is_not_adopted(environment):
     journal=root/'host-discover/control/managed.json';journal.write_text('{}');journal.chmod(0o600);os.chown(journal,970,970)
     with pytest.raises(StateError):profile.prepare(c,volume,supervisor)
     assert not (root/supervisor.NAME).exists()
+
+def test_reviewed_host_discover_successor_source_is_exact():
+    consumer = Path(os.environ["HOST_DISCOVER_SOURCE"])
+    observed = profile.verify_reviewed_source(consumer)
+    assert profile.CONSUMER_COMMIT == (
+        "9e741d9a86bb2fd466ac46b252be0b78528eeff7"
+    )
+    assert profile.CONSUMER_VERSION == "0.4.11"
+    assert len(observed) == 17
+    assert set(observed) == set(profile.HOST_DISCOVER_MODULE_BLOBS)
+    assert observed["zog.host_discover.managed_transport"]["git_blob"] == (
+        "386384ade8606797cd7be855e26951be63bac2e1"
+    )
+
+
+def test_reviewed_successor_rejects_predecessor_reporting_bytes(tmp_path):
+    consumer = Path(os.environ["HOST_DISCOVER_SOURCE"])
+    source = tmp_path / "host-discover"
+    for relative in profile.HOST_DISCOVER_SOURCE_FILES.values():
+        target = source / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(consumer / relative, target)
+    changed = source / "src/zog/host_discover/managed_transport.py"
+    changed.write_bytes(changed.read_bytes() + b"\n# changed\n")
+    with pytest.raises(StateError, match="differs from reviewed successor"):
+        profile.verify_reviewed_source(source)
+
+
+class FakeDistribution:
+    def __init__(self, root, files, record):
+        self.root = Path(root)
+        self.version = "0.1.0"
+        self.files = files
+        self.metadata = {"Name": "zog"}
+        self._record = record
+
+    def locate_file(self, value):
+        return self.root / str(value)
+
+    def read_text(self, name):
+        assert name == "RECORD"
+        return self._record
+
+
+def fake_installed_host_discover(tmp_path):
+    source = Path(os.environ["HOST_DISCOVER_SOURCE"])
+    root = tmp_path / "site-packages"
+    mapping = {}
+    rows = []
+    files = []
+    for module, relative_source in profile.HOST_DISCOVER_SOURCE_FILES.items():
+        relative = (
+            Path("zog/host_discover/__init__.py")
+            if module == "zog.host_discover"
+            else Path(*module.split(".")).with_suffix(".py")
+        )
+        target = root / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        data = (source / relative_source).read_bytes()
+        target.write_bytes(data)
+        digest = base64.urlsafe_b64encode(
+            hashlib.sha256(data).digest()
+        ).rstrip(b"=").decode()
+        rows.append(f"{relative.as_posix()},sha256={digest},{len(data)}")
+        files.append(relative)
+        value = SimpleNamespace(__file__=str(target))
+        if module == "zog.host_discover":
+            value.__version__ = "0.4.11"
+        mapping[module] = value
+    record_relative = Path("zog-0.1.0.dist-info/RECORD")
+    record_path = root / record_relative
+    record_path.parent.mkdir(parents=True, exist_ok=True)
+    rows.append(f"{record_relative.as_posix()},,")
+    record = "\n".join(rows) + "\n"
+    record_path.write_text(record)
+    files.append(record_relative)
+    return root, mapping, FakeDistribution(root, files, record)
+
+
+def test_installed_host_discover_attestation_checks_all_modules_and_record(
+    tmp_path, monkeypatch
+):
+    root, mapping, distribution = fake_installed_host_discover(tmp_path)
+    monkeypatch.setattr(profile.os, "geteuid", lambda: 0)
+    monkeypatch.delenv("PYTHONPATH", raising=False)
+    monkeypatch.delenv("PYTHONHOME", raising=False)
+    monkeypatch.setattr(profile.sys, "executable", "/usr/bin/python3")
+    monkeypatch.setattr(profile, "_protected_ancestry", lambda *a, **k: None)
+    monkeypatch.setattr(
+        profile.importlib.metadata, "distribution", lambda name: distribution
+    )
+    monkeypatch.setattr(
+        profile.importlib, "import_module", lambda name: mapping[name]
+    )
+    result = profile.verify_installed(python_executable="/usr/bin/python3")
+    assert result["status"] == "host-discover-installed-software-verified"
+    assert result["consumer_commit"] == profile.CONSUMER_COMMIT
+    assert result["consumer_version"] == "0.4.11"
+    assert set(result["modules"]) == set(profile.HOST_DISCOVER_MODULE_BLOBS)
+    assert result["modules"]["zog.host_discover.managed_transport"]["git_blob"] == (
+        "386384ade8606797cd7be855e26951be63bac2e1"
+    )
+    assert result["distribution"]["record_sha256"]
+    assert result["state_modified"] is False
+    assert result["station_approval_authorized"] is False
+    for value in result["modules"].values():
+        assert value["origin"].startswith(str(root))
+
+
+def test_installed_host_discover_attestation_rejects_modified_reporting_module(
+    tmp_path, monkeypatch
+):
+    _root, mapping, distribution = fake_installed_host_discover(tmp_path)
+    path = Path(mapping["zog.host_discover.managed_transport"].__file__)
+    path.write_bytes(path.read_bytes() + b"\n# predecessor-or-modified\n")
+    monkeypatch.setattr(profile.os, "geteuid", lambda: 0)
+    monkeypatch.delenv("PYTHONPATH", raising=False)
+    monkeypatch.delenv("PYTHONHOME", raising=False)
+    monkeypatch.setattr(profile.sys, "executable", "/usr/bin/python3")
+    monkeypatch.setattr(profile, "_protected_ancestry", lambda *a, **k: None)
+    monkeypatch.setattr(
+        profile.importlib.metadata, "distribution", lambda name: distribution
+    )
+    monkeypatch.setattr(
+        profile.importlib, "import_module", lambda name: mapping[name]
+    )
+    with pytest.raises(StateError, match="differ from reviewed successor"):
+        profile.verify_installed(python_executable="/usr/bin/python3")
+
 
 def test_offline_profile_is_repeatable_exclusive_and_has_no_preparation(tmp_path):
     consumer=Path(os.environ['HOST_DISCOVER_SOURCE']);producer=Path(__file__).resolve().parents[1]
@@ -132,8 +265,15 @@ def test_offline_profile_installs_reviewed_root_authority_pin(tmp_path):
     assert json.loads(installed.read_text()) == pin
     manifest = json.loads((out / "profile.json").read_text())
     assert manifest["consumer_template_commit"] == (
-        "69ef2620f644a83ccc309f13b71b7f0e30a684aa"
+        "9e741d9a86bb2fd466ac46b252be0b78528eeff7"
     )
+    assert manifest["consumer_version"] == "0.4.11"
+    assert set(manifest["consumer_runtime_modules"]) == set(
+        profile.HOST_DISCOVER_MODULE_BLOBS
+    )
+    assert manifest["consumer_runtime_modules"][
+        "zog.host_discover.managed_transport"
+    ]["git_blob"] == "386384ade8606797cd7be855e26951be63bac2e1"
     assert manifest["certificate_assignment_authority_pin"]["path"] == (
         "/etc/zog/host-install/certificate-assignment-authority.json"
     )
