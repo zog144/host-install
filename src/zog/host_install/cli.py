@@ -168,6 +168,7 @@ def main(argv=None):
     cmd.add_argument("--event", choices=("install", "reboot", "upgrade", "status"), default="status")
     cmd.add_argument("--inspect-request-id")
     cmd.add_argument("--python-executable", default="/usr/bin/python3")
+    cmd.add_argument("--host-discover-distribution", choices=("host-discover", "zog"), default="host-discover")
     cmd = sub.add_parser("certificate-status", help="evaluate detached secret-free certificate enablement evidence")
     cmd.add_argument("evidence", type=Path)
     cmd = sub.add_parser(
@@ -207,6 +208,7 @@ def main(argv=None):
                 event=args.event,
                 inspect_request_id=args.inspect_request_id,
                 python_executable=args.python_executable,
+                host_discover_distribution=args.host_discover_distribution,
             )
         elif args.command == "certify-manage-controller-attest-installed":
             result = certify_manage_profile.attest_installed_controller(
