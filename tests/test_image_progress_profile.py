@@ -214,10 +214,10 @@ def test_observer_profile_selection_fails_closed(tmp_path, monkeypatch):
     with pytest.raises(StateError, match="unsupported"):
         stage(tmp_path, monkeypatch, observer_profile="certify-manage-plus-firefox")
 
-    stage(tmp_path / "fixed", monkeypatch)
+    stage(tmp_path, monkeypatch)
     with pytest.raises(StateError, match="profile.json|record-conflict"):
         stage(
-            tmp_path / "fixed",
+            tmp_path,
             monkeypatch,
             observer_profile=profile.CERTIFY_MANAGE_OBSERVER_PROFILE,
         )

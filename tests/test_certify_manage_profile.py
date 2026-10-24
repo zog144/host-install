@@ -104,13 +104,16 @@ def test_reviewed_source_pins_are_exact():
         IMAGE_BUILD_SOURCE, CERTIFY_MANAGE_SOURCE
     )
     assert observed["image-build certify-manage software producer"]["git_blob"] == (
-        "ed69143e42d13db8e0165158af61c9d592394e7b"
+        "a6216f5031c8155cd020ce4424e94307af319213"
     )
     assert observed["certify-manage controller declaration"]["git_blob"] == (
         "23b180f1f731dae67a06fcd1bdb994304c67390f"
     )
     assert observed["certify-manage host-install requirements"]["git_blob"] == (
         "1de58f2be2e21710a7544df8a9d0638ad3bb5c06"
+    )
+    assert profile.IMAGE_BUILD_COMMIT == (
+        "d6fe6f0386eccd2ba577b45c32fa16baf6540c69"
     )
     assert profile.CERTIFY_MANAGE_COMMIT == (
         "8d073ff449557fc82c12eea93e240cdeec1b0fcc"
