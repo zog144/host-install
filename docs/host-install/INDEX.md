@@ -11,6 +11,7 @@ The canonical reader-facing manual is **[host-install technical manual](README.m
 - [Dedicated host-welcome image-build progress observer](image-build-progress-observer.md) — fixed image-progress socket/policy, live producer UID resolution, pinned image-build source and aggregate installed-byte attestation.
 - [Native certify-manage issuer installation](certify-manage-native-install.md) — immutable issuer software binding, controller application/policy staging, lifecycle socket and prepared grant/storage attestations.
 - [Managed certificate owner authority](certificate-owner-authority.md) — independently installed signer/local binding, prepared issuer cross-check, second monotonic owner ledger and host-deploy Gate B handoff.
+- [Bootable resident image contract](bootable-image-contract.md) — immutable rootfs/UEFI/foreign-kernel requirements, Boot A vs Resident B gates, and image-build/Work ownership split.
 - [Non-resident installation and STATE](non-resident-installation.md) — externally managed host-OS mode, schema-2 installation record, plan-only configuration projection and STATE-preserving removal boundary.
 - [host-discover 0.4.11 compatibility contract](host-discover-compatibility-2026-10-24.md) — current non-resident managed-beacon successor, exact source/installed-byte binding and retained-installation recovery boundary.
 - [host-discover compatibility contract](host-discover-compatibility-2026-10-18.md) — exact public source/API pairing for the 2026-10-18 migration remediation.

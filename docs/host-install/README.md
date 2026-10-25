@@ -6,6 +6,7 @@ Reader-facing chapters organize the existing documentation by enduring concepts 
 
 - [Installation and disk model](guide/installation-and-disk-model.md)
 - [Host generation and boot](guide/host-generation-and-boot.md)
+- [Bootable resident image contract](bootable-image-contract.md)
 - [Persistent STATE and identity](guide/persistent-state-and-identity.md)
 - [Managed beacons and enrollment](guide/managed-beacons-and-enrollment.md)
 - [Validation and recovery](guide/validation-and-recovery.md)

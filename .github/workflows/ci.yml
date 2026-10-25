@@ -123,7 +123,7 @@ jobs:
       - name: Confirm CLI and namespace
         run: |
           host-install --help >/dev/null
-          python -c 'import zog.host_install as h; assert h.__version__ == "0.14.8"'
+          python -c 'import zog.host_install as h; assert h.__version__ == "0.14.9"'
           test ! -e src/zog/__init__.py
 
   host-discover-compatibility:
@@ -214,6 +214,7 @@ jobs:
               assert 'zog/host_install/image_progress_profile.py' in members
               assert 'zog/host_install/certify_manage_profile.py' in members
               assert 'zog/host_install/certificate_native_observation.py' in members
+              assert 'zog/host_install/bootable_image_contract.py' in members
               assert 'zog/host_install/systemd/host-install-admission.socket' in members
               assert 'zog/host_install/systemd/host-install-welcome.socket' in members
               assert 'zog/host_install/systemd/host-install-welcome@.service' in members
@@ -270,7 +271,10 @@ jobs:
                         'docs/host-install/certify-manage-native-install.md',
                         'docs/host-install/certificate-owner-authority.md',
                         'src/zog/host_install/certificate_native_observation.py',
-                        'tests/test_certificate_native_observation.py'):
+                        'tests/test_certificate_native_observation.py',
+                        'src/zog/host_install/bootable_image_contract.py',
+                        'tests/test_bootable_image_contract.py',
+                        'docs/host-install/bootable-image-contract.md'):
                   assert p in files, p
               assert not any(x.startswith('evidence/') for x in files)
               assert 'COPYRIGHT' not in files
