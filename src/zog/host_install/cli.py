@@ -23,7 +23,7 @@ from .certificate_lifecycle import (
 from . import (beacon_profile, application_progress_profile,
                host_welcome_progress_profile, image_progress_profile,
                certify_manage_profile, certificate_native_observation,
-               certificate_owner_authority)
+               certificate_owner_authority, bootable_image_contract)
 from .artifact import stage
 from .filesystem import build_root_fixture
 from .image import inspect, install
@@ -56,6 +56,10 @@ def main(argv=None):
     cmd.add_argument("--operation", type=Path, required=True)
     cmd.add_argument("--mib", type=int, required=True)
     cmd.add_argument("--filesystem-uuid", required=True)
+    sub.add_parser("bootable-image-contract", help="emit the immutable resident bootable-image contract")
+    cmd = sub.add_parser("bootable-image-assess", help="assess a verified image-build host artifact against the bootable-image contract")
+    cmd.add_argument("artifact", type=Path)
+    cmd.add_argument("--expected-id", required=True)
     cmd = sub.add_parser("state-validate", help="validate an offline synthetic record bundle")
     cmd.add_argument("bundle", type=Path)
     cmd = sub.add_parser("non-resident-plan", help="project a validated non-resident bundle into a plan-only installation contract")
@@ -344,6 +348,12 @@ def main(argv=None):
             with args.bundle.open("rb") as stream:
                 bundle = validate(decode(stream.read(65537)))
             result = build_non_resident_plan(bundle)
+        elif args.command == "bootable-image-contract":
+            result = bootable_image_contract.contract()
+        elif args.command == "bootable-image-assess":
+            result = bootable_image_contract.assess_artifact(
+                args.artifact, args.expected_id
+            )
         elif args.command == "state-validate":
             with args.bundle.open("rb") as stream:
                 validate(decode(stream.read(65537)))
