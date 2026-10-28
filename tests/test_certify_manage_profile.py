@@ -410,9 +410,16 @@ def test_installed_controller_attestation_checks_box_and_root_control(tmp_path, 
     assert result["production_activation_authorized"] is False
 
 
-def test_installed_controller_attestation_rejects_tamper(tmp_path, monkeypatch):
+@pytest.mark.parametrize("module", [
+    "zog.box_control.issuer_lifecycle_client",
+    "zog.box_control.runtime.systemd",
+    "zog.box_control.errors",
+    "zog.root_control.daemon",
+    "zog.root_control.systemd",
+])
+def test_installed_controller_attestation_rejects_tamper(tmp_path, monkeypatch, module):
     mapping, distribution = fake_controller_distribution(tmp_path)
-    target = Path(mapping["zog.box_control.issuer_lifecycle_client"].__file__)
+    target = Path(mapping[module].__file__)
     target.write_bytes(target.read_bytes() + b"\n# changed\n")
     monkeypatch.setattr(profile.os, "geteuid", lambda: 0)
     monkeypatch.delenv("PYTHONPATH", raising=False)
