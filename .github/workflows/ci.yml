@@ -63,6 +63,22 @@ jobs:
           repository: zog144/root-control
           ref: 3a2dd9c935e332e811adaccedf04b16bd2de1ea7
           path: companions/root-control
+      - name: Check out corrected cross-host root-control bridge
+        uses: actions/checkout@v4
+        with:
+          repository: zog144/root-control
+          ref: 22c0fdeb42b4dafeeef8a739b7f679db9c5d6805
+          path: companions/root-control-cross-host
+          sparse-checkout: |
+            src/zog/root_control/issuer_cross_host.py
+      - name: Check out corrected station cross-host reader
+        uses: actions/checkout@v4
+        with:
+          repository: zog144/station-access
+          ref: b9160c5b390594dc0ab90c58a7472acc04205f21
+          path: companions/station-access-cross-host
+          sparse-checkout: |
+            src/zog/station_access/host_registry/issuer_cloudflare_reader.py
       - name: Check out certify-manage issuer source
         uses: actions/checkout@v4
         with:
@@ -94,6 +110,10 @@ jobs:
           test "$(git -C companions/host-welcome rev-parse HEAD)" = "a1d554bb78de27e9f365f4254db25c77cc49ec27"
           test "$(git -C companions/box-control-certificate rev-parse HEAD)" = "a3e939b7a22ef6277ae9712961ffbd5a18ccac39"
           test "$(git -C companions/root-control rev-parse HEAD)" = "3a2dd9c935e332e811adaccedf04b16bd2de1ea7"
+          test "$(git -C companions/root-control-cross-host rev-parse HEAD)" = "22c0fdeb42b4dafeeef8a739b7f679db9c5d6805"
+          test "$(git -C companions/root-control-cross-host hash-object src/zog/root_control/issuer_cross_host.py)" = "81cc49c7e25985546d78cc53d3bad8d213211e5f"
+          test "$(git -C companions/station-access-cross-host rev-parse HEAD)" = "b9160c5b390594dc0ab90c58a7472acc04205f21"
+          test "$(git -C companions/station-access-cross-host hash-object src/zog/station_access/host_registry/issuer_cloudflare_reader.py)" = "330618241601da041ac28292acdf163d2006ac41"
           test "$(git -C companions/certify-manage rev-parse HEAD)" = "8d073ff449557fc82c12eea93e240cdeec1b0fcc"
           test "$(git -C companions/host-deploy rev-parse HEAD)" = "098b6813dc1016ae748de8c5e836648a7b244c7f"
       - name: Install reviewed companions and local source
@@ -114,12 +134,14 @@ jobs:
           IMAGE_BUILD_SOURCE: companions/image-build
           CERTIFICATE_BOX_CONTROL_SOURCE: companions/box-control-certificate
           ROOT_CONTROL_SOURCE: companions/root-control
+          ROOT_CONTROL_CROSS_HOST_SOURCE: companions/root-control-cross-host
+          STATION_ACCESS_CROSS_HOST_SOURCE: companions/station-access-cross-host
           CERTIFY_MANAGE_SOURCE: companions/certify-manage
           HOST_DEPLOY_SOURCE: companions/host-deploy
         run: |
           # STATE coordination tests require real root ownership; no mocked UID.
           # The GitHub-hosted runner is disposable, not an enrolled Zog host.
-          sudo --preserve-env=HOST_IDENTIFY_SOURCE,HOST_DISCOVER_SOURCE,BOX_CONTROL_SOURCE,IMAGE_BUILD_SOURCE,CERTIFICATE_BOX_CONTROL_SOURCE,ROOT_CONTROL_SOURCE,CERTIFY_MANAGE_SOURCE,HOST_DEPLOY_SOURCE "$(command -v python)" -m pytest -q tests
+          sudo --preserve-env=HOST_IDENTIFY_SOURCE,HOST_DISCOVER_SOURCE,BOX_CONTROL_SOURCE,IMAGE_BUILD_SOURCE,CERTIFICATE_BOX_CONTROL_SOURCE,ROOT_CONTROL_SOURCE,ROOT_CONTROL_CROSS_HOST_SOURCE,STATION_ACCESS_CROSS_HOST_SOURCE,CERTIFY_MANAGE_SOURCE,HOST_DEPLOY_SOURCE "$(command -v python)" -m pytest -q tests
       - name: Confirm CLI and namespace
         run: |
           host-install --help >/dev/null

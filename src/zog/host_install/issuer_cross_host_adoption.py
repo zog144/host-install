@@ -22,8 +22,8 @@ import time
 from . import certificate_owner_authority as owner
 from .state_contract import StateError, require
 
-ROOT_BRIDGE_COMMIT = "33e4a974a7f1919cd3fabdeb89c771514e9b18e0"
-ROOT_BRIDGE_BLOB = "2f159a59bbc8fef0f53ce35fbf82833c9a88c645"
+ROOT_BRIDGE_COMMIT = "22c0fdeb42b4dafeeef8a739b7f679db9c5d6805"
+ROOT_BRIDGE_BLOB = "81cc49c7e25985546d78cc53d3bad8d213211e5f"
 HOST_DEPLOY_BRIDGE_BLOB = "ced728c5c8d7a2b1ced449091494e783680633c1"
 SOURCE = {
     "zog.root_control.issuer_cross_host": ("root-control", ROOT_BRIDGE_BLOB),

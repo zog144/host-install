@@ -1,6 +1,7 @@
 """No remote transport or credential: installed-byte and owner preflight tests."""
 import base64
 import hashlib
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -21,11 +22,12 @@ class FakeDistribution:
         return self.record if name == "RECORD" else None
 
 
-def _fixture(tmp_path, monkeypatch):
+def _fixture(tmp_path, monkeypatch, raw=None):
     root = tmp_path / "installed"
     src = root / "zog" / "root_control" / "issuer_cross_host.py"
     src.parent.mkdir(parents=True)
-    raw = b"\n# pinned inert bridge source fixture\n"
+    if raw is None:
+        raw = b"\n# pinned inert bridge source fixture\n"
     src.write_bytes(raw)
     record_path = root / "root_control-0.1.0.dist-info" / "RECORD"
     record_path.parent.mkdir()
@@ -40,6 +42,38 @@ def _fixture(tmp_path, monkeypatch):
     monkeypatch.setattr(bridge.owner, "_protected_ancestry", lambda *a:None)
     monkeypatch.setattr(bridge, "_check_installed_stat", lambda path: None)
     return raw, src, record_path, dist
+
+
+def test_reviewed_root_bridge_bytes_and_record_are_exact(tmp_path, monkeypatch):
+    source_root = Path(os.environ["ROOT_CONTROL_CROSS_HOST_SOURCE"])
+    source = source_root / "src/zog/root_control/issuer_cross_host.py"
+    raw = source.read_bytes()
+    assert bridge.ROOT_BRIDGE_COMMIT == "22c0fdeb42b4dafeeef8a739b7f679db9c5d6805"
+    assert bridge.ROOT_BRIDGE_BLOB == "81cc49c7e25985546d78cc53d3bad8d213211e5f"
+    assert bridge.owner._git_blob(raw) == bridge.ROOT_BRIDGE_BLOB
+
+    installed_raw, _src, _record, dist = _fixture(
+        tmp_path, monkeypatch, raw=raw
+    )
+    assert installed_raw == raw
+    attested = bridge._attest_module(
+        "zog.root_control.issuer_cross_host",
+        "root-control",
+        bridge.ROOT_BRIDGE_BLOB,
+    )
+    assert attested["git_blob"] == bridge.ROOT_BRIDGE_BLOB
+    assert attested["sha256"] == hashlib.sha256(raw).hexdigest()
+    assert attested["wheel_record_sha256"] == hashlib.sha256(
+        dist.record.encode()
+    ).hexdigest()
+
+    # A predecessor pin must not attest the corrected installed bytes.
+    with pytest.raises(StateError):
+        bridge._attest_module(
+            "zog.root_control.issuer_cross_host",
+            "root-control",
+            "2f159a59bbc8fef0f53ce35fbf82833c9a88c645",
+        )
 
 
 def test_installed_source_requires_blob_and_wheel_record(tmp_path,monkeypatch):
