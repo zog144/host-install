@@ -208,6 +208,7 @@ jobs:
               assert 'zog/host_install/state_admission.py' in members
               assert 'zog/host_install/certificate_gate.py' in members
               assert 'zog/host_install/certificate_lifecycle.py' in members
+              assert 'zog/host_install/issuer_cross_host_adoption.py' in members
               assert 'zog/host_install/welcome_readiness.py' in members
               assert 'zog/host_install/application_progress_profile.py' in members
               assert 'zog/host_install/host_welcome_progress_profile.py' in members
@@ -243,6 +244,8 @@ jobs:
                         'src/zog/host_install/certificate_lifecycle.py',
                         'tests/test_certificate_lifecycle.py',
                         'src/zog/host_install/certificate_owner_authority.py',
+                        'src/zog/host_install/issuer_cross_host_adoption.py',
+                        'tests/test_issuer_cross_host_adoption.py',
                         'tests/test_certificate_owner_authority.py',
                         'src/zog/host_install/welcome_readiness.py',
                         'tests/test_welcome_readiness.py',
