@@ -14,9 +14,9 @@ authorize production HTTPS.
   `d6fe6f0386eccd2ba577b45c32fa16baf6540c69`
   (`certify_manage_software.py` blob `a6216f5031c8155cd020ce4424e94307af319213`)
 - box-control selected issuer controller:
-  `a3e939b7a22ef6277ae9712961ffbd5a18ccac39`
+  `73d64fb8b643e27667ac719080a37913c008b5dd`
 - root-control native mechanism:
-  `3a2dd9c935e332e811adaccedf04b16bd2de1ea7`
+  `8bb9a5638622b3c443e59351cfdf06583cea8e80`
 
 The immutable certify-manage software result must be
 `image-build-certify-manage-software-result-v1` and bind exactly one
@@ -161,7 +161,8 @@ host-install certify-manage-controller-attest-installed \
 
 The command rejects inherited `PYTHONPATH`/`PYTHONHOME`, loads the actual
 aggregate `zog` distribution, verifies selected issuer lifecycle/inspection,
-application-storage and root-control modules against the exact reviewed Git blobs,
+application-storage, systemd start-timeout implementation, typed errors and
+root-control modules against the exact reviewed Git blobs,
 and requires matching wheel `RECORD` hashes from protected module origins.
 
 A pass proves the selected source bytes are installed. It does not prove a
