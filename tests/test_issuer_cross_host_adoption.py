@@ -14,7 +14,7 @@ class FakeDistribution:
     def __init__(self, root, record):
         self.root = root
         self.record = record
-        self.files = [Path("dist-info/RECORD")]
+        self.files = [Path("root_control-0.1.0.dist-info/RECORD")]
     def locate_file(self, name):
         return self.root / name
     def read_text(self, name):
@@ -27,7 +27,7 @@ def _fixture(tmp_path, monkeypatch):
     src.parent.mkdir(parents=True)
     raw = b"\n# pinned inert bridge source fixture\n"
     src.write_bytes(raw)
-    record_path = root / "dist-info" / "RECORD"
+    record_path = root / "root_control-0.1.0.dist-info" / "RECORD"
     record_path.parent.mkdir()
     record_text = ("zog/root_control/issuer_cross_host.py,sha256=" +
                    base64.urlsafe_b64encode(hashlib.sha256(raw).digest()).rstrip(b"=").decode() +
