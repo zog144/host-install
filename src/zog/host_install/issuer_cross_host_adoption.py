@@ -32,6 +32,13 @@ SOURCE = {
 }
 
 
+def _check_installed_stat(path):
+    info = Path(path).lstat()
+    require(stat.S_ISREG(info.st_mode) and info.st_uid == 0
+            and info.st_nlink == 1 and not info.st_mode & 0o022,
+            "cross-host-installed", "installed source/RECORD is unsafe")
+
+
 def _attest_module(name, distribution, blob, *, package=""):
     selected = package or distribution
     require(selected in (distribution, "zog"), "cross-host-installed",
@@ -50,10 +57,7 @@ def _attest_module(name, distribution, blob, *, package=""):
     expected = root / relative
     require(resolved == expected, "cross-host-installed",
             "loaded module is not installed distribution source")
-    info = resolved.lstat()
-    require(stat.S_ISREG(info.st_mode) and info.st_uid == 0
-            and info.st_nlink == 1 and not info.st_mode & 0o022,
-            "cross-host-installed", "installed issuer module is writable")
+    _check_installed_stat(resolved)
     data = resolved.read_bytes()
     require(owner._git_blob(data) == blob,
             "cross-host-installed", "issuer bridge source differs from reviewed pin")
@@ -65,10 +69,7 @@ def _attest_module(name, distribution, blob, *, package=""):
     require(len(record_files) == 1, "cross-host-installed", "wheel RECORD ambiguous")
     record_path = Path(dist.locate_file(record_files[0]))
     owner._protected_ancestry(record_path, root)
-    rec_info = record_path.lstat()
-    require(stat.S_ISREG(rec_info.st_mode) and rec_info.st_uid == 0
-            and rec_info.st_nlink == 1 and not rec_info.st_mode & 0o022,
-            "cross-host-installed", "installed RECORD is writable")
+    _check_installed_stat(record_path)
     rows = {}
     for row in csv.reader(io.StringIO(raw_record)):
         require(len(row) == 3 and row[0] not in rows,
