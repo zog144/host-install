@@ -48,8 +48,8 @@ def test_reviewed_root_bridge_bytes_and_record_are_exact(tmp_path, monkeypatch):
     source_root = Path(os.environ["ROOT_CONTROL_CROSS_HOST_SOURCE"])
     source = source_root / "src/zog/root_control/issuer_https_receiver.py"
     raw = source.read_bytes()
-    assert bridge.ROOT_BRIDGE_COMMIT == "253e80c9c22fad969a84a0c08d7f28940017e5f9"
-    assert bridge.ROOT_BRIDGE_BLOB == "c91b8c6831568b6c927039f04bb74ddd3a1e6bca"
+    assert bridge.ROOT_BRIDGE_COMMIT == "cadeb20f166553e611a1d3be21670fe993d00ca8"
+    assert bridge.ROOT_BRIDGE_BLOB == "0261525db0a4307ce7b3f0267646249e0e4bc5c4"
     assert bridge.owner._git_blob(raw) == bridge.ROOT_BRIDGE_BLOB
 
     installed_raw, _src, _record, dist = _fixture(
