@@ -48,8 +48,8 @@ def test_reviewed_root_bridge_bytes_and_record_are_exact(tmp_path, monkeypatch):
     source_root = Path(os.environ["ROOT_CONTROL_CROSS_HOST_SOURCE"])
     source = source_root / "src/zog/root_control/issuer_https_receiver.py"
     raw = source.read_bytes()
-    assert bridge.ROOT_BRIDGE_COMMIT == "31c1bf1d5d57534d595bf0c7f683f13186b24a48"
-    assert bridge.ROOT_BRIDGE_BLOB == "3b6304793a8b8fc54ce63a8cb04e445ee1eb9943"
+    assert bridge.ROOT_BRIDGE_COMMIT == "e421634cf39f8e7867d219d0b39285a340bdebb0"
+    assert bridge.ROOT_BRIDGE_BLOB == "c91b8c6831568b6c927039f04bb74ddd3a1e6bca"
     assert bridge.owner._git_blob(raw) == bridge.ROOT_BRIDGE_BLOB
 
     installed_raw, _src, _record, dist = _fixture(
@@ -125,3 +125,11 @@ def test_file_stat_gate_refuses_nonroot_and_multiple_links(tmp_path, monkeypatch
         st_mode=stat.S_IFREG | 0o600, st_uid=1000, st_nlink=1))
     with pytest.raises(StateError):
         bridge._check_installed_stat(path)
+
+
+def test_common_receiver_checks_have_independent_review_pin():
+    source_root = Path(os.environ["ROOT_CONTROL_CROSS_HOST_SOURCE"])
+    raw = (source_root / "src/zog/root_control/issuer_receipt_common.py").read_bytes()
+    assert bridge.ROOT_RECEIPT_COMMON_BLOB == "4c1fe6b37c95d3cd038aba0c8a0df3b71a55d13f"
+    assert bridge.owner._git_blob(raw) == bridge.ROOT_RECEIPT_COMMON_BLOB
+    assert "zog.root_control.issuer_receipt_common" in bridge.SOURCE
