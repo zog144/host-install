@@ -22,8 +22,8 @@ import time
 from . import certificate_owner_authority as owner
 from .state_contract import StateError, require
 
-ROOT_BRIDGE_COMMIT = "253e80c9c22fad969a84a0c08d7f28940017e5f9"
-ROOT_BRIDGE_BLOB = "c91b8c6831568b6c927039f04bb74ddd3a1e6bca"
+ROOT_BRIDGE_COMMIT = "cadeb20f166553e611a1d3be21670fe993d00ca8"
+ROOT_BRIDGE_BLOB = "0261525db0a4307ce7b3f0267646249e0e4bc5c4"
 ROOT_RECEIPT_COMMON_BLOB = "4c1fe6b37c95d3cd038aba0c8a0df3b71a55d13f"
 HOST_DEPLOY_BRIDGE_BLOB = "ced728c5c8d7a2b1ced449091494e783680633c1"
 SOURCE = {
