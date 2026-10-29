@@ -48,7 +48,7 @@ def test_reviewed_root_bridge_bytes_and_record_are_exact(tmp_path, monkeypatch):
     source_root = Path(os.environ["ROOT_CONTROL_CROSS_HOST_SOURCE"])
     source = source_root / "src/zog/root_control/issuer_https_receiver.py"
     raw = source.read_bytes()
-    assert bridge.ROOT_BRIDGE_COMMIT == "cadeb20f166553e611a1d3be21670fe993d00ca8"
+    assert bridge.ROOT_BRIDGE_COMMIT == "05aef0ef4a8470e315aada0bd1c67eb5cd98b7aa"
     assert bridge.ROOT_BRIDGE_BLOB == "0261525db0a4307ce7b3f0267646249e0e4bc5c4"
     assert bridge.owner._git_blob(raw) == bridge.ROOT_BRIDGE_BLOB
 
@@ -133,3 +133,19 @@ def test_common_receiver_checks_have_independent_review_pin():
     assert bridge.ROOT_RECEIPT_COMMON_BLOB == "4c1fe6b37c95d3cd038aba0c8a0df3b71a55d13f"
     assert bridge.owner._git_blob(raw) == bridge.ROOT_RECEIPT_COMMON_BLOB
     assert "zog.root_control.issuer_receipt_common" in bridge.SOURCE
+
+
+def test_https_host_deploy_admission_and_selected_consumer_pins_are_exact():
+    source_root = Path(os.environ["HOST_DEPLOY_SOURCE"])
+    admission = (
+        source_root / "src/zog/host_deploy/certificate_cross_host_admission.py"
+    ).read_bytes()
+    consumer = (
+        source_root / "src/zog/host_deploy/certificate_cloudflare_https_consumer.py"
+    ).read_bytes()
+    assert bridge.HOST_DEPLOY_COMMIT == "9ed396c08aa5be30bd514630838b8a4baf2e2087"
+    assert bridge.HOST_DEPLOY_BRIDGE_BLOB == "592983a3d299aaf1228248157fdea3908680f097"
+    assert bridge.HOST_DEPLOY_HTTPS_CONSUMER_BLOB == "cf771f8625e329e557939a1f268517c52faaf2de"
+    assert bridge.owner._git_blob(admission) == bridge.HOST_DEPLOY_BRIDGE_BLOB
+    assert bridge.owner._git_blob(consumer) == bridge.HOST_DEPLOY_HTTPS_CONSUMER_BLOB
+    assert "zog.host_deploy.certificate_cloudflare_https_consumer" in bridge.SOURCE
