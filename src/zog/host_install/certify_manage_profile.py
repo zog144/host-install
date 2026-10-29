@@ -40,10 +40,12 @@ IMAGE_BUILD_PRODUCER_BLOB = "a6216f5031c8155cd020ce4424e94307af319213"
 CERTIFY_MANAGE_COMMIT = "8d073ff449557fc82c12eea93e240cdeec1b0fcc"
 CERTIFY_APPLICATION_BLOB = "23b180f1f731dae67a06fcd1bdb994304c67390f"
 CERTIFY_REQUIREMENTS_BLOB = "1de58f2be2e21710a7544df8a9d0638ad3bb5c06"
-BOX_CONTROL_COMMIT = "a3e939b7a22ef6277ae9712961ffbd5a18ccac39"
-ROOT_CONTROL_COMMIT = "3a2dd9c935e332e811adaccedf04b16bd2de1ea7"
+BOX_CONTROL_COMMIT = "73d64fb8b643e27667ac719080a37913c008b5dd"
+ROOT_CONTROL_COMMIT = "8bb9a5638622b3c443e59351cfdf06583cea8e80"
 
 BOX_CONTROL_MODULE_BLOBS = {
+    "zog.box_control.errors": "592fb98713710387217238e26d148ee6fe487d1b",
+    "zog.box_control.runtime.systemd": "2502e9a9c41a0798e56e7397b139f39cf92837f1",
     "zog.box_control.issuer_lifecycle_broker": "137799041bcbafc8ceec589bffbe43e1cb9f0e40",
     "zog.box_control.issuer_lifecycle_client": "662afc2a7718d2cd7d84763ad6f9364590a9e4b0",
     "zog.box_control.issuer_inspection_evidence": "47579c5f0fdbb7ef0c426f02a4f4f02f5495f122",
@@ -54,8 +56,8 @@ BOX_CONTROL_MODULE_BLOBS = {
     "zog.box_control.application_storage": "72a7cb0d5fc24870ad2336de7579c704a2461b15",
 }
 ROOT_CONTROL_MODULE_BLOBS = {
-    "zog.root_control.daemon": "9af5e9178c74f9c4b11918bd6eacda13fe0267b6",
-    "zog.root_control.systemd": "f6df19600493a55aff9df5d5fb932f1fb8c33e06",
+    "zog.root_control.daemon": "416ededcd76332e003f8c6e7e92036cc3d1ca660",
+    "zog.root_control.systemd": "b82cc736aca21c04b211ae8056c8efe80b3e508b",
     "zog.root_control.issuer_inspection_result": "fc810766fc2a2140770398bb503ab42442a24e30",
     "zog.root_control.issuer_observation": "3b8ac6f8bf8d541b6e24a96f9fcff5e4f64bc242",
     "zog.root_control.identities": "ef265ffd5340c189ecb59392e0541861201716b9",
