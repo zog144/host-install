@@ -1,4 +1,4 @@
-"""Read-only source/RECORD and retained-owner admission for SSH issuer bridge.
+"""Read-only source/RECORD and retained-owner admission for HTTPS issuer receiver.
 
 Root-control alone cannot confer the managed Host's certificate authority.
 The original host-install second owner ledger, station signer pin and
@@ -22,11 +22,11 @@ import time
 from . import certificate_owner_authority as owner
 from .state_contract import StateError, require
 
-ROOT_BRIDGE_COMMIT = "22c0fdeb42b4dafeeef8a739b7f679db9c5d6805"
-ROOT_BRIDGE_BLOB = "81cc49c7e25985546d78cc53d3bad8d213211e5f"
+ROOT_BRIDGE_COMMIT = "31c1bf1d5d57534d595bf0c7f683f13186b24a48"
+ROOT_BRIDGE_BLOB = "3b6304793a8b8fc54ce63a8cb04e445ee1eb9943"
 HOST_DEPLOY_BRIDGE_BLOB = "ced728c5c8d7a2b1ced449091494e783680633c1"
 SOURCE = {
-    "zog.root_control.issuer_cross_host": ("root-control", ROOT_BRIDGE_BLOB),
+    "zog.root_control.issuer_https_receiver": ("root-control", ROOT_BRIDGE_BLOB),
     "zog.host_deploy.certificate_cross_host_admission":
         ("host-deploy", HOST_DEPLOY_BRIDGE_BLOB),
 }
@@ -119,7 +119,7 @@ def inspect(project_root, delivery_policy, *, python_executable,
         root_distribution=root_distribution,
         deploy_distribution=deploy_distribution)
     from zog.box_control.project import Project
-    from zog.root_control import issuer_cross_host as cross
+    from zog.root_control import issuer_https_receiver as cross
     from zog.root_control import issuer_credentials as cred
     from zog.root_control import issuer_station_transfer as transfer
     from zog.host_deploy import certificate_managed_authority as managed
@@ -134,8 +134,8 @@ def inspect(project_root, delivery_policy, *, python_executable,
             and initial["status_authority"] == "approved"
             and initial["pending_transaction"] is None,
             "cross-host-owner", "retained issuer owner requires recovery")
-    client = cross._client_binding(project)
-    identifier = cross._client_approved(project, client)
+    client = cross._profile(project)
+    identifier, _details = cross._approval(project, client)
     authorization = cred._read_protected(cred._paths(project)[0])
     require(type(authorization) is dict
             and cred._authorization_id(authorization) == identifier,
@@ -166,5 +166,5 @@ def inspect(project_root, delivery_policy, *, python_executable,
         schema="zog-host-install-cross-host-issuer-inspection-v1",
         status="protected-source-preflight-only",
         installed=installed, owner=initial, admission=result,
-        native_ssh_accepted=False, token_transferred=False,
+        native_https_accepted=False, token_transferred=False,
         issuer_preparation_recovered=False, production_activation_authorized=False)
