@@ -24,14 +24,14 @@ class FakeDistribution:
 
 def _fixture(tmp_path, monkeypatch, raw=None):
     root = tmp_path / "installed"
-    src = root / "zog" / "root_control" / "issuer_cross_host.py"
+    src = root / "zog" / "root_control" / "issuer_https_receiver.py"
     src.parent.mkdir(parents=True)
     if raw is None:
         raw = b"\n# pinned inert bridge source fixture\n"
     src.write_bytes(raw)
     record_path = root / "root_control-0.1.0.dist-info" / "RECORD"
     record_path.parent.mkdir()
-    record_text = ("zog/root_control/issuer_cross_host.py,sha256=" +
+    record_text = ("zog/root_control/issuer_https_receiver.py,sha256=" +
                    base64.urlsafe_b64encode(hashlib.sha256(raw).digest()).rstrip(b"=").decode() +
                    ",\n")
     record_path.write_text(record_text)
@@ -46,10 +46,10 @@ def _fixture(tmp_path, monkeypatch, raw=None):
 
 def test_reviewed_root_bridge_bytes_and_record_are_exact(tmp_path, monkeypatch):
     source_root = Path(os.environ["ROOT_CONTROL_CROSS_HOST_SOURCE"])
-    source = source_root / "src/zog/root_control/issuer_cross_host.py"
+    source = source_root / "src/zog/root_control/issuer_https_receiver.py"
     raw = source.read_bytes()
-    assert bridge.ROOT_BRIDGE_COMMIT == "22c0fdeb42b4dafeeef8a739b7f679db9c5d6805"
-    assert bridge.ROOT_BRIDGE_BLOB == "81cc49c7e25985546d78cc53d3bad8d213211e5f"
+    assert bridge.ROOT_BRIDGE_COMMIT == "31c1bf1d5d57534d595bf0c7f683f13186b24a48"
+    assert bridge.ROOT_BRIDGE_BLOB == "3b6304793a8b8fc54ce63a8cb04e445ee1eb9943"
     assert bridge.owner._git_blob(raw) == bridge.ROOT_BRIDGE_BLOB
 
     installed_raw, _src, _record, dist = _fixture(
@@ -57,7 +57,7 @@ def test_reviewed_root_bridge_bytes_and_record_are_exact(tmp_path, monkeypatch):
     )
     assert installed_raw == raw
     attested = bridge._attest_module(
-        "zog.root_control.issuer_cross_host",
+        "zog.root_control.issuer_https_receiver",
         "root-control",
         bridge.ROOT_BRIDGE_BLOB,
     )
@@ -70,7 +70,7 @@ def test_reviewed_root_bridge_bytes_and_record_are_exact(tmp_path, monkeypatch):
     # A predecessor pin must not attest the corrected installed bytes.
     with pytest.raises(StateError):
         bridge._attest_module(
-            "zog.root_control.issuer_cross_host",
+            "zog.root_control.issuer_https_receiver",
             "root-control",
             "2f159a59bbc8fef0f53ce35fbf82833c9a88c645",
         )
@@ -80,16 +80,16 @@ def test_installed_source_requires_blob_and_wheel_record(tmp_path,monkeypatch):
     raw,src,record,dist = _fixture(tmp_path, monkeypatch)
     sha = bridge.owner._git_blob(raw)
     attested = bridge._attest_module(
-        "zog.root_control.issuer_cross_host", "root-control", sha)
+        "zog.root_control.issuer_https_receiver", "root-control", sha)
     assert attested["git_blob"] == sha
     with pytest.raises(StateError):
         bridge._attest_module(
-            "zog.root_control.issuer_cross_host", "root-control", "0"*40)
+            "zog.root_control.issuer_https_receiver", "root-control", "0"*40)
     # A stale wheel RECORD cannot attest newly modified installed bytes.
     src.write_bytes(raw+b"changed")
     with pytest.raises(StateError):
         bridge._attest_module(
-            "zog.root_control.issuer_cross_host", "root-control", sha)
+            "zog.root_control.issuer_https_receiver", "root-control", sha)
 
 
 def test_missing_record_or_modified_receipt_blocks(tmp_path,monkeypatch):
@@ -97,11 +97,11 @@ def test_missing_record_or_modified_receipt_blocks(tmp_path,monkeypatch):
     sha = bridge.owner._git_blob(raw)
     # Hardlink rejection belongs to _check_installed_stat and is checked
     # separately under a real file descriptor during native acceptance.
-    record.write_text("zog/root_control/issuer_cross_host.py,sha256=wrong,\n")
+    record.write_text("zog/root_control/issuer_https_receiver.py,sha256=wrong,\n")
     dist.record = record.read_text()
     with pytest.raises(StateError):
         bridge._attest_module(
-            "zog.root_control.issuer_cross_host", "root-control", sha)
+            "zog.root_control.issuer_https_receiver", "root-control", sha)
 
 
 def test_inspector_requires_root_without_touching_credential(monkeypatch):
