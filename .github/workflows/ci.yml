@@ -63,14 +63,14 @@ jobs:
           repository: zog144/root-control
           ref: 3a2dd9c935e332e811adaccedf04b16bd2de1ea7
           path: companions/root-control
-      - name: Check out corrected cross-host root-control bridge
+      - name: Check out reviewed HTTPS receiver root-control module
         uses: actions/checkout@v4
         with:
           repository: zog144/root-control
-          ref: 22c0fdeb42b4dafeeef8a739b7f679db9c5d6805
+          ref: 31c1bf1d5d57534d595bf0c7f683f13186b24a48
           path: companions/root-control-cross-host
           sparse-checkout: |
-            src/zog/root_control/issuer_cross_host.py
+            src/zog/root_control/issuer_https_receiver.py
       - name: Check out corrected station cross-host reader
         uses: actions/checkout@v4
         with:
@@ -110,8 +110,8 @@ jobs:
           test "$(git -C companions/host-welcome rev-parse HEAD)" = "a1d554bb78de27e9f365f4254db25c77cc49ec27"
           test "$(git -C companions/box-control-certificate rev-parse HEAD)" = "a3e939b7a22ef6277ae9712961ffbd5a18ccac39"
           test "$(git -C companions/root-control rev-parse HEAD)" = "3a2dd9c935e332e811adaccedf04b16bd2de1ea7"
-          test "$(git -C companions/root-control-cross-host rev-parse HEAD)" = "22c0fdeb42b4dafeeef8a739b7f679db9c5d6805"
-          test "$(git -C companions/root-control-cross-host hash-object src/zog/root_control/issuer_cross_host.py)" = "81cc49c7e25985546d78cc53d3bad8d213211e5f"
+          test "$(git -C companions/root-control-cross-host rev-parse HEAD)" = "31c1bf1d5d57534d595bf0c7f683f13186b24a48"
+          test "$(git -C companions/root-control-cross-host hash-object src/zog/root_control/issuer_https_receiver.py)" = "3b6304793a8b8fc54ce63a8cb04e445ee1eb9943"
           test "$(git -C companions/station-access-cross-host rev-parse HEAD)" = "b9160c5b390594dc0ab90c58a7472acc04205f21"
           test "$(git -C companions/station-access-cross-host hash-object src/zog/station_access/host_registry/issuer_cloudflare_reader.py)" = "330618241601da041ac28292acdf163d2006ac41"
           test "$(git -C companions/certify-manage rev-parse HEAD)" = "8d073ff449557fc82c12eea93e240cdeec1b0fcc"
