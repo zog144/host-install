@@ -25,7 +25,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: zog144/host-identify
-          ref: 1a5eac0b255c995022db6a3a4c0051efffa748cc
+          ref: 4a176373ff4cb47a66a8ab1b5fd3d6ff01ff2a3b
           path: companions/host-identify
       - name: Check out reviewed public host-discover
         uses: actions/checkout@v4
@@ -67,22 +67,21 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: zog144/root-control
-          ref: 05aef0ef4a8470e315aada0bd1c67eb5cd98b7aa
+          ref: d85aa7feb8a4db28249c5edde958d3d006e5e009
           path: companions/root-control-cross-host
           sparse-checkout: |
             src/zog/root_control/issuer_https_receiver.py
             src/zog/root_control/issuer_receipt_common.py
             src/zog/root_control/issuer_cross_host.py
-      - name: Check out reviewed Command-Center HTTPS credential producer
+      - name: Check out canonical station credential v1 interoperability vectors
         uses: actions/checkout@v4
         with:
           repository: zog144/station-access
-          ref: b9c202147856520172228f7115a621e6d9bb1cae
+          ref: 51295bd7a458a621ccbf33eab03da43ba84ce71a
           path: companions/station-access-cross-host
           sparse-checkout: |
-            src/zog/station_access/credential_delivery_protocol.py
-            src/zog/station_access/credential_https_ingress.py
-            src/zog/station_access/host_registry/credential_https_authority.py
+            tests/host_registry/fixtures/credential-delivery-v1-vector.json
+            verification/credential_v1/test_shared_interop.py
       - name: Check out certify-manage issuer source
         uses: actions/checkout@v4
         with:
@@ -107,21 +106,21 @@ jobs:
           test -f LICENSE
           test -f LICENSES/BSD-3-Clause.txt
           test -f LICENSES/GPL-3.0-only.txt
-          test "$(git -C companions/host-identify rev-parse HEAD)" = "1a5eac0b255c995022db6a3a4c0051efffa748cc"
+          test "$(git -C companions/host-identify rev-parse HEAD)" = "4a176373ff4cb47a66a8ab1b5fd3d6ff01ff2a3b"
           test "$(git -C companions/host-discover rev-parse HEAD)" = "9e741d9a86bb2fd466ac46b252be0b78528eeff7"
           test "$(git -C companions/box-control rev-parse HEAD)" = "8249715708c6ef8a1fd30a3fb529b4034ffffe25"
           test "$(git -C companions/image-build rev-parse HEAD)" = "53ad8c2166e6b73dffbc722c2e47ccf3593612ec"
           test "$(git -C companions/host-welcome rev-parse HEAD)" = "a1d554bb78de27e9f365f4254db25c77cc49ec27"
           test "$(git -C companions/box-control-certificate rev-parse HEAD)" = "73d64fb8b643e27667ac719080a37913c008b5dd"
           test "$(git -C companions/root-control rev-parse HEAD)" = "8bb9a5638622b3c443e59351cfdf06583cea8e80"
-          test "$(git -C companions/root-control-cross-host rev-parse HEAD)" = "05aef0ef4a8470e315aada0bd1c67eb5cd98b7aa"
-          test "$(git -C companions/root-control-cross-host hash-object src/zog/root_control/issuer_https_receiver.py)" = "0261525db0a4307ce7b3f0267646249e0e4bc5c4"
+          test "$(git -C companions/root-control-cross-host rev-parse HEAD)" = "d85aa7feb8a4db28249c5edde958d3d006e5e009"
+          test "$(git -C companions/root-control-cross-host hash-object src/zog/root_control/issuer_https_receiver.py)" = "4d3d11a874203336cb5bf386e78af20e6772d21f"
           test "$(git -C companions/root-control-cross-host hash-object src/zog/root_control/issuer_receipt_common.py)" = "4c1fe6b37c95d3cd038aba0c8a0df3b71a55d13f"
           test "$(git -C companions/root-control-cross-host hash-object src/zog/root_control/issuer_cross_host.py)" = "a1631150dd7df2cf10c36c953a9fcd6af9a3847e"
-          test "$(git -C companions/station-access-cross-host rev-parse HEAD)" = "b9c202147856520172228f7115a621e6d9bb1cae"
-          test "$(git -C companions/station-access-cross-host hash-object src/zog/station_access/credential_delivery_protocol.py)" = "17ed5096db1ce146089fbc9c3ebf556f10e75d46"
-          test "$(git -C companions/station-access-cross-host hash-object src/zog/station_access/credential_https_ingress.py)" = "db2f403ca9a8985ef9b65b56ce73adfe0a291ffe"
-          test "$(git -C companions/station-access-cross-host hash-object src/zog/station_access/host_registry/credential_https_authority.py)" = "102c75f72a6da59f39d139621e32286fce86509a"
+          test "$(git -C companions/station-access-cross-host rev-parse HEAD)" = "51295bd7a458a621ccbf33eab03da43ba84ce71a"
+          test "$(git -C companions/host-identify hash-object src/zog/host_identify/credential_delivery.py)" = "02332127defe565e00e398b71ada50d5c2bdd4d6"
+          test "$(git -C companions/station-access-cross-host hash-object tests/host_registry/fixtures/credential-delivery-v1-vector.json)" = "227a043ffbf88489d2c8b65790058ef870e5c1bc"
+          test "$(git -C companions/station-access-cross-host hash-object verification/credential_v1/test_shared_interop.py)" = "ca1701206507dbaaeccef049c930fac8ef5368f9"
           test "$(git -C companions/certify-manage rev-parse HEAD)" = "8d073ff449557fc82c12eea93e240cdeec1b0fcc"
           test "$(git -C companions/host-deploy rev-parse HEAD)" = "9ed396c08aa5be30bd514630838b8a4baf2e2087"
           test "$(git -C companions/host-deploy hash-object src/zog/host_deploy/certificate_cross_host_admission.py)" = "592983a3d299aaf1228248157fdea3908680f097"

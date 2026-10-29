@@ -6,19 +6,20 @@ This supersedes the SSH-specific receiver/adoption design formerly carried by ho
 
 ## Exact reviewed source tuple
 
-- root-control PR #16 source: `05aef0ef4a8470e315aada0bd1c67eb5cd98b7aa`
-  - `zog.root_control.issuer_https_receiver`: Git blob `0261525db0a4307ce7b3f0267646249e0e4bc5c4`
+- root-control PR #16 source: `d85aa7feb8a4db28249c5edde958d3d006e5e009`
+  - `zog.root_control.issuer_https_receiver`: Git blob `4d3d11a874203336cb5bf386e78af20e6772d21f`
   - `zog.root_control.issuer_receipt_common`: Git blob `4c1fe6b37c95d3cd038aba0c8a0df3b71a55d13f`
   - retired `zog.root_control.issuer_cross_host` tombstone: Git blob `a1631150dd7df2cf10c36c953a9fcd6af9a3847e`
 - host-deploy PR #6 source: `9ed396c08aa5be30bd514630838b8a4baf2e2087`
   - `zog.host_deploy.certificate_cross_host_admission`: Git blob `592983a3d299aaf1228248157fdea3908680f097`
   - `zog.host_deploy.certificate_cloudflare_https_consumer`: Git blob `cf771f8625e329e557939a1f268517c52faaf2de`
-- station-access PR #9 producer source: `b9c202147856520172228f7115a621e6d9bb1cae`
-  - protocol: `17ed5096db1ce146089fbc9c3ebf556f10e75d46`
-  - isolated HTTPS ingress: `db2f403ca9a8985ef9b65b56ce73adfe0a291ffe`
-  - protected credential authority: `102c75f72a6da59f39d139621e32286fce86509a`
+- canonical protocol owner: host-identify 0.3.5 source `4a176373ff4cb47a66a8ab1b5fd3d6ff01ff2a3b`
+  - `zog.host_identify.credential_delivery`: Git blob `02332127defe565e00e398b71ada50d5c2bdd4d6`
+- station-access PR #10 canonical interoperability source: `51295bd7a458a621ccbf33eab03da43ba84ce71a`
+  - public credential-delivery vector: Git blob `227a043ffbf88489d2c8b65790058ef870e5c1bc`
+  - unchanged shared interoperability test: Git blob `ca1701206507dbaaeccef049c930fac8ef5368f9`
 
-The station files are source-compatibility evidence only; they are not installed on the receiving Host and cannot become local authority by being checked out in CI.
+The station files are byte-for-byte interoperability evidence only; they are not installed on the receiving Host and cannot become local authority by being checked out in CI. The receiving Host separately attests the installed canonical host-identify credential-delivery module because root-control executes that protocol implementation.
 
 ## Retained independent authority
 
@@ -48,17 +49,13 @@ This source migration does not silently repin the separately accepted certificat
 
 No generic root-control remote-command RPC is introduced.
 
-## Exact remaining interoperability blocker
+## Canonical interoperability status
 
-The three draft owners are not yet one byte-for-byte wire contract:
+The receiver no longer carries a private HTTPS wire contract. Root-control PR #16 consumes the single canonical `zog.host_identify.credential_delivery` v0.3.5 protocol and is tested against station-access PR #10's exact public vectors. The fixed endpoints are the canonical credential-delivery v1 request, receipt and cancellation endpoints; authorization, request, delivery, installation receipt and cancellation bytes are validated by the canonical module.
 
-- station-access PR #9 currently defines `zog-credential-delivery-request-v1`, verifies Host RFC 9421 plus its protected consumer proof, and returns a bounded raw token body after Command-Center authorization;
-- host-deploy PR #6 prepares the richer nonsecret `zog-protected-credential-delivery-request-v1` and requires a separate authenticated nonsecret receipt plus private FD;
-- root-control PR #16 currently carries its own signed-response draft while preserving the selected HTTPS/TLS/HostIdentity/one-shot/FD gates.
+host-deploy's draft modules remain a **transport-independent nonsecret owner/policy/consumer admission join**. They do not define or translate credential wire bytes. host-install must never manufacture a canonical receipt from a host-deploy object or accept a raw token body outside root-control's verified canonical delivery path.
 
-Host-install must not translate away signed authority fields, fabricate a receipt, treat raw token JSON as metadata, or call one draft “compatible” because their purpose strings match. Native `native_https_accepted` therefore remains **false** until the protocol owners publish one exact request, response/receipt signature and secret-FD contract and the reviewed receiver is repinned to those final bytes.
-
-The retained HostIdentity private key remains under the existing host-identify service-account ownership. HTTPS work must consume an independently verified signing capability/receipt; root must not recreate or silently take ownership of that private key.
+Command-Center production activation remains a separate gate: station-access must still prove its protected HTTPS listener, durable server-side request/replay/revision ledger and vault isolation using the same canonical protocol. Source interoperability is PASS; live producer/native receiver acceptance is not.
 
 ## Native acceptance after protocol convergence
 

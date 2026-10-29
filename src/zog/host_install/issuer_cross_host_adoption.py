@@ -22,15 +22,19 @@ import time
 from . import certificate_owner_authority as owner
 from .state_contract import StateError, require
 
-ROOT_BRIDGE_COMMIT = "05aef0ef4a8470e315aada0bd1c67eb5cd98b7aa"
-ROOT_BRIDGE_BLOB = "0261525db0a4307ce7b3f0267646249e0e4bc5c4"
+ROOT_BRIDGE_COMMIT = "d85aa7feb8a4db28249c5edde958d3d006e5e009"
+ROOT_BRIDGE_BLOB = "4d3d11a874203336cb5bf386e78af20e6772d21f"
 ROOT_RECEIPT_COMMON_BLOB = "4c1fe6b37c95d3cd038aba0c8a0df3b71a55d13f"
+HOST_IDENTIFY_COMMIT = "4a176373ff4cb47a66a8ab1b5fd3d6ff01ff2a3b"
+HOST_IDENTIFY_CREDENTIAL_BLOB = "02332127defe565e00e398b71ada50d5c2bdd4d6"
 HOST_DEPLOY_COMMIT = "9ed396c08aa5be30bd514630838b8a4baf2e2087"
 HOST_DEPLOY_BRIDGE_BLOB = "592983a3d299aaf1228248157fdea3908680f097"
 HOST_DEPLOY_HTTPS_CONSUMER_BLOB = "cf771f8625e329e557939a1f268517c52faaf2de"
 SOURCE = {
     "zog.root_control.issuer_https_receiver": ("root-control", ROOT_BRIDGE_BLOB),
     "zog.root_control.issuer_receipt_common": ("root-control", ROOT_RECEIPT_COMMON_BLOB),
+    "zog.host_identify.credential_delivery":
+        ("host-identify", HOST_IDENTIFY_CREDENTIAL_BLOB),
     "zog.host_deploy.certificate_cross_host_admission":
         ("host-deploy", HOST_DEPLOY_BRIDGE_BLOB),
     "zog.host_deploy.certificate_cloudflare_https_consumer":
@@ -90,6 +94,7 @@ def _attest_module(name, distribution, blob, *, package=""):
 
 
 def attest_installed(*, python_executable, root_distribution="root-control",
+                     identify_distribution="host-identify",
                      deploy_distribution="host-deploy"):
     """Root-only, selected interpreter, exact source and wheel RECORD."""
     require(os.geteuid() == 0, "root-required",
@@ -105,13 +110,15 @@ def attest_installed(*, python_executable, root_distribution="root-control",
         result[name] = _attest_module(
             name, distribution, sha,
             package=(root_distribution if distribution == "root-control"
+                     else identify_distribution if distribution == "host-identify"
                      else deploy_distribution))
     return dict(status="source-and-record-verified", modules=result,
                 credential_transferred=False)
 
 
 def inspect(project_root, delivery_policy, *, python_executable,
-            root_distribution="root-control", deploy_distribution="host-deploy"):
+            root_distribution="root-control", identify_distribution="host-identify",
+            deploy_distribution="host-deploy"):
     """Preflight: source bytes, live STATE, second owner, and exact grant.
 
     Root-control's separate transfer command must RECHECK all of these under
@@ -123,6 +130,7 @@ def inspect(project_root, delivery_policy, *, python_executable,
     installed = attest_installed(
         python_executable=python_executable,
         root_distribution=root_distribution,
+        identify_distribution=identify_distribution,
         deploy_distribution=deploy_distribution)
     from zog.box_control.project import Project
     from zog.root_control import issuer_https_receiver as cross
