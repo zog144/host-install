@@ -67,10 +67,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: zog144/root-control
-          ref: 31c1bf1d5d57534d595bf0c7f683f13186b24a48
+          ref: e421634cf39f8e7867d219d0b39285a340bdebb0
           path: companions/root-control-cross-host
           sparse-checkout: |
             src/zog/root_control/issuer_https_receiver.py
+            src/zog/root_control/issuer_receipt_common.py
       - name: Check out corrected station cross-host reader
         uses: actions/checkout@v4
         with:
@@ -110,8 +111,9 @@ jobs:
           test "$(git -C companions/host-welcome rev-parse HEAD)" = "a1d554bb78de27e9f365f4254db25c77cc49ec27"
           test "$(git -C companions/box-control-certificate rev-parse HEAD)" = "73d64fb8b643e27667ac719080a37913c008b5dd"
           test "$(git -C companions/root-control rev-parse HEAD)" = "8bb9a5638622b3c443e59351cfdf06583cea8e80"
-          test "$(git -C companions/root-control-cross-host rev-parse HEAD)" = "31c1bf1d5d57534d595bf0c7f683f13186b24a48"
-          test "$(git -C companions/root-control-cross-host hash-object src/zog/root_control/issuer_https_receiver.py)" = "3b6304793a8b8fc54ce63a8cb04e445ee1eb9943"
+          test "$(git -C companions/root-control-cross-host rev-parse HEAD)" = "e421634cf39f8e7867d219d0b39285a340bdebb0"
+          test "$(git -C companions/root-control-cross-host hash-object src/zog/root_control/issuer_https_receiver.py)" = "c91b8c6831568b6c927039f04bb74ddd3a1e6bca"
+          test "$(git -C companions/root-control-cross-host hash-object src/zog/root_control/issuer_receipt_common.py)" = "4c1fe6b37c95d3cd038aba0c8a0df3b71a55d13f"
           test "$(git -C companions/station-access-cross-host rev-parse HEAD)" = "b9160c5b390594dc0ab90c58a7472acc04205f21"
           test "$(git -C companions/station-access-cross-host hash-object src/zog/station_access/host_registry/issuer_cloudflare_reader.py)" = "330618241601da041ac28292acdf163d2006ac41"
           test "$(git -C companions/certify-manage rev-parse HEAD)" = "8d073ff449557fc82c12eea93e240cdeec1b0fcc"
