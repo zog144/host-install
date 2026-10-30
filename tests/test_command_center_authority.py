@@ -147,8 +147,7 @@ def fixture():
         **grant_approval_unsigned,
         "signature_ed25519": base64.b64encode(
             operator.sign(
-                authority.GRANT_APPROVAL_DOMAIN
-                + canonical(grant_approval_unsigned)
+                authority.GRANT_APPROVAL_DOMAIN + canonical(grant_packet)
             )
         ).decode("ascii"),
     }
