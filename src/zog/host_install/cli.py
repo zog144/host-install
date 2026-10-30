@@ -4,7 +4,7 @@ import sys
 import subprocess
 from pathlib import Path
 
-from . import InstallError
+from . import InstallError, __version__
 from .state_contract import StateError, decode, validate
 from .state_inspect import inspect_report
 from .state_probe import probe_live
@@ -33,6 +33,7 @@ from .preflight import assess, collect
 
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="host-install")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
     for name in ("plan", "preflight", "assemble-fixture"):
         cmd = sub.add_parser(name)

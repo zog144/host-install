@@ -84,7 +84,12 @@ def assess(snapshot, target, expected_identity, required_bytes):
     require(not any(n["holders"] for n in descendants), "target has active device holders")
     require(not any(n["read_only"] for n in descendants), "target is read-only")
     require(node["size"] >= required_bytes, "target is too small")
-    binding = {k: node[k] for k in ("identity", "size", "devno", "path")}
+    binding = {
+        "identity": expected_identity,
+        "size": node["size"],
+        "devno": node["devno"],
+        "path": node["path"],
+    }
     return {"status": "planning-only", "device_writes_enabled": False, "target": binding,
             "inventory_sha256": digest(snapshot), "running_root_backing": sorted(root_backing)}
 

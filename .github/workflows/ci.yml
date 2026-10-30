@@ -114,7 +114,14 @@ jobs:
       - name: Confirm CLI and namespace
         run: |
           host-install --help >/dev/null
-          python -c 'import zog.host_install as h; assert h.__version__ == "0.14.2"'
+          test "$(host-install --version)" = "host-install 0.14.3"
+          python - <<'PY'
+          import pathlib, tomllib
+          from importlib.metadata import version as distribution_version
+          import zog.host_install as h
+          project_version = tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"]
+          assert distribution_version("host-install") == h.__version__ == project_version == "0.14.3"
+          PY
           test ! -e src/zog/__init__.py
 
   host-discover-compatibility:
