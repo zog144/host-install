@@ -18,7 +18,7 @@ NOW = 1793376000
 
 
 def uid(number):
-    return str(uuid.UUID(int=number))
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"zog-command-center-test-{number}"))
 
 
 def fixture():
