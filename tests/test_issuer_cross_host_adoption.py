@@ -172,9 +172,21 @@ def test_https_host_deploy_admission_and_selected_consumer_pins_are_exact():
     consumer = (
         source_root / "src/zog/host_deploy/certificate_cloudflare_https_consumer.py"
     ).read_bytes()
-    assert bridge.HOST_DEPLOY_COMMIT == "9ed396c08aa5be30bd514630838b8a4baf2e2087"
+    assert bridge.HOST_DEPLOY_COMMIT == "e4aca5ae832b6a8bc02795db650ada9dfd1224c8"
     assert bridge.HOST_DEPLOY_BRIDGE_BLOB == "592983a3d299aaf1228248157fdea3908680f097"
-    assert bridge.HOST_DEPLOY_HTTPS_CONSUMER_BLOB == "cf771f8625e329e557939a1f268517c52faaf2de"
+    assert bridge.HOST_DEPLOY_HTTPS_CONSUMER_BLOB == "607372e25c860e18f8581e2dde2291dc2d074850"
     assert bridge.owner._git_blob(admission) == bridge.HOST_DEPLOY_BRIDGE_BLOB
     assert bridge.owner._git_blob(consumer) == bridge.HOST_DEPLOY_HTTPS_CONSUMER_BLOB
     assert "zog.host_deploy.certificate_cloudflare_https_consumer" in bridge.SOURCE
+
+
+def test_canonical_adapter_and_retired_transport_are_both_attested():
+    from zog.host_deploy import certificate_cloudflare_https_consumer as retired
+    source_root = Path(os.environ["HOST_DEPLOY_SOURCE"])
+    name = "zog.host_deploy.certificate_cloudflare_canonical"
+    raw = (source_root / "src/zog/host_deploy/certificate_cloudflare_canonical.py").read_bytes()
+    assert bridge.owner._git_blob(raw) == bridge.HOST_DEPLOY_CANONICAL_BLOB
+    assert bridge.SOURCE[name] == ("host-deploy", bridge.HOST_DEPLOY_CANONICAL_BLOB)
+    for entry in (retired.prepare, retired.check_receipt, retired.deliver_selected):
+        with pytest.raises(retired.CloudflareDeliveryBlocked):
+            entry()

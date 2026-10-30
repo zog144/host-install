@@ -10,9 +10,10 @@ This supersedes the SSH-specific receiver/adoption design formerly carried by ho
   - `zog.root_control.issuer_https_receiver`: Git blob `4d3d11a874203336cb5bf386e78af20e6772d21f`
   - `zog.root_control.issuer_receipt_common`: Git blob `4c1fe6b37c95d3cd038aba0c8a0df3b71a55d13f`
   - retired `zog.root_control.issuer_cross_host` tombstone: Git blob `a1631150dd7df2cf10c36c953a9fcd6af9a3847e`
-- host-deploy PR #6 source: `9ed396c08aa5be30bd514630838b8a4baf2e2087`
+- host-deploy PR #6 source: `e4aca5ae832b6a8bc02795db650ada9dfd1224c8`
   - `zog.host_deploy.certificate_cross_host_admission`: Git blob `592983a3d299aaf1228248157fdea3908680f097`
-  - `zog.host_deploy.certificate_cloudflare_https_consumer`: Git blob `cf771f8625e329e557939a1f268517c52faaf2de`
+  - `zog.host_deploy.certificate_cloudflare_canonical`: Git blob `62084be726e3678184e2319cbe75acc1d482877e`
+  - retired custom-wire `zog.host_deploy.certificate_cloudflare_https_consumer` tombstone: Git blob `607372e25c860e18f8581e2dde2291dc2d074850`
 - canonical protocol owner: host-identify 0.3.5 source `4a176373ff4cb47a66a8ab1b5fd3d6ff01ff2a3b`
   - `zog.host_identify.credential_delivery`: Git blob `02332127defe565e00e398b71ada50d5c2bdd4d6`
 - station-access PR #10 canonical interoperability source: `51295bd7a458a621ccbf33eab03da43ba84ce71a`
@@ -64,3 +65,7 @@ Work must install/read back exact source and RECORD identities, independently in
 ## RF5BGA and issuer-installation boundary
 
 The retained issuer installation and all historical operations are immutable inputs to this migration. **Do not modify or re-prepare RF5BGA.** Its abandonment/recovery history and any future preparation require their own explicit authorization and repeat-safety review. This source work does not run Certbot, DNS, ACME, certificate publication, nginx reload, EC2/SSM mutation or a real credential transfer.
+
+## Canonical owner-policy adoption — 2026-10-30
+
+The source/RECORD manifest includes both the canonical nonsecret owner adapter and the retired custom-wire tombstone. The tombstone is attested only to prove retirement; it is not a transport entry point or fallback. Source attestation does not invoke delivery, establish native acceptance, or replace the independent signed authorization and durable ledger gates. The retained installation needs a separate exact-byte readback; `native_https_accepted` remains false.

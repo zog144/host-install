@@ -27,9 +27,10 @@ ROOT_BRIDGE_BLOB = "4d3d11a874203336cb5bf386e78af20e6772d21f"
 ROOT_RECEIPT_COMMON_BLOB = "4c1fe6b37c95d3cd038aba0c8a0df3b71a55d13f"
 HOST_IDENTIFY_COMMIT = "4a176373ff4cb47a66a8ab1b5fd3d6ff01ff2a3b"
 HOST_IDENTIFY_CREDENTIAL_BLOB = "02332127defe565e00e398b71ada50d5c2bdd4d6"
-HOST_DEPLOY_COMMIT = "9ed396c08aa5be30bd514630838b8a4baf2e2087"
+HOST_DEPLOY_COMMIT = "e4aca5ae832b6a8bc02795db650ada9dfd1224c8"
 HOST_DEPLOY_BRIDGE_BLOB = "592983a3d299aaf1228248157fdea3908680f097"
-HOST_DEPLOY_HTTPS_CONSUMER_BLOB = "cf771f8625e329e557939a1f268517c52faaf2de"
+HOST_DEPLOY_HTTPS_CONSUMER_BLOB = "607372e25c860e18f8581e2dde2291dc2d074850"
+HOST_DEPLOY_CANONICAL_BLOB = "62084be726e3678184e2319cbe75acc1d482877e"
 SOURCE = {
     "zog.root_control.issuer_https_receiver": ("root-control", ROOT_BRIDGE_BLOB),
     "zog.root_control.issuer_receipt_common": ("root-control", ROOT_RECEIPT_COMMON_BLOB),
@@ -37,6 +38,9 @@ SOURCE = {
         ("host-identify", HOST_IDENTIFY_CREDENTIAL_BLOB),
     "zog.host_deploy.certificate_cross_host_admission":
         ("host-deploy", HOST_DEPLOY_BRIDGE_BLOB),
+    "zog.host_deploy.certificate_cloudflare_canonical":
+        ("host-deploy", HOST_DEPLOY_CANONICAL_BLOB),
+    # Attest retirement too: these bytes must refuse all legacy entry points.
     "zog.host_deploy.certificate_cloudflare_https_consumer":
         ("host-deploy", HOST_DEPLOY_HTTPS_CONSUMER_BLOB),
 }
