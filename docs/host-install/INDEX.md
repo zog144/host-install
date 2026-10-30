@@ -16,3 +16,4 @@ The canonical reader-facing manual is **[host-install technical manual](README.m
 - [host-discover 0.4.11 compatibility contract](host-discover-compatibility-2026-10-24.md) — current non-resident managed-beacon successor, exact source/installed-byte binding and retained-installation recovery boundary.
 - [host-discover compatibility contract](host-discover-compatibility-2026-10-18.md) — exact public source/API pairing for the 2026-10-18 migration remediation.
 - [Source traceability](TRACEABILITY.md) — preserved source-to-manual mapping and historical disposition.
+- [Protected externally-managed Command-Center authority bootstrap](command-center-authority.md)
