@@ -37,7 +37,8 @@ def inspect(*, commit, authorization, request, delivery,
     native producer signature, root-controlled FD transfer or permission to
     send a Host-signed receipt.
     """
-    if (type(now) is not int or type(expected_origin) is not str\n            or type(commit) is not dict
+    if (type(now) is not int or type(expected_origin) is not str
+            or type(commit) is not dict
             or set(commit) != COMMIT_FIELDS
             or commit["schema"] != COMMIT_SCHEMA
             or commit["state"] != "committed-awaiting-host-signed-receipt"
