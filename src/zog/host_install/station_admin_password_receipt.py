@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import uuid
 
-from zog.host_identify import credential_delivery as cd
+from zog.host_identify import credential_delivery as cd, signatures
 
 CONSUMER = "station-access"
 PURPOSE = "station-access-administrator-password"
@@ -30,14 +30,14 @@ def _deny():
 
 
 def inspect(*, commit, authorization, request, delivery,
-            expected_binding, expected_account_id, now):
+            expected_binding, expected_account_id, expected_origin, now):
     """Reject mismatched canonical binding or uncommitted/replayed local claims.
 
     Returned metadata is a *source-contract observation*, not a validated
     native producer signature, root-controlled FD transfer or permission to
     send a Host-signed receipt.
     """
-    if (type(now) is not int or type(commit) is not dict
+    if (type(now) is not int or type(expected_origin) is not str\n            or type(commit) is not dict
             or set(commit) != COMMIT_FIELDS
             or commit["schema"] != COMMIT_SCHEMA
             or commit["state"] != "committed-awaiting-host-signed-receipt"
