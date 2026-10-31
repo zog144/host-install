@@ -71,6 +71,12 @@ def test_contract_separates_boot_and_certificate_work():
     assert value["boot_provider"]["first_pass_kernel"][
         "zog_built_kernel_required"
     ] is False
+    assert value["boot_provider"]["switch_root_contract"] == {
+        "resident_init": "/usr/lib/systemd/systemd",
+        "resident_os_tree_marker": "/usr/lib/os-release",
+        "os_release_required_when_systemd_is_resident_init": True,
+    }
+    assert "usr/lib/os-release" in value["rootfs"]["boot_a_required_files"]
     assert value["acceptance"]["boot_a"]["requires_certificates"] is False
     assert value["acceptance"]["resident_b"]["requires_certificates"] is False
     excluded = value["acceptance"]["not_part_of_boot_acceptance"]
@@ -119,6 +125,19 @@ def test_missing_efi_loader_blocks_boot_a_source_gate():
     assert "usr/lib/systemd/boot/efi/systemd-bootx64.efi" in (
         result["boot_a"]["missing_or_mismatched"]
     )
+
+
+def test_missing_os_release_blocks_switch_root_source_gate():
+    value = complete_manifest()
+    value["rootfs"]["entries"] = [
+        row for row in value["rootfs"]["entries"]
+        if row["path"] != "usr/lib/os-release"
+    ]
+    result = boot.assess_verified_artifact(value)
+    assert result["boot_a"]["source_complete"] is False
+    assert result["boot_a"]["path_checks"]["usr/lib/os-release"]["status"] == "missing"
+    assert "usr/lib/os-release" in result["boot_a"]["missing_or_mismatched"]
+    assert "boot-a-rootfs-paths-incomplete" in result["blockers"]
 
 
 def test_fail_closed_mountpoints_must_be_empty_and_mode_zero():

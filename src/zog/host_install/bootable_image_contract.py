@@ -37,6 +37,7 @@ BOOT_A_FILES = (
     "usr/lib/systemd/system/getty@.service",
     "usr/lib/systemd/system/serial-getty@.service",
     "usr/lib/systemd/boot/efi/systemd-bootx64.efi",
+    "usr/lib/os-release",
 )
 RESIDENT_B_EXECUTABLES = (
     "usr/lib/systemd/systemd-networkd",
@@ -73,6 +74,7 @@ IMAGE_BUILD_VERIFICATIONS = (
     "public-ca-trust-store",
     "kmod-native",
     "efi-loader-exact-bytes",
+    "resident-os-release-switch-root-marker",
     "foreign-kernel-initramfs-modules-provenance",
     "initramfs-root-partuuid-readonly-switch-root",
 )
@@ -135,6 +137,11 @@ def contract():
                 "load-required-nvme-or-virtio-storage-driver",
                 "switch-root-to-/usr/lib/systemd/systemd",
             ],
+            "switch_root_contract": {
+                "resident_init": "/usr/lib/systemd/systemd",
+                "resident_os_tree_marker": "/usr/lib/os-release",
+                "os_release_required_when_systemd_is_resident_init": True,
+            },
         },
         "rootfs": {
             "boot_a_required_executables": list(BOOT_A_EXECUTABLES),
@@ -222,6 +229,14 @@ def validate_contract(value):
     require(value["boot_provider"]["efi_loader"]["path"] ==
             "/usr/lib/systemd/boot/efi/systemd-bootx64.efi",
             "bootable-image EFI loader contract changed")
+    require(value["boot_provider"]["switch_root_contract"] == {
+                "resident_init": "/usr/lib/systemd/systemd",
+                "resident_os_tree_marker": "/usr/lib/os-release",
+                "os_release_required_when_systemd_is_resident_init": True,
+            },
+            "bootable-image switch-root contract changed")
+    require("usr/lib/os-release" in value["rootfs"]["boot_a_required_files"],
+            "bootable-image OS-tree marker requirement changed")
     require(value["acceptance"]["boot_a"]["requires_certificates"] is False and
             value["acceptance"]["resident_b"]["requires_certificates"] is False,
             "certificate work cannot become a boot prerequisite")

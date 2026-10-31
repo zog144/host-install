@@ -44,7 +44,7 @@ def test_publication_and_efi_are_exact():
     assert binding["host_boot_ready_claimed"] is False
 
 
-def test_foreign_boot_provider_is_frozen_but_not_native_accepted():
+def test_foreign_boot_provider_records_read_only_root_pass_but_switch_root_failure():
     value = first.plan()
     boot = value["foreign_boot_provider"]
     assert boot["kernel_release"] == "6.18.44-99.149.amzn2023.x86_64"
@@ -55,10 +55,27 @@ def test_foreign_boot_provider_is_frozen_but_not_native_accepted():
         "06bca6e41de36109384ba019212ab1be72643a578d0afb9f3fa3c561a190f599"
     )
     assert boot["acceptance"] == "WORK_PREWRITE_REVERIFY_AND_NATIVE_ACCEPT"
-    assert boot["read_only_root_native_proof"] is False
+    assert boot["read_only_root_native_proof"] is True
     assert boot["exact_pid1_switch_root_native_proof"] is False
     assert value["device_writes_authorized"] is False
-    assert value["native_acceptance"]["status"] == "NOT RUN"
+    acceptance = value["native_acceptance"]
+    assert acceptance["status"] == "FAILED_SWITCH_ROOT"
+    assert acceptance["retry_same_generation_authorized"] is False
+    assert acceptance["successor_generation_required"] is True
+    assert acceptance["observed"]["selected_host_a_read_only"] == "PASS"
+    assert acceptance["observed"]["initrd_switch_root"] == "FAIL_EXIT_1"
+    assert acceptance["source_blocker"] == {
+        "generation": first.GENERATION,
+        "missing_path": "/usr/lib/os-release",
+        "contract": "systemd-switch-root-os-tree",
+        "correction_owner": "image-build Regular",
+    }
+    assert value["generation_binding"]["native_boot_disposition"] == (
+        "REJECTED_SWITCH_ROOT_OS_TREE_MISSING"
+    )
+    assert value["rootfs_materialization"]["required_switch_root_os_tree_marker"] == (
+        "/usr/lib/os-release"
+    )
 
 
 def test_cli_emits_exact_first_boot_plan():

@@ -1,4 +1,4 @@
-"""Frozen first disposable Boot A resident-install plan."""
+"""Frozen first disposable Boot A plan with its observed switch-root failure."""
 from __future__ import annotations
 
 from .manifest import require
@@ -97,6 +97,7 @@ def plan():
             "publication_recovery": PUBLICATION_RECOVERY,
             "historical_provenance_complete": False,
             "host_boot_ready_claimed": False,
+            "native_boot_disposition": "REJECTED_SWITCH_ROOT_OS_TREE_MISSING",
         },
         "esp": {
             "efi_loader_source": "/usr/lib/systemd/boot/efi/systemd-bootx64.efi",
@@ -113,24 +114,40 @@ def plan():
                 "/state": "0000",
                 "/applications": "0000",
             },
+            "required_switch_root_os_tree_marker": "/usr/lib/os-release",
         },
         "foreign_boot_provider": {
             **FOREIGN_BOOT,
             "acceptance": "WORK_PREWRITE_REVERIFY_AND_NATIVE_ACCEPT",
             "nvme_config_present": True,
             "partuuid_dispatch_source_level": True,
-            "read_only_root_native_proof": False,
+            "read_only_root_native_proof": True,
             "exact_pid1_switch_root_native_proof": False,
         },
         "native_acceptance": {
-            "status": "NOT RUN",
+            "status": "FAILED_SWITCH_ROOT",
             "owner": "host-install+host-deploy Work",
+            "retry_same_generation_authorized": False,
+            "successor_generation_required": True,
+            "observed": {
+                "uefi_loader": "PASS",
+                "foreign_kernel_initramfs": "PASS",
+                "selected_host_a_partuuid": "PASS",
+                "selected_host_a_read_only": "PASS",
+                "initrd_switch_root": "FAIL_EXIT_1",
+                "resident_pid1": "NOT_REACHED",
+            },
+            "source_blocker": {
+                "generation": GENERATION,
+                "missing_path": "/usr/lib/os-release",
+                "contract": "systemd-switch-root-os-tree",
+                "correction_owner": "image-build Regular",
+            },
             "required": [
-                "reverify exact target disk identity and size",
+                "publish a new immutable generation containing /usr/lib/os-release",
+                "bind the exact successor generation into a new host-install plan",
                 "reverify exact AL2023 kernel/initramfs/modules bytes and provenance",
-                "materialize HOST-A from the exact canonical rootfs archive",
-                "materialize ESP from the exact EFI plus exact foreign boot bundle",
-                "boot UEFI to selected HOST-A PARTUUID read-only",
+                "boot UEFI to the successor HOST-A PARTUUID read-only",
                 "prove PID1 is /usr/lib/systemd/systemd",
                 "prove journald and serial/getty recovery",
                 "reboot and prove the same selected generation/STATE identities",
@@ -168,6 +185,15 @@ def validate(value):
             "first boot root must be read-only")
     require(value["device_writes_authorized"] is False,
             "source plan cannot authorize device writes")
-    require(value["native_acceptance"]["status"] == "NOT RUN",
-            "source plan cannot claim native Boot A acceptance")
+    require(value["native_acceptance"]["status"] == "FAILED_SWITCH_ROOT",
+            "first Boot A native failure disposition changed")
+    require(value["native_acceptance"]["retry_same_generation_authorized"] is False and
+            value["native_acceptance"]["successor_generation_required"] is True,
+            "failed first Boot A generation cannot be retried as accepted input")
+    require(value["generation_binding"]["native_boot_disposition"] ==
+            "REJECTED_SWITCH_ROOT_OS_TREE_MISSING",
+            "failed first Boot A generation disposition changed")
+    require(value["rootfs_materialization"]["required_switch_root_os_tree_marker"] ==
+            "/usr/lib/os-release",
+            "first Boot A switch-root marker requirement changed")
     return value

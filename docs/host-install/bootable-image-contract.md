@@ -60,12 +60,27 @@ Required files:
 - /usr/lib/systemd/system/getty@.service
 - /usr/lib/systemd/system/serial-getty@.service
 - /usr/lib/systemd/boot/efi/systemd-bootx64.efi
+- /usr/lib/os-release
+
+For the foreign AL2023 initramfs used by the first Boot A lane, systemd's switch-root
+operation treats the resident init as systemd and therefore requires the target root
+to be an OS tree. /usr/lib/os-release is the immutable vendor marker. host-install
+must reject a candidate without it; installation must not add it after generation
+selection.
 
 The EFI loader belongs to the selected rootfs generation so image-build can bind its exact bytes. host-install copies those exact accepted bytes to the ESP and creates installation-specific loader configuration; the rootfs itself is not modified.
 
 The first-pass kernel provider may remain foreign Amazon Linux 2023. A Zog-built kernel is not a prerequisite for this first boot experiment. The boot bundle must bind exact kernel, initramfs and matching modules/<kernel-release>/ content/provenance.
 
 The initramfs must be independently shown capable of resolving root=PARTUUID=<selected-HOST-partuuid>, mounting ext4 root read-only, loading the storage driver required by the disposable VM, and switching root to /usr/lib/systemd/systemd.
+
+The 2026-10-30 native attempt proved UEFI, the frozen foreign kernel/initramfs,
+PARTUUID selection and read-only HOST-A, then failed in initrd-switch-root.service
+before resident PID1. The selected generation 5af34ec67cbf... lacked both
+os-release paths. With init=/usr/lib/systemd/systemd, systemctl recognizes that
+init as the resident systemd binary and the system manager applies its OS-tree
+check; a missing os-release therefore rejects SwitchRoot. That generation is
+retained as failed evidence and must not be retried as an accepted boot input.
 
 Boot A native PASS requires UEFI to execute the exact loader; exact reviewed kernel/initramfs selection; root mounted from the selected HOST PARTUUID read-only; PID 1 systemd; journald evidence; serial/getty recovery; and host-install's live host-generation report proving the booted slot from the live root PARTUUID.
 
@@ -115,15 +130,18 @@ image-build Regular should evaluate the currently intended rootfs generation and
 7. verification identities for systemd core + seccomp, host-boot packages, Kmod, Python SSL/SQLite and public CA trust;
 8. any missing OS component that requires a new generation.
 
-Two current source facts require explicit review rather than assumption:
+Current source facts requiring explicit review:
 
-- the reviewed image-build systemd recipe currently configures -Dbootloader=disabled, so the required systemd-boot EFI binary may be absent unless another accepted package supplies it;
+- image-build 68d6397ca20c4651df8f13c8a840dc8f77d55034 adds the immutable
+  /usr/lib/os-release marker (and /etc/os-release symlink) to the systemd-final
+  output and requires it in the targeted installed check;
+- the accepted 2026-10-30 generation predates that correction and remains rejected;
 - the current first-host design intentionally uses a foreign kernel; image-build has not built a Zog kernel and does not need to do so for Boot A.
 
 Do not rebuild the whole rootfs merely because this contract exists. First inspect the exact candidate generation. Build a successor only for requirements that are actually missing or incompatible.
 
 ## Work boundary
 
-Once image-build returns a source-complete exact generation, host-install Regular binds that exact generation into the installation plan. A separate host-install/host-deploy Work run owns disposable-VM installation, reboot, Boot A evidence and subsequent Resident B evidence.
+Once image-build returns a source-complete successor generation containing the OS-tree marker, host-install Regular binds that exact generation into a new installation plan. The failed 5af34ec6... plan is historical evidence only and is not a retry input. A separate host-install/host-deploy Work run owns disposable-VM installation, reboot, Boot A evidence and subsequent Resident B evidence.
 
 No source-only contract or image-build verification authorizes device writes, EC2 creation, production activation or release publication.
