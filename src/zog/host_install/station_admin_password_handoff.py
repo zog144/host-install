@@ -80,7 +80,14 @@ def recover(*, channel, receiver_peer, authorization, request, delivery,
 def inspect_recovered(*, commit, authorization, request, delivery,
                       expected_binding, expected_account_id, expected_origin, now):
     """Check the protected result; native Host signing remains forbidden."""
+    if (type(now) is not int or type(commit) is not dict
+            or type(commit.get("installed_at")) is not int
+            or commit["installed_at"] > now):
+        _deny()
+    # This is a historical, post-commit comparison, NOT fresh authorization.
+    # Revalidate against the original protected commit time, not the reboot
+    # time after delivery/request expiry. Host receipt remains disallowed.
     return inspect(commit=commit, authorization=authorization, request=request,
                    delivery=delivery, expected_binding=expected_binding,
                    expected_account_id=expected_account_id,
-                   expected_origin=expected_origin, now=now)
+                   expected_origin=expected_origin, now=commit["installed_at"])
