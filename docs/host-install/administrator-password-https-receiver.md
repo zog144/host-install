@@ -1,0 +1,19 @@
+# Administrator-password HTTPS-v1 receiver — source integration contract
+
+Scope: host-install #2; related station-access administrator profile draft PR #9.
+Consumer `station-access`, purpose `station-administrator-password`, credential `station-admin`.
+This is not the Cloudflare file destination. Do not write a password hash directly or touch `FIRST-LOGIN.txt` or `station_login_file`.
+
+The source-only adapter `zog.host_install.administrator_password_receiver.review_delivered` verifies an independently installed Credential Authority Ed25519 pin and canonical signed v1 authorization, signed delivery, expected local Host/fingerprint/installation/STATE/registry, exact operator-approved proposal digest, operator-approval digest and positive credential revision. It requires the durably recorded **delivered** request and its exact delivery ID under a current nonrevoked root ledger. It cannot sign a receipt or activate a remote endpoint. It returns a bounded in-memory UTF-8 plaintext string and a nonsecret exact handoff.
+
+The root owner MUST independently attest TLS endpoint/source/RECORD, HostIdentity-signed HTTP request, persist HTTP-signature nonce before receiving secret bytes, and read the installed root-owned nonce/ledger checkpoint, local destination identity, installed authority pin, and current signed authorization after retrieval. The source function consumes those original verified inputs; a caller-provided JSON ledger or proposal is not itself trusted provenance. Any missing root authority, consumer STATE, permission, provenance or revision causes a STOP.
+
+A protected non-browser station owner invokes `zog.station_access.host_registry.administrator_password_mutation.install_authorized` in the existing Django environment, with a native root-admission verifier. That verifier must recheck original installed ledger and signed authority inside the station `SecurityGate.locked()` mutation. This source intentionally does not wire a route, CLI service or verifier.
+
+The Django ceremony checks the selected `station-admin` PK, active staff/superuser state and opaque keyed current account revision under SecurityGate; distinguishes a still-current first-login export from a new password rotation; never reverses a Django password hash; calls the same `user.full_clean`, Django `validate_password`, `set_password` and `user_views.revoke` as Users API; commits password hash, session deletion, VNC grant revocation and secret-free `SecurityAudit` in one database transaction; prevents duplicate request/delivery and non-increasing credential revision; verifies password, new account revision, roles and revocations before returning nonsecret Django evidence (not a shared-v1 receipt).
+
+On lost response, call `inspect_installed` under the same gate using the original request/delivery IDs and expected post-mutation account revision; do not reapply plaintext. If state is unknown or changed, hold and reconcile, never automatically re-deliver. Cancellation after delivery requires rotation and a higher credential revision.
+
+Only after exact Django evidence and independent readback match may host-install build a canonical shared-v1 receipt candidate using `receipt_candidate`. The installed HostIdentity key owner must separately sign and persist the common v1 installation receipt and root ledger progression. No plaintext, reusable plaintext digest, Django password hash, session key, VNC token, credential-delivery envelope or secret-bearing exception is in proof, audit or receipt.
+
+**Activation status:** source-only; native installed-code/peer boundary, root-ledger authority, HTTP verification/pinning, actual anonymous-FD delivery, real account mutation and receipt signing remain NOT RUN. No production password delivered, service/socket/nginx activation, real station DB modification, STATE fabrication or browser permission delegation.
