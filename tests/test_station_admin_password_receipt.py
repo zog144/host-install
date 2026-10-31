@@ -116,3 +116,72 @@ def test_changed_delivery_and_request_or_revoked_authority_refused():
         example[section][field] = value
         with pytest.raises(checked.AdministratorReceiptContractError):
             checked.inspect(**example)
+
+
+
+def test_broker_source_handoff_and_recovery_never_authorize_host_receipt(monkeypatch):
+    import sys
+    from types import ModuleType, SimpleNamespace
+    from unittest.mock import patch
+    from zog.host_install import station_admin_password_handoff as handoff
+
+    arg = fixture()
+    events = []
+    parent = ModuleType("zog.root_control")
+    parent.__path__ = []
+    fake = ModuleType("zog.root_control.administrator_fd")
+    fake.operation_frame = lambda **kw: (events.append(("frame", kw)) or b"exact-operation")
+    fake.send_secret_fd = lambda channel, fd, *, receiver, frame: events.append(("send", frame, fd))
+    fake.send_recovery = lambda channel, *, receiver, frame: events.append(("recover", frame))
+    peer = SimpleNamespace(uid=1201)
+
+    with patch.dict(sys.modules, {"zog.root_control": parent,
+                                  "zog.root_control.administrator_fd": fake}):
+        with patch.object(handoff.os, "geteuid", return_value=0):
+            result = handoff.handoff(
+                channel=object(), readonly_fd=77, receiver_peer=peer,
+                authorization=arg["authorization"], request=arg["request"],
+                delivery=arg["delivery"], account_id=73,
+                expected_binding=arg["expected_binding"],
+                expected_origin=arg["expected_origin"], now=arg["now"])
+            assert result["host_signed_receipt_authorized"] is False
+            assert any(item[0] == "send" for item in events)
+            # The original HTTP envelope may have expired when reboot recovery
+            # inspects the already committed record. This is not a redelivery.
+            far_later = arg["now"] + 5000
+            review_request = handoff.recover(
+                channel=object(), receiver_peer=peer,
+                authorization=arg["authorization"], request=arg["request"],
+                delivery=arg["delivery"], account_id=73,
+                expected_binding=arg["expected_binding"],
+                expected_origin=arg["expected_origin"], now=far_later)
+            assert review_request["host_signed_receipt_authorized"] is False
+            assert any(item[0] == "recover" for item in events)
+            verified = handoff.inspect_recovered(
+                commit=arg["commit"], authorization=arg["authorization"],
+                request=arg["request"], delivery=arg["delivery"],
+                expected_binding=arg["expected_binding"],
+                expected_account_id=73, expected_origin=arg["expected_origin"],
+                now=far_later)
+            assert verified["source_contract_matched"] is True
+            assert verified["host_signed_receipt_authorized"] is False
+
+
+def test_source_broker_denies_nonroot_caller_root_recipient_and_wrong_purpose():
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    from zog.host_install import station_admin_password_handoff as handoff
+
+    arg = fixture()
+    kwargs = dict(channel=object(), readonly_fd=77,
+                  receiver_peer=SimpleNamespace(uid=1201),
+                  authorization=arg["authorization"], request=arg["request"],
+                  delivery=arg["delivery"], account_id=73,
+                  expected_binding=arg["expected_binding"],
+                  expected_origin=arg["expected_origin"], now=arg["now"])
+    with patch.object(handoff.os, "geteuid", return_value=1201):
+        with pytest.raises(handoff.AdministratorReceiptContractError):
+            handoff.handoff(**kwargs)
+    with patch.object(handoff.os, "geteuid", return_value=0):
+        with pytest.raises(handoff.AdministratorReceiptContractError):
+            handoff.handoff(**dict(kwargs, receiver_peer=SimpleNamespace(uid=0)))
