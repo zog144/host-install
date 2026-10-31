@@ -55,7 +55,7 @@ def fixture():
     }
     return dict(commit=commit, authorization=auth, request=request,
                 delivery=delivery, expected_binding=binding,
-                expected_account_id=73, now=NOW)
+                expected_account_id=73, expected_origin="https://station.example.test", now=NOW)
 
 
 def test_exact_receipt_contract_is_not_native_authority():
@@ -94,6 +94,13 @@ def test_stale_or_substituted_local_commit_refuses_receipt(field, value):
 def test_wrong_destination_or_purpose_refuses_receipt(field,value):
     example = fixture()
     example["expected_binding"][field] = value
+    with pytest.raises(checked.AdministratorReceiptContractError):
+        checked.inspect(**example)
+
+
+def test_wrong_producer_https_origin_is_not_source_accepted():
+    example = fixture()
+    example["expected_origin"] = "https://different-station.example.test"
     with pytest.raises(checked.AdministratorReceiptContractError):
         checked.inspect(**example)
 
