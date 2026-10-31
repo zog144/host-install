@@ -14,3 +14,36 @@ The source-only helper `zog.host_install.station_admin_password_receipt.inspect`
 5. Only then construct and sign `zog-credential-installation-receipt-v1` via the authorized HostIdentity signing path, with exact original request/delivery/authorization identity and installed timestamp. Send it over canonical signed HTTPS receipt route. Verify replay, cancellation, lost reply, crash/reboot recovery and independent owner withdrawal without deleting account/audit history.
 
 **No live administration-password delivery, source pin adoption, root socket installation, service activation or credential authority grant is approved by this contract.** Keep PR draft until receiver/source/rights reviews and protected native gates close.
+
+
+## Task 4 — protected FD broker and ambiguous-commit recovery
+
+`station_admin_password_handoff` provides source-only root-UID-guarded
+`handoff`, `recover`, `read_committed_reply`, and
+`inspect_recovered`. They use the source draft
+[root-control #19](https://github.com/zog144/root-control/pull/19)
+`administrator_fd` protocol. These helpers do **not** obtain authority,
+deliver HTTPS credentials, validate installed executable bytes, launch a
+service, adopt an operator key or issue an authorized Host receipt.
+
+The future protected installer must independently select root-owned trust
+material and the intended Django receiver process, authorize exactly the
+account and credential revision, and verify the original signed producer
+delivery (not merely a structurally valid canonical object). A root-only
+sender transfers a sealed, readonly anonymous FD over an AF_UNIX
+SOCK_SEQPACKET connection to that separately pinned non-root receiver.
+Both peers pre-enable SO_PASSCRED on receiving sockets and validate the
+connection's SO_PEERCRED plus actual message SCM_CREDENTIALS and pinned
+PID/starttime/cgroup. No password travels in the control frame or receipts.
+
+After a successful Django transaction the receiver replies with the exact
+secret-free commit on the same protected connection. The caller validates
+the reply's selected operation, approved account, and source contract. If
+the send or reply is uncertain, **do not redeliver or regenerate a credential**:
+on a fresh verified connection, ask for the original request/delivery and
+inspect Django's existing protected commit. The source-only historical
+comparison can match the protected commit after the original HTTPS grant
+expires; it does not override current authorization, produce a receipt,
+or grant permission to reinstall a password. Durable installer receipt
+state, cancellation/highwater, live identity/wheel checks, and canonical
+Host signing/transmission remain **native NO-GO** gates.
