@@ -91,3 +91,25 @@ def inspect_recovered(*, commit, authorization, request, delivery,
                    delivery=delivery, expected_binding=expected_binding,
                    expected_account_id=expected_account_id,
                    expected_origin=expected_origin, now=commit["installed_at"])
+
+
+def read_committed_reply(*, channel, receiver_peer, authorization, request,
+                         delivery, account_id, expected_binding,
+                         expected_origin, now):
+    """Read exactly the matching Django commit on the protected Unix channel.
+
+    Caller retains durable evidence; response loss triggers recover() and
+    another read, never repeat handoff(). No Host receipt signing here.
+    """
+    if os.geteuid() != 0 or getattr(receiver_peer, "uid", None) in (None, 0):
+        _deny()
+    frame = _frame(authorization=authorization, request=request, delivery=delivery,
+                   account_id=account_id, expected_binding=expected_binding,
+                   expected_origin=expected_origin, now=now, recovery=True)
+    from zog.root_control.administrator_fd import receive_commit
+    commit = receive_commit(channel, station=receiver_peer, frame=frame)
+    return inspect_recovered(commit=commit, authorization=authorization,
+                             request=request, delivery=delivery,
+                             expected_binding=expected_binding,
+                             expected_account_id=account_id,
+                             expected_origin=expected_origin, now=now)
