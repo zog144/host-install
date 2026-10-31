@@ -55,7 +55,7 @@ def inspect(*, commit, authorization, request, delivery,
                 or cd.binding(request) != expected):
             _deny()
         cd.validate_authorization(
-            authorization, expected_issuer=authorization["issuer"],
+            authorization, expected_issuer=signatures.origin(expected_origin),
             expected_binding=expected, now=now)
         cd.validate_request(request, authorization, now=now)
         cd.validate_delivery(delivery, request, authorization, now=now)
