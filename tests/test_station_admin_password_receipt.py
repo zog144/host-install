@@ -133,6 +133,7 @@ def test_broker_source_handoff_and_recovery_never_authorize_host_receipt(monkeyp
     fake.operation_frame = lambda **kw: (events.append(("frame", kw)) or b"exact-operation")
     fake.send_secret_fd = lambda channel, fd, *, receiver, frame: events.append(("send", frame, fd))
     fake.send_recovery = lambda channel, *, receiver, frame: events.append(("recover", frame))
+    fake.receive_commit = lambda channel, *, station, frame: arg["commit"]
     peer = SimpleNamespace(uid=1201)
 
     with patch.dict(sys.modules, {"zog.root_control": parent,
@@ -165,6 +166,14 @@ def test_broker_source_handoff_and_recovery_never_authorize_host_receipt(monkeyp
                 now=far_later)
             assert verified["source_contract_matched"] is True
             assert verified["host_signed_receipt_authorized"] is False
+            reply = handoff.read_committed_reply(
+                channel=object(), receiver_peer=peer,
+                authorization=arg["authorization"], request=arg["request"],
+                delivery=arg["delivery"], account_id=73,
+                expected_binding=arg["expected_binding"],
+                expected_origin=arg["expected_origin"], now=far_later)
+            assert reply["source_contract_matched"] is True
+            assert reply["host_signed_receipt_authorized"] is False
 
 
 def test_source_broker_denies_nonroot_caller_root_recipient_and_wrong_purpose():
