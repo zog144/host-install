@@ -106,7 +106,8 @@ def test_changed_lock_inode_and_foreign_source_receipt_fail_closed(protected):
         independently_trusted_source_reader=lambda:evidence,
         independently_pinned_record_reader=lambda:"d"*64)
     assert check(fd,commit,evidence)
-    (folder/LOCK).unlink()
+    # Retain the old inode so a same-filesystem allocator cannot reuse it.
+    (folder/LOCK).rename(folder/".retired-execution-lock")
     (folder/LOCK).write_bytes(b"")
     (folder/LOCK).chmod(0o600)
     with pytest.raises(IssuerFenceDenied):
