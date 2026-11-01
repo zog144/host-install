@@ -295,7 +295,7 @@ def test_protected_root_publication_and_irreversible_revoke(tmp_path, monkeypatc
         })
 
     revoked = installed_and_revoked()
-    result = broker.publish_verified_revocation(
+    result = broker._publish_revocation_record(
         trusted_original_revocation_reader=lambda: {
             k: revoked[k] for k in ("revoked_owner", "revoked_ledger", "approval_bytes")
         },
@@ -306,7 +306,7 @@ def test_protected_root_publication_and_irreversible_revoke(tmp_path, monkeypatc
     assert marker.stat().st_ino > 0
     assert result["status"] == "root-owned-revocation-tombstone-retained"
     assert result["production_activation_authorized"] is False
-    assert broker.publish_verified_revocation(
+    assert broker._publish_revocation_record(
         trusted_original_revocation_reader=lambda: {
             k: revoked[k] for k in ("revoked_owner", "revoked_ledger", "approval_bytes")
         },
@@ -422,7 +422,7 @@ def test_interrupted_root_revocation_never_reenables_projection(
     with monkeypatch.context() as patcher:
         patcher.setattr(broker, "publish", fault)
         with pytest.raises(RuntimeError, match="revocation-publish-interrupted"):
-            broker.publish_verified_revocation(**kwargs)
+            broker._publish_revocation_record(**kwargs)
     assert any((tmp_path / name).exists() for name in (
         broker.REVOCATION_NAME, ".pending." + broker.REVOCATION_NAME
     ))
@@ -435,7 +435,7 @@ def test_interrupted_root_revocation_never_reenables_projection(
             trusted_source_attestor=lambda _: True,
             expected_approval_sha256=source["expected_approval_sha256"],
         )
-    receipt = broker.publish_verified_revocation(**kwargs)
+    receipt = broker._publish_revocation_record(**kwargs)
     assert receipt["status"] == "root-owned-revocation-tombstone-retained"
     assert (tmp_path / broker.PROJECTION_NAME).stat().st_ino == projection_inode
     assert not (tmp_path / (".pending." + broker.REVOCATION_NAME)).exists()
@@ -469,3 +469,50 @@ def test_root_owner_changes_between_preflight_and_publication_fail_closed(
             expected_approval_sha256=source["expected_approval_sha256"],
         )
     assert not (tmp_path / broker.PROJECTION_NAME).exists()
+
+
+
+def test_native_entry_rejects_without_shared_root_control_fence():
+    evidence = installed_and_revoked()
+    with pytest.raises((ImportError, StateError, OSError, RuntimeError)):
+        broker.publish_verified_revocation(
+            trusted_original_revocation_reader=lambda: {
+                k: evidence[k] for k in ("revoked_owner","revoked_ledger","approval_bytes")
+            },
+            trusted_source_attestor=lambda _: True,
+            expected_approval_sha256=evidence["expected_approval_sha256"],
+        )
+
+
+def test_native_revocation_uses_shared_epoch_lock_before_any_file_publisher(monkeypatch):
+    from contextlib import contextmanager
+    seen = []
+    class Fence:
+        def revoke(self, *, publish_pending_revocation):
+            seen.append("epoch-lock")
+            assert publish_pending_revocation() is True
+            return {
+                "epoch": 2, "revoked": True,
+                "operations": {"REQ-1": {"phase": "cancel-pending"}},
+            }
+    @contextmanager
+    def locked():
+        seen.append("enter-fixed-root-fence")
+        yield Fence()
+        seen.append("leave-fixed-root-fence")
+    def published(**kw):
+        assert seen == ["enter-fixed-root-fence", "epoch-lock"]
+        seen.append("durable-marker")
+        return {"status": "root-owned-revocation-tombstone-retained"}
+    monkeypatch.setattr(broker, "_execution_revocation_fence", locked)
+    monkeypatch.setattr(broker, "_publish_revocation_record", published)
+    result = broker.publish_verified_revocation(
+        trusted_original_revocation_reader=lambda: {},
+        trusted_source_attestor=lambda _: True,
+        expected_approval_sha256="a"*64,
+    )
+    assert seen == ["enter-fixed-root-fence","epoch-lock","durable-marker",
+                    "leave-fixed-root-fence"]
+    assert result["execution_revoked"] is True
+    assert result["execution_cancel_pending"] == ("REQ-1",)
+    assert result["execution_cleanup_native_verified"] is False
