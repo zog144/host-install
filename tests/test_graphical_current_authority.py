@@ -82,16 +82,16 @@ def fixture(tmp_path):
 
 def test_first_install_rotation_rejects_old_key_and_old_epoch(fixture):
     args,pub,priv,_=fixture
-    assert g.rotate_source(**args(1))["epoch"] == 1
+    assert g.rotate_unchecked_fixture_source(**args(1))["epoch"] == 1
     first = g.current_source_read(public_fd=args(1)["public_fd"],uid=os.getuid())
     assert first["epoch"] == 1
-    assert g.rotate_source(**args(1))["status"] == "same-byte"
-    assert g.rotate_source(**args(2))["epoch"] == 2
+    assert g.rotate_unchecked_fixture_source(**args(1))["status"] == "same-byte"
+    assert g.rotate_unchecked_fixture_source(**args(2))["epoch"] == 2
     second = g.current_source_read(public_fd=args(1)["public_fd"],uid=os.getuid())
     assert second["epoch"] == 2 and second["public_key"] != first["public_key"]
     with pytest.raises(g.RotationDenied):
-        g.rotate_source(**args(1))
-    assert g.rotate_source(**args(2))["status"] == "same-byte"
+        g.rotate_unchecked_fixture_source(**args(1))
+    assert g.rotate_unchecked_fixture_source(**args(2))["status"] == "same-byte"
     assert json.loads((priv/g.PRIVATE_JOURNAL).read_bytes())["epoch"] == 2
 
 
@@ -103,15 +103,15 @@ def test_first_install_rotation_rejects_old_key_and_old_epoch(fixture):
 @pytest.mark.parametrize("epoch", [1,2])
 def test_interruption_denies_until_same_signed_intent_is_reconciled(fixture,point,epoch):
     args,pub,priv,_=fixture
-    if epoch == 2: g.rotate_source(**args(1))
+    if epoch == 2: g.rotate_unchecked_fixture_source(**args(1))
     def interrupted(where):
         if where==point: raise RuntimeError("simulated-interruption")
     with pytest.raises(RuntimeError,match="simulated-interruption"):
-        g.rotate_source(**args(epoch),checkpoint=interrupted)
+        g.rotate_unchecked_fixture_source(**args(epoch),checkpoint=interrupted)
     with pytest.raises(g.RotationDenied):
         g.current_source_read(public_fd=args(1)["public_fd"],uid=os.getuid())
     assert (pub/g.PENDING_NAME).exists()
-    assert g.rotate_source(**args(epoch))["epoch"] == epoch
+    assert g.rotate_unchecked_fixture_source(**args(epoch))["epoch"] == epoch
     assert not (pub/g.PENDING_NAME).exists()
     assert g.current_source_read(public_fd=args(1)["public_fd"],
                                  uid=os.getuid())["epoch"] == epoch
@@ -122,30 +122,30 @@ def test_pending_rejects_foreign_signed_key_and_wrong_operator_pin(fixture):
     def stop(where):
         if where=="pending": raise RuntimeError()
     with pytest.raises(RuntimeError):
-        g.rotate_source(**args(1),checkpoint=stop)
+        g.rotate_unchecked_fixture_source(**args(1),checkpoint=stop)
     forged=args(1)
     forged["independently_expected_operator_sha256"]="9"*64
     with pytest.raises(g.RotationDenied):
-        g.rotate_source(**forged)
+        g.rotate_unchecked_fixture_source(**forged)
     wrong=args(2)
     with pytest.raises(g.RotationDenied):
-        g.rotate_source(**wrong)
+        g.rotate_unchecked_fixture_source(**wrong)
     assert (pub/g.PENDING_NAME).exists()
 
 
 def test_missing_private_highwater_after_commit_never_bootstraps_forged_epoch(fixture):
     args,pub,priv,_=fixture
-    g.rotate_source(**args(1))
+    g.rotate_unchecked_fixture_source(**args(1))
     (priv/g.PRIVATE_JOURNAL).unlink()
     with pytest.raises(g.RotationDenied):
-        g.rotate_source(**args(2))
+        g.rotate_unchecked_fixture_source(**args(2))
     with pytest.raises(g.RotationDenied):
-        g.rotate_source(**args(1))
+        g.rotate_unchecked_fixture_source(**args(1))
 
 
 def test_public_reader_denies_pending_symlink_or_malformed_files(fixture):
     args,pub,priv,_=fixture
-    g.rotate_source(**args(1))
+    g.rotate_unchecked_fixture_source(**args(1))
     pending=pub/g.PENDING_NAME
     pending.symlink_to(pub/"foreign")
     with pytest.raises((OSError,g.RotationDenied)):
@@ -170,7 +170,7 @@ def test_simultaneous_same_approval_is_serialized_and_same_byte(fixture):
     from concurrent.futures import ThreadPoolExecutor
     args, pub, priv, _ = fixture
     with ThreadPoolExecutor(max_workers=2) as pool:
-        results = list(pool.map(lambda _: g.rotate_source(**args(1)), range(2)))
+        results = list(pool.map(lambda _: g.rotate_unchecked_fixture_source(**args(1)), range(2)))
     assert sorted(item["status"] for item in results) == [
         "same-byte", "source-committed",
     ]
@@ -181,17 +181,17 @@ def test_simultaneous_same_approval_is_serialized_and_same_byte(fixture):
 
 def test_private_highwater_rejects_public_old_key_rollback(fixture):
     args, pub, priv, _ = fixture
-    g.rotate_source(**args(1))
+    g.rotate_unchecked_fixture_source(**args(1))
     old = (pub/g.PUBLIC_NAME).read_bytes()
-    g.rotate_source(**args(2))
+    g.rotate_unchecked_fixture_source(**args(2))
     before = (priv/g.PRIVATE_JOURNAL).read_bytes()
     (pub/g.PUBLIC_NAME).unlink()
     (pub/g.PUBLIC_NAME).write_bytes(old)
     (pub/g.PUBLIC_NAME).chmod(0o444)
     with pytest.raises(g.RotationDenied):
-        g.rotate_source(**args(2))
+        g.rotate_unchecked_fixture_source(**args(2))
     with pytest.raises(g.RotationDenied):
-        g.rotate_source(**args(1))
+        g.rotate_unchecked_fixture_source(**args(1))
     assert (priv/g.PRIVATE_JOURNAL).read_bytes() == before
 
 
@@ -203,10 +203,10 @@ def test_signer_substitution_and_torn_pending_are_terminal(fixture):
     foreign["public_key"] = base64.b64encode(public(
         Ed25519PrivateKey.generate())).decode("ascii")
     with pytest.raises(g.RotationDenied):
-        g.rotate_source(**{**proposal,
+        g.rotate_unchecked_fixture_source(**{**proposal,
             "approved_pin_bytes": g.canonical(foreign)})
     assert not (pub/g.PUBLIC_NAME).exists()
-    g.rotate_source(**proposal)
+    g.rotate_unchecked_fixture_source(**proposal)
     pending = pub/g.PENDING_NAME
     pending.write_bytes(b"partial")
     pending.chmod(0o444)
@@ -214,7 +214,7 @@ def test_signer_substitution_and_torn_pending_are_terminal(fixture):
         g.current_source_read(public_fd=proposal["public_fd"],
                               uid=os.getuid())
     with pytest.raises(g.RotationDenied):
-        g.rotate_source(**proposal)
+        g.rotate_unchecked_fixture_source(**proposal)
     assert (pub/g.PUBLIC_NAME).read_bytes() == original
 
 
@@ -248,3 +248,34 @@ def test_protected_root_group_identity_denies_foreign_group(tmp_path):
                 pytest.fail("foreign group acquired root lock")
     finally:
         os.close(fd)
+
+
+
+def test_ordinary_rotation_denies_absent_checkpoint_before_any_publication(
+        fixture, monkeypatch):
+    args, public_dir, private_dir, _ = fixture
+    from zog.host_install import graphical_checkpoint_transport as online
+    monkeypatch.setattr(online, "installed", lambda: (
+        (_ for _ in ()).throw(g.RotationDenied("checkpoint-unavailable"))))
+    with pytest.raises(g.RotationDenied, match="checkpoint-unavailable"):
+        g.rotate_source(**args(1))
+    assert not (public_dir/g.PUBLIC_NAME).exists()
+    assert not (private_dir/g.PRIVATE_JOURNAL).exists()
+    # No injection point to select a custom external signer, reader or CAS.
+    with pytest.raises(TypeError):
+        g.rotate_source(**args(1), read_independent_checkpoint=lambda x: x)
+
+
+def test_fixed_rotation_wrapper_rejects_operator_key_as_checkpoint_key(
+        fixture, monkeypatch):
+    from zog.host_install import graphical_checkpoint_transport as online
+    args, pub, priv, _ = fixture
+    entry = args(1)
+    monkeypatch.setattr(online, "installed", lambda: (
+        {"host_id":g._pin(entry["approved_pin_bytes"])["host_id"],
+         "installation_id":g._pin(entry["approved_pin_bytes"])["installation_id"],
+         "external_key_sha256":entry["independently_expected_operator_sha256"]},
+        entry["independently_pinned_operator_public_key"]))
+    with pytest.raises(g.RotationDenied):
+        g.rotate_source(**entry)
+    assert not (pub/g.PUBLIC_NAME).exists()
