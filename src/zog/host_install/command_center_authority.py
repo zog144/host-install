@@ -406,6 +406,10 @@ def _grant(raw_grant, raw_approval, raw_projection, operator_pin,
                 == identity["enrolled_consumer_installation_id"]
             and grant["state_volume_id"]
                 == identity["enrolled_consumer_state_volume_id"]
+            # Both identities are operator-signed independently. They must
+            # select one exact registry; syntax validation alone permits
+            # cross-registry authority substitution.
+            and grant["registry_id"] == identity["station_registry_id"]
             and grant["independent_signer_pin_sha256"]
                 == _digest(certificate_pin)
             and type(grant["registry_id"]) is str
@@ -692,9 +696,20 @@ def _publish_bundle(root_fd, materials, receipt, reader_gid):
     child = ensure_directory(root_fd, DIRECTORY_NAME, 0, 0, 0o700)
     try:
         allowed = set(FILES) | {".pending." + name for name in FILES}
-        require(set(os.listdir(child)) <= allowed,
+        present = set(os.listdir(child))
+        require(present <= allowed,
                 "command-center-authority-publication",
                 "unrecognized file in protected authority directory")
+        # Receipt publication is the *last* file. Once a receipt exists
+        # (or its publication has started), all other material files must
+        # already be complete. Reject malformed/partial receipt states
+        # before creating or modifying any missing material. The legitimate
+        # two-link .pending.receipt state remains resumable.
+        if RECEIPT_NAME in present or ".pending." + RECEIPT_NAME in present:
+            require(present - {RECEIPT_NAME, ".pending." + RECEIPT_NAME}
+                    == set(FILES) - {RECEIPT_NAME},
+                    "command-center-authority-publication",
+                    "receipt present before complete authority bundle")
         rows = {
             "operator-ed25519.pub": materials["operator_pin"],
             "command-center-offline-identity.json": materials["identity"],
