@@ -15,12 +15,12 @@ import stat
 from .state_contract import StateError, canonical
 from .state_io import raw, publish
 from .certificate_selected_broker_install import (
-    BOX_CONTROL_REVIEWED_COMMIT, COMMIT_NAME, COMMIT_SCHEMA, _fixed_root_parent,
+    BOX_CONTROL_REVIEWED_COMMIT, ROOT_CONTROL_EXECUTION_REVIEWED_COMMIT,
+    COMMIT_NAME, COMMIT_SCHEMA, _fixed_root_parent,
 )
 
 # Updated only when the complete, independently reviewed root-control PR #23
 # source and wheel RECORD are attested. A mismatched source must NOT activate.
-ROOT_CONTROL_EXECUTION_REVIEWED_COMMIT = "UNPINNED"
 FIELDS = frozenset(("root_control_revision", "wheel_record_sha256",
     "host_id", "installation_id", "state_volume_id", "box_control_revision"))
 SCHEMA = "zog-host-install-selected-issuer-execution-source-v1"
