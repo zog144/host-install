@@ -17,6 +17,7 @@ PROJECTION_SCHEMA = "zog-host-deploy-selected-issuer-broker-authority-v1"
 APPROVAL_SCHEMA = "zog-host-install-selected-broker-operator-approval-v1"
 RECEIPT_SCHEMA = "zog-host-install-selected-broker-install-receipt-v1"
 REVOCATION_SCHEMA = "zog-host-deploy-selected-issuer-broker-revocation-v1"
+COMMIT_SCHEMA = "zog-host-install-selected-broker-install-commit-v1"
 REVOCATION_APPROVAL_SCHEMA = "zog-host-install-selected-broker-revocation-approval-v1"
 PROJECTION_PATH = "/etc/zog/host-deploy/certificate-issuer-broker-authority.json"
 REVOCATION_PATH = "/etc/zog/host-deploy/certificate-issuer-broker-revoked.json"
@@ -306,6 +307,7 @@ LOCK_NAME = ".certificate-selected-broker-install.lock"
 PROJECTION_NAME = PROJECTION_PATH.rsplit("/", 1)[1]
 REVOCATION_NAME = REVOCATION_PATH.rsplit("/", 1)[1]
 INSTALL_RECEIPT_NAME = "certificate-issuer-broker-install-receipt.json"
+COMMIT_NAME = "certificate-issuer-broker-install-commit.json"
 
 
 @contextmanager
@@ -347,6 +349,47 @@ def _revocation_clear(fd):
                          "revocation-tombstone-present")
 
 
+
+
+
+def _installation_commit(proposal, receipt):
+    """A public proof of a privately committed root 0600 installation receipt.
+
+    Only the protected owner may create it after separately checking the
+    final projection and private receipt bytes under the stable writer lock.
+    """
+    _valid(type(proposal) is dict and type(receipt) is dict,
+           "incomplete-broker-installation")
+    projection = _projection_checked(proposal["projection"])
+    _valid(receipt.get("schema") == RECEIPT_SCHEMA
+           and receipt.get("status") == "installed"
+           and receipt.get("native_installation_verified") is True
+           and receipt.get("projection_sha256") == _sha(proposal["projection_bytes"])
+           and receipt.get("host_id") == projection["host_id"]
+           and receipt.get("installation_id") == projection["installation_id"]
+           and receipt.get("state_volume_id") == projection["state_volume_id"]
+           and receipt.get("certificate_id") == projection["certificate_id"]
+           and type(receipt.get("owner_revision")) is int
+           and 1 <= receipt["owner_revision"] < 2**53
+           and type(receipt.get("owner_operation_id")) is str
+           and _UUID.fullmatch(receipt["owner_operation_id"]),
+           "installed-receipt-not-committed")
+    return {
+        "schema": COMMIT_SCHEMA,
+        "projection_sha256": _sha(proposal["projection_bytes"]),
+        "install_receipt_sha256": _sha(canonical(receipt)),
+        "host_id": projection["host_id"],
+        "installation_id": projection["installation_id"],
+        "state_volume_id": projection["state_volume_id"],
+        "certificate_id": projection["certificate_id"],
+        "policy_sha256": projection["policy_sha256"],
+        "consumer_binding_sha256": projection["consumer_binding_sha256"],
+        "box_control_revision": projection["box_control_revision"],
+        "owner_revision": receipt["owner_revision"],
+        "owner_operation_id": receipt["owner_operation_id"],
+        "host_deploy_source_commit": HOST_DEPLOY_REVIEWED_COMMIT,
+    }
+
 def publish_verified_projection(*, trusted_original_root_reader,
                                 trusted_source_attestor,
                                 expected_approval_sha256):
@@ -385,9 +428,10 @@ def publish_verified_projection(*, trusted_original_root_reader,
                    and trusted_source_attestor(proposal) is True,
                    "root-authority-changed-before-publication")
             _revocation_clear(fd)
-            # Publish nonsecret 0444 policy and root-only 0600 receipt.
-            # An interrupted first publish is visible only to disabled
-            # native consumers; activation must wait for receipt readback.
+            # All intermediate states are non-authorizing for the timer.
+            # The public 0444 COMMIT is the final durable write, only after
+            # the 0600 receipt has been published and independently read back.
+            # A crash after projection or receipt leaves NO public commit.
             publish(fd, PROJECTION_NAME, proposal["projection_bytes"],
                     mode=0o444, uid=0, gid=0)
             publish(fd, INSTALL_RECEIPT_NAME, canonical(installed_receipt),
@@ -400,6 +444,16 @@ def publish_verified_projection(*, trusted_original_root_reader,
                     == canonical(installed_receipt),
                 "protected-projection-readback-mismatch",
             )
+            # Reopen genuine owner evidence before making a commit visible:
+            # a stale operator digest or revoked owner cannot complete it.
+            _valid(trusted_original_root_reader() == evidence
+                   and trusted_source_attestor(proposal) is True,
+                   "root-authority-changed-before-commit")
+            commit = canonical(_installation_commit(proposal, installed_receipt))
+            publish(fd, COMMIT_NAME, commit, mode=0o444, uid=0, gid=0)
+            _revocation_clear(fd)
+            _valid(raw(fd, COMMIT_NAME, uid=0, gid=0, mode=0o444) == commit,
+                   "protected-broker-commit-readback-mismatch")
     return installed_receipt
 
 
@@ -434,6 +488,17 @@ def publish_verified_revocation(*, trusted_original_revocation_reader,
                    and original_receipt is not None,
                    "no-attested-installed-projection")
             receipt = _canonical_bytes(original_receipt)
+            # A half-installed projection is not a revocable installed
+            # authority. The consumer already denies it; protected recovery
+            # must separately reconcile it rather than invent a commit.
+            proposal = {"projection": _canonical_bytes(original_projection),
+                        "projection_bytes": original_projection}
+            expected_commit = canonical(_installation_commit(proposal, receipt))
+            _valid(raw(fd, COMMIT_NAME, uid=0, gid=0, mode=0o444)
+                       == expected_commit
+                   and raw(fd, ".pending." + COMMIT_NAME,
+                           uid=0, gid=0, mode=0o444) is None,
+                   "uncommitted-broker-installation")
             plan = revocation_plan(
                 projection_bytes=original_projection,
                 install_receipt=receipt,
