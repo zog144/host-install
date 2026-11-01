@@ -32,14 +32,16 @@ def _deny():
                      "installed-root-source-unavailable") from None
 
 
-def publish_verified_execution_provenance(*, independently_trusted_source_reader):
+def publish_verified_execution_provenance(*, independently_trusted_source_reader,
+                                           independently_pinned_record_reader):
     """Root-only stage after immutable broker installation and wheel audit.
 
     The callback is an out-of-band root attestor, not a JSON request field.
     The protected approval, actual installed wheel and RECORD, locked
     directory and Host/STATE binding must be independently validated there.
     """
-    if os.geteuid() != 0 or not callable(independently_trusted_source_reader):
+    if (os.geteuid() != 0 or not callable(independently_trusted_source_reader)
+            or not callable(independently_pinned_record_reader)):
         _deny()
     if not re.fullmatch(r"[0-9a-f]{40}", ROOT_CONTROL_EXECUTION_REVIEWED_COMMIT):
         _deny()
@@ -61,12 +63,17 @@ def publish_verified_execution_provenance(*, independently_trusted_source_reader
                 or commit.get("box_control_revision") != BOX_CONTROL_REVIEWED_COMMIT):
             _deny()
         evidence = independently_trusted_source_reader()
+        expected_record = independently_pinned_record_reader()
+        if (type(expected_record) is not str or
+                _HEX64.fullmatch(expected_record) is None):
+            _deny()
         if (type(evidence) is not dict or set(evidence) != FIELDS
                 or evidence["root_control_revision"] !=
                    ROOT_CONTROL_EXECUTION_REVIEWED_COMMIT
                 or evidence["box_control_revision"] != BOX_CONTROL_REVIEWED_COMMIT
                 or type(evidence["wheel_record_sha256"]) is not str
                 or _HEX64.fullmatch(evidence["wheel_record_sha256"]) is None
+                or evidence["wheel_record_sha256"] != expected_record
                 or any(evidence.get(field) != commit[field] for field in
                        ("host_id", "installation_id", "state_volume_id"))):
             _deny()
@@ -105,7 +112,8 @@ def publish_verified_execution_provenance(*, independently_trusted_source_reader
                     commit_sha256=commit_sha, identities=commit,
                 )
                 # Callback input must not change during protected publication.
-                if independently_trusted_source_reader() != evidence:
+                if (independently_trusted_source_reader() != evidence or
+                        independently_pinned_record_reader() != expected_record):
                     _deny()
                 return {"status": "source-provenance-staged",
                         "commit_sha256": commit_sha,
