@@ -107,3 +107,34 @@ prove root original-reader provenance, signed registry approval, root owner
 ledger continuity, actual systemd/peer UID, reboot durability or ACME/HTTPS.
 Selected-broker native activation remains NO-GO, and
 `_require_approved_native_inspection` is unchanged.
+
+## Shared selected issuer execution epoch (root-control #22)
+
+The protected publisher has one native entry: `publish_verified_revocation`.
+It acquires `issuer_execution_fence.installed_fence(for_revocation=True)`
+under the same fixed root:root 0700
+`/etc/zog/host-deploy/selected-issuer-execution` directory and durable
+`selected-issuer-execution.lock` that the real
+`BusctlSystemdBackend.start_service()` uses. It authenticates the committed
+installation digest against the prior epoch ledger. There is NO independent
+host-install execution lock and no unfenced fallback.
+
+The actual root-control selected `renew`, `inspect`, `stage` launch persists
+`admission-uncertain` before `StartTransientUnit` and holds this flock through
+PID1 dispatch/observation. Host-install first durably advances terminal
+revocation epoch and marks nonterminal operations `cancel-pending`, then
+publishes pending/final no-replacement root tombstone under the same lock.
+A lost publication acknowledgement remains revoked; same-marker retry
+never clears the terminal epoch. The protected publisher reports
+`execution_cleanup_native_verified=false`: admitted runtimes still require
+native PID1/cgroup stop, observation, reconciliation and reboot evidence.
+
+The dedicated source workflow pins root-control exact
+`2ce325a6d3fe2937c6c885cad0424cc22964103f`, compares both real
+source integration entries, and tests the original root fence source
+concurrency, lost PID1 acknowledgement and tombstone replay.
+
+**Native NO-GO** until trusted initial 0700 ledger and wheel RECORD,
+genuine authority grant/source, exact unit/InvocationID identity, bounded
+kill/cleanup, reboot reconciliation, and separately approved activation.
+Do not fabricate STATE or equate cancel-pending with termination.
