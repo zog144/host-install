@@ -378,6 +378,12 @@ def publish_verified_projection(*, trusted_original_root_reader,
     }
     with _fixed_root_parent() as fd:
         with lock(fd, LOCK_NAME):
+            # Original root-owned approval/ledger must still be the same at
+            # the publication boundary. The native reader owns locking and
+            # independent file provenance, not a caller-supplied JSON cache.
+            _valid(trusted_original_root_reader() == evidence
+                   and trusted_source_attestor(proposal) is True,
+                   "root-authority-changed-before-publication")
             _revocation_clear(fd)
             # Publish nonsecret 0444 policy and root-only 0600 receipt.
             # An interrupted first publish is visible only to disabled
@@ -416,6 +422,8 @@ def publish_verified_revocation(*, trusted_original_revocation_reader,
     }, "untrusted-revocation-evidence-contract")
     with _fixed_root_parent() as fd:
         with lock(fd, LOCK_NAME):
+            _valid(trusted_original_revocation_reader() == inputs,
+                   "revocation-authority-changed-before-publication")
             original_projection = raw(
                 fd, PROJECTION_NAME, uid=0, gid=0, mode=0o444
             )
