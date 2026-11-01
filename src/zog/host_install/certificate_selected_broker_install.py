@@ -240,7 +240,8 @@ def revocation_plan(*, projection_bytes, install_receipt,
     _valid(type(install_receipt) is dict
            and install_receipt.get("schema") == RECEIPT_SCHEMA
            and install_receipt.get("projection_sha256") == _sha(projection_bytes)
-           and install_receipt.get("native_installation_verified") is False,
+           and install_receipt.get("native_installation_verified") is True
+           and install_receipt.get("status") == "installed",
            "original-install-receipt-mismatch")
     _valid(type(revoked_owner) is dict
            and revoked_owner.get("schema") == OWNER_SCHEMA
