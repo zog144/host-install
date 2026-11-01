@@ -73,7 +73,7 @@ jobs:
           PY
       - name: Re-run installer planning and commit consumer baseline
         run: |
-          python -m pip install 'pytest>=8,<10' 'dbus-next==0.2.3'
+          python -m pip install 'pytest>=8,<10' 'dbus-next==0.2.3' 'cryptography>=42,<47'
           PYTHONPATH="$PWD/src:$PWD/companions/root-control/src:$PWD/companions/box-control/box-control/src:$PWD/companions/host-deploy/src:$PWD/.ci-deps:$PWD/tests" \
             python -m pytest -q -rs \
             tests/test_certificate_selected_broker_install.py \
@@ -81,12 +81,12 @@ jobs:
             tests/test_certificate_execution_commit_interop.py
       - name: Test root-owned concurrent selected admission and revocation
         run: |
-          python -m pip install 'pytest>=8,<10' 'dbus-next==0.2.3'
+          python -m pip install 'pytest>=8,<10' 'dbus-next==0.2.3' 'cryptography>=42,<47'
           PYTHONPATH="$PWD/src:$PWD/companions/root-control/src:$PWD/companions/box-control/box-control/src:$PWD/companions/host-deploy/src:$PWD/.ci-deps:$PWD/tests" \
             python -m compileall -q src companions/root-control/src/zog/root_control/issuer_execution_fence.py tests/test_certificate_execution_epoch_integration.py \
             tests/test_certificate_execution_commit_interop.py
           sudo -E env PYTHONPATH="$PWD/src:$PWD/companions/root-control/src:$PWD/companions/box-control/box-control/src:$PWD/companions/host-deploy/src:$PWD/.ci-deps:$PWD/tests" \
-            "$(command -v python)" -m pytest -q -rs tests/test_certificate_execution_epoch_integration.py tests/test_certificate_execution_provenance.py
+            "$(command -v python)" -m pytest -q -rs tests/test_certificate_execution_epoch_integration.py tests/test_certificate_execution_provenance.py tests/test_certificate_recovery_revocation.py
       - name: Native authorization remains withheld
         if: always()
         run: |
