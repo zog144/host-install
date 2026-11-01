@@ -209,7 +209,8 @@ def rotate_source(*, public_fd, private_fd, approved_pin_bytes, approval_bytes,
             "approval_sha256"} or journal["schema"] != JOURNAL_SCHEMA):
         _deny()
     old = previous
-    if journal is not None and pin["epoch"] == journal["epoch"]:
+    if (journal is not None and pin["epoch"] == journal["epoch"]
+            and pending is None):
         if (journal["current_sha256"] != _sha(approved_pin_bytes)
                 or previous_raw != approved_pin_bytes or pending is not None):
             _deny()
