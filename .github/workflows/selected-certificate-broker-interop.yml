@@ -18,14 +18,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: zog144/host-deploy
-          ref: b4e723abab3dadcf238b0552ee4d5f108e6a6d95
+          ref: e2e050a9562a07648ed58ba5a1357daed6da4e9e
           path: companions/host-deploy
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
       - name: Verify immutable producer checkout
         run: |
-          test "$(git -C companions/host-deploy rev-parse HEAD)" = "b4e723abab3dadcf238b0552ee4d5f108e6a6d95"
+          test "$(git -C companions/host-deploy rev-parse HEAD)" = "e2e050a9562a07648ed58ba5a1357daed6da4e9e"
       - name: Run protected source plan and cross-repo schema/commit regressions
         env:
           PYTHONPATH: src
@@ -34,3 +34,8 @@ jobs:
           python -m pip install 'pytest>=8,<10'
           python -m compileall -q src/zog/host_install/certificate_selected_broker_install.py tests/test_certificate_selected_broker_install.py tests/test_certificate_selected_broker_interop.py
           python -m pytest -q tests/test_certificate_selected_broker_install.py tests/test_certificate_selected_broker_interop.py -rs
+      - name: Privileged cross-repository interrupted install and commit-readback
+        env:
+          HOST_DEPLOY_SELECTED_BROKER_SOURCE: companions/host-deploy/src/zog/host_deploy/certificate_selected_broker_authority.py
+        run: |
+          sudo -E env PYTHONPATH="$PWD/src:$PWD/tests:$PWD/companions/host-deploy/src" HOST_DEPLOY_SELECTED_BROKER_SOURCE="$HOST_DEPLOY_SELECTED_BROKER_SOURCE" "$(command -v python)" -m pytest -q tests/test_certificate_selected_broker_interop.py -rs
