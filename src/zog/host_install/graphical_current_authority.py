@@ -246,7 +246,8 @@ def _rotate_locked(*, public_fd, private_fd, approved_pin_bytes, approval_bytes,
         for k in ("host_id","installation_id","lane","lane_owner",
                   "chain_policy_sha256","first_base_generation_id"):
             if previous[k] != pin[k]: _deny()
-        if previous["public_key"] == pin["public_key"]: _deny()
+        if (previous["epoch"] < pin["epoch"]
+                and previous["public_key"] == pin["public_key"]): _deny()
     old_for_approval = previous if previous and previous["epoch"] < pin["epoch"] else None
     approved = _approval(approval_bytes, independently_pinned_operator_public_key,
                          independently_expected_operator_sha256, pin, old_for_approval,
