@@ -41,7 +41,7 @@ def test_host_deploy_selected_broker_source_is_exact_and_revocation_fenced():
     ]
     assert len(calls) == 2  # both before and after reading public authority
     assert broker.HOST_DEPLOY_REVIEWED_COMMIT == (
-        "e2e050a9562a07648ed58ba5a1357daed6da4e9e"
+        "e1e0ec43b3aa3b56d4627ff8ed8d24eb2495871a"
     )
     assert ast.literal_eval(assignments["COMMIT_NAME"]) == broker.COMMIT_NAME
     assert ast.literal_eval(assignments["COMMIT_SCHEMA"]) == broker.COMMIT_SCHEMA
