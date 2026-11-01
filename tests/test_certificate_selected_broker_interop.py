@@ -101,7 +101,7 @@ def test_actual_consumer_does_not_accept_interrupted_installation(
     original = broker.publish
     def interrupted(fd, name, payload, *, mode, uid, gid):
         def checkpoint(point):
-            if f"{point}:{name}" == interrupt:
+            if point == interrupt:
                 raise RuntimeError("isolated-write-interruption")
         return original(fd, name, payload, mode=mode, uid=uid,
                         gid=gid, checkpoint=checkpoint)
