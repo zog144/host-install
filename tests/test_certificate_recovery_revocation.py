@@ -60,12 +60,19 @@ def staged(tmp_path,monkeypatch):
         base64.b64encode(proof).decode()})
     intent=[signed]
     pins=[{"public_key":public,"sha256":hashlib.sha256(public).hexdigest()}]
+    approval_checkpoint=[{
+        "authorization_revision":unsigned["authorization_revision"],
+        "operation_id":unsigned["operation_id"],
+        "commit_sha256":unsigned["commit_sha256"],
+        "operator_key_sha256":unsigned["operator_key_sha256"],
+    }]
     native={
         "trusted_original_revocation_reader":lambda:revoked,
         "trusted_source_attestor":lambda plan:True,
         "expected_approval_sha256":evidence["expected_approval_sha256"],
         "independently_trusted_recovery_reader":lambda:intent[0],
         "independently_pinned_recovery_key_reader":lambda:pins[0],
+        "independently_trusted_recovery_checkpoint_reader":lambda:approval_checkpoint[0],
     }
     return tmp_path,root,commit,intent,pins,native
 
@@ -198,3 +205,91 @@ def test_abandonment_refuses_root_source_or_foreign_recovery_signature(staged):
     with pytest.raises(StateError):
         recovery.publish_recovery_only_abandonment(**native)
     assert not (root/broker.REVOCATION_NAME).exists()
+
+
+
+def test_substituted_readers_and_current_authorization_are_denied(staged):
+    root,parent,commit,intent,pins,native=staged
+    for field,replacement in (
+        ("independently_trusted_recovery_reader",lambda:b'{}'),
+        ("independently_pinned_recovery_key_reader",
+         lambda:{"public_key":b"\0"*32,"sha256":"0"*64}),
+        ("independently_trusted_recovery_checkpoint_reader",
+         lambda:{"authorization_revision":1,"operation_id":
+                 "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                 "commit_sha256":hashlib.sha256(commit).hexdigest(),
+                 "operator_key_sha256":pins[0]["sha256"]}),
+        ("trusted_original_revocation_reader",lambda:{}),
+        ("trusted_source_attestor",lambda plan:False),
+    ):
+        with pytest.raises((StateError,ValueError,KeyError)):
+            recovery.publish_recovery_only_revocation(
+                **{**native,field:replacement})
+        assert not (root/broker.REVOCATION_NAME).exists()
+    # A former valid signature has no power once the protected current
+    # recovery revision/operation checkpoint advances.
+    original=native["independently_trusted_recovery_checkpoint_reader"]()
+    stale={**original,"authorization_revision":3}
+    with pytest.raises(StateError):
+        recovery.publish_recovery_only_abandonment(**{
+            **native,"independently_trusted_recovery_checkpoint_reader":
+            lambda:stale})
+    assert not (root/broker.REVOCATION_NAME).exists()
+
+
+def test_provenance_publication_after_durable_revocation_leaves_pending_denial(
+        staged,monkeypatch):
+    root,parent,commit,intent,pins,native=staged
+    original=broker._publish_verified_revocation_locked
+    def concurrent_provenance(**kwargs):
+        # Model a source publisher which won the race after the initial
+        # missing-provenance read but before the commit's final marker.
+        (parent/NAME).write_bytes(b"provenance-present")
+        (parent/NAME).chmod(0o600)
+        return original(**kwargs)
+    monkeypatch.setattr(broker,"_publish_verified_revocation_locked",
+                        concurrent_provenance)
+    # The recovery callback checks absence before invoking the publisher;
+    # model it entering after the first check by replacing the callback
+    # itself with a publication then denial before the final marker.
+    from zog.root_control.issuer_execution_fence import IssuerExecutionFence
+    baseline=IssuerExecutionFence.revoke
+    def race(self,*,publish_pending_revocation):
+        def publication():
+            (parent/NAME).write_bytes(b"concurrent")
+            (parent/NAME).chmod(0o600)
+            return publish_pending_revocation()
+        return baseline(self,publish_pending_revocation=publication)
+    monkeypatch.setattr(IssuerExecutionFence,"revoke",race)
+    with pytest.raises((StateError,IssuerFenceDenied)):
+        recovery.publish_recovery_only_revocation(**native)
+    ledger=json.loads((parent/epoch.STATE).read_bytes())
+    assert ledger["revoked"] is True
+    assert ledger["epoch"] >= 2
+    assert not (root/broker.REVOCATION_NAME).exists()
+    assert (parent/NAME).exists()
+    # Reboot does not erase that denial or mark missing operations clean.
+    fd=os.open(parent,os.O_RDONLY|os.O_DIRECTORY)
+    try:
+        from zog.root_control.issuer_execution_fence import IssuerExecutionFence
+        assert IssuerExecutionFence(fd).reboot(new_boot_id="e"*32)["revoked"]
+    finally:
+        os.close(fd)
+
+
+def test_loss_after_tombstone_is_same_authority_only(staged,monkeypatch):
+    root,parent,commit,intent,pins,native=staged
+    original=broker._publish_verified_revocation_locked
+    count=[]
+    def ack_lost(**kw):
+        result=original(**kw)
+        if not count:
+            count.append(1)
+            raise OSError("lost acknowledgment after committed tombstone")
+        return result
+    monkeypatch.setattr(broker,"_publish_verified_revocation_locked",ack_lost)
+    with pytest.raises(IssuerFenceDenied):
+        recovery.publish_recovery_only_revocation(**native)
+    assert (root/broker.REVOCATION_NAME).exists()
+    assert json.loads((parent/epoch.STATE).read_bytes())["revoked"]
+    assert recovery.publish_recovery_only_revocation(**native)["revoked"]
