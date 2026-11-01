@@ -156,3 +156,45 @@ def test_lost_marker_response_keeps_revoke_and_same_authority_retry(staged,monke
                                 b'"purpose":"execute-program"',1)
     with pytest.raises(StateError):
         recovery.publish_recovery_only_revocation(**native)
+
+
+
+def test_commit_before_epoch_ledger_can_be_abandoned_without_provenance(staged):
+    root,parent,commit,intent,pins,native=staged
+    # Synthetic reconstruction of a crash immediately after the committed
+    # projection but before the EMPTY execution ledger was initialized.
+    state=json.loads((parent/epoch.STATE).read_bytes())
+    assert state["operations"]=={} and state["revoked"] is False
+    (parent/epoch.STATE).unlink()
+    result=recovery.publish_recovery_only_abandonment(**native)
+    assert result["status"]=="recovery-only-abandoned-before-epoch"
+    assert result["execution_history_unknown"] is True
+    assert result["execution_ledger_created"] is False
+    assert result["execution_authorized"] is False
+    assert not (parent/epoch.STATE).exists()
+    assert not (parent/NAME).exists()
+    assert (root/broker.REVOCATION_NAME).exists()
+    assert recovery.publish_recovery_only_abandonment(**native)["status"]==(
+        "recovery-only-abandoned-before-epoch")
+
+
+def test_abandonment_cannot_discard_existing_uncertain_operation(staged):
+    root,parent,commit,intent,pins,native=staged
+    with pytest.raises((StateError,OSError)):
+        recovery.publish_recovery_only_abandonment(**native)
+    assert (parent/epoch.STATE).exists()
+    assert not (root/broker.REVOCATION_NAME).exists()
+
+
+def test_abandonment_refuses_root_source_or_foreign_recovery_signature(staged):
+    root,parent,commit,intent,pins,native=staged
+    assert json.loads((parent/epoch.STATE).read_bytes())["operations"]=={}
+    (parent/epoch.STATE).unlink()
+    (parent/NAME).symlink_to("untrusted-provenance")
+    with pytest.raises((StateError,OSError)):
+        recovery.publish_recovery_only_abandonment(**native)
+    (parent/NAME).unlink()
+    pins[0]={**pins[0],"sha256":"f"*64}
+    with pytest.raises(StateError):
+        recovery.publish_recovery_only_abandonment(**native)
+    assert not (root/broker.REVOCATION_NAME).exists()
