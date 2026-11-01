@@ -8,6 +8,8 @@ is NO CLI, daemon route, key generation, private-key export or activation.
 from __future__ import annotations
 
 import base64
+import fcntl
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -23,6 +25,7 @@ JOURNAL_SCHEMA = "zog-host-install-graphical-current-key-epoch-v1"
 PUBLIC_NAME = "graphical-chain-current-owner-pin-v1.json"
 PENDING_NAME = "graphical-chain-current-owner-rotation-pending-v1.json"
 PRIVATE_JOURNAL = "graphical-current-authority-epoch-v1.json"
+LOCK_NAME = "graphical-current-authority.lock"
 FIXED_PUBLIC_PATH = "/etc/zog/host-deploy/" + PUBLIC_NAME
 FIELDS = frozenset((
     "schema", "host_id", "installation_id", "lane", "lane_owner",
@@ -182,7 +185,7 @@ def _approval(data, expected_operator_key, expected_pin_sha256, new_pin, old, *,
     return a
 
 
-def rotate_source(*, public_fd, private_fd, approved_pin_bytes, approval_bytes,
+def _rotate_locked(*, public_fd, private_fd, approved_pin_bytes, approval_bytes,
                   independently_pinned_operator_public_key,
                   independently_expected_operator_sha256,
                   uid=0, checkpoint=None):
@@ -285,3 +288,49 @@ def current_source_read(*, public_fd, uid=0):
     pin = _pin(value)
     if _read(public_fd, PENDING_NAME, 0o444, uid) is not None: _deny()
     return pin
+
+
+
+@contextmanager
+def _stable_lock(private_fd, uid):
+    """Stable inode never unlinked, shared by every authorized writer."""
+    try:
+        try:
+            lockfd = os.open(LOCK_NAME, os.O_RDWR | os.O_CREAT |
+                             os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                             0o600, dir_fd=private_fd)
+            os.fchmod(lockfd, 0o600)
+            os.fsync(lockfd)
+            os.fsync(private_fd)
+        except FileExistsError:
+            lockfd = os.open(LOCK_NAME, os.O_RDWR |
+                             os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=private_fd)
+        st = os.fstat(lockfd)
+        if (not stat.S_ISREG(st.st_mode) or st.st_nlink != 1
+                or st.st_uid != uid or stat.S_IMODE(st.st_mode) != 0o600):
+            _deny()
+        fcntl.flock(lockfd, fcntl.LOCK_EX)
+        by_name = os.stat(LOCK_NAME, dir_fd=private_fd, follow_symlinks=False)
+        if (by_name.st_dev, by_name.st_ino) != (st.st_dev, st.st_ino):
+            _deny()
+        yield
+    finally:
+        if "lockfd" in locals():
+            fcntl.flock(lockfd, fcntl.LOCK_UN)
+            os.close(lockfd)
+
+
+def rotate_source(*, public_fd, private_fd, approved_pin_bytes, approval_bytes,
+                  independently_pinned_operator_public_key,
+                  independently_expected_operator_sha256,
+                  uid=0, checkpoint=None):
+    """Exclusive source transaction; no production fixed-path opener/activation."""
+    _protected_dir(public_fd, 0o755, uid)
+    _protected_dir(private_fd, 0o700, uid)
+    with _stable_lock(private_fd, uid):
+        return _rotate_locked(
+            public_fd=public_fd, private_fd=private_fd,
+            approved_pin_bytes=approved_pin_bytes, approval_bytes=approval_bytes,
+            independently_pinned_operator_public_key=independently_pinned_operator_public_key,
+            independently_expected_operator_sha256=independently_expected_operator_sha256,
+            uid=uid, checkpoint=checkpoint)
