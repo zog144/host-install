@@ -15,6 +15,7 @@ import json
 import os
 import secrets
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+from cryptography.exceptions import InvalidSignature
 from . import graphical_current_authority as local
 
 SCHEMA="zog-host-install-graphical-external-monotonic-checkpoint-v1"
@@ -67,7 +68,7 @@ def checked_snapshot(blob, *, nonce, host_id, installation_id,
             signature,DOMAIN+local.canonical(
                 {k:v for k,v in row.items() if k!="signature_ed25519"}))
         return row
-    except (ValueError, TypeError, UnicodeError, OverflowError, KeyError):
+    except (ValueError, TypeError, UnicodeError, OverflowError, KeyError, InvalidSignature):
         _deny()
 
 def _read_external(read, *, pin, external_key, external_sha, operator_key):
@@ -147,7 +148,7 @@ def rotate_checked_source(*, public_fd, private_fd, approved_pin_bytes,
                 _deny()
             return {"status":"same-byte-external-checked",
                     "epoch":prev_epoch,"activated":False}
-        if observed["epoch"]==prev_epoch:
+        if observed["epoch"]==prev_epoch and pin["epoch"]>prev_epoch:
             if observed["pin_sha256"]!=prev_sha: _deny()
             if (prev_epoch and journal is not None and pending is None
                     and observed["approval_sha256"]!=journal["approval_sha256"]):
