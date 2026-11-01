@@ -216,3 +216,35 @@ def test_signer_substitution_and_torn_pending_are_terminal(fixture):
     with pytest.raises(g.RotationDenied):
         g.rotate_source(**proposal)
     assert (pub/g.PUBLIC_NAME).read_bytes() == original
+
+
+@pytest.mark.skipif(os.geteuid() != 0,
+                    reason="ephemeral root-owned rotation source fixture")
+def test_protected_root_group_identity_denies_foreign_group(tmp_path):
+    # No access to real /etc or private signing keys.
+    folder = tmp_path/"root-protected"
+    folder.mkdir(mode=0o755)
+    fd = os.open(folder, os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+    try:
+        os.chown(folder, 0, 23001)
+        with pytest.raises(g.RotationDenied):
+            g._protected_dir(fd, 0o755, 0)
+        os.chown(folder, 0, 0)
+        g._protected_dir(fd, 0o755, 0)
+
+        leaf = folder/g.PUBLIC_NAME
+        leaf.write_bytes(g.canonical(pin(Ed25519PrivateKey.generate(), 1)))
+        leaf.chmod(0o444)
+        os.chown(leaf, 0, 23001)
+        with pytest.raises(g.RotationDenied):
+            g._read(fd, g.PUBLIC_NAME, 0o444, 0)
+
+        lock = folder/g.LOCK_NAME
+        lock.write_bytes(b"")
+        lock.chmod(0o600)
+        os.chown(lock, 0, 23001)
+        with pytest.raises(g.RotationDenied):
+            with g._stable_lock(fd, 0):
+                pytest.fail("foreign group acquired root lock")
+    finally:
+        os.close(fd)
