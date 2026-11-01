@@ -18,14 +18,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: zog144/root-control
-          ref: e4ebfd07787c44cc48b7a425b1dbe9dbddc4866e
+          ref: 2ce325a6d3fe2937c6c885cad0424cc22964103f
           path: companions/root-control
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
       - name: Verify immutable root-control source
         run: |
-          test "$(git -C companions/root-control rev-parse HEAD)" = "e4ebfd07787c44cc48b7a425b1dbe9dbddc4866e"
+          test "$(git -C companions/root-control rev-parse HEAD)" = "2ce325a6d3fe2937c6c885cad0424cc22964103f"
       - name: Cross-owner fixed lock / concurrent source tests
         env:
           PYTHONPATH: src:companions/root-control/src
