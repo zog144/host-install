@@ -181,3 +181,51 @@ def test_missing_public_and_private_with_advanced_external_never_reinitializes(c
     (q/local.PRIVATE_JOURNAL).unlink()
     with pytest.raises(local.RotationDenied):rotate(1)
     assert r.epoch==1
+
+
+
+def test_ordinary_rotation_uses_only_fixed_checkpoint_transport(
+        checkpointed, monkeypatch):
+    """Actual public rotate_source, synthetic only: no custom reader argument."""
+    from zog.host_install import graphical_checkpoint_transport as online
+    rotate, read, remote, args, public_dir, private_dir = checkpointed
+    first = args(1)
+    pin = local._pin(first["approved_pin_bytes"])
+    external_pub = pub(remote.signer)
+    installed = {
+        "host_id":pin["host_id"],
+        "installation_id":pin["installation_id"],
+        "external_key_sha256":local._sha(external_pub),
+    }
+    monkeypatch.setattr(online, "installed", lambda: (installed, external_pub))
+    monkeypatch.setattr(online, "read", remote.read)
+    monkeypatch.setattr(online, "advance", remote.advance)
+    assert local.rotate_source(**args(1))["externally_checked"] is True
+    old_public = (public_dir/local.PUBLIC_NAME).read_bytes()
+    old_private = (private_dir/local.PRIVATE_JOURNAL).read_bytes()
+    assert local.rotate_source(**args(2))["epoch"] == 2
+    (public_dir/local.PUBLIC_NAME).write_bytes(old_public)
+    (public_dir/local.PUBLIC_NAME).chmod(0o444)
+    (private_dir/local.PRIVATE_JOURNAL).write_bytes(old_private)
+    (private_dir/local.PRIVATE_JOURNAL).chmod(0o600)
+    with pytest.raises(local.RotationDenied):
+        local.rotate_source(**args(1))
+    with pytest.raises(local.RotationDenied):
+        local.rotate_source(**args(2))
+    assert remote.epoch == 2
+    remote.available = False
+    with pytest.raises((OSError,local.RotationDenied)):
+        local.rotate_source(**args(2))
+
+
+def test_checkpoint_callback_substitution_never_reaches_ordinary_rotation(
+        fixture):
+    args, public_dir, private_dir, _ = fixture
+    with pytest.raises(TypeError):
+        local.rotate_source(**args(1),
+                            read_independent_checkpoint=lambda nonce: b"forged")
+    with pytest.raises(TypeError):
+        local.rotate_source(**args(1),
+                            compare_and_advance_independent_checkpoint=lambda **kw: None)
+    assert not (public_dir/local.PUBLIC_NAME).exists()
+    assert not (private_dir/local.PRIVATE_JOURNAL).exists()
