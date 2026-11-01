@@ -390,3 +390,132 @@ def test_source_contract_is_specific_to_externally_managed_command_center():
     assert authority.RETAINED_CERTIFICATE_SIGNER_SHA256 == (
         "1ecf7d17bd8abc00ca50bde297f427b0fa28f2f6894b0a0cb71ae8d1237425cb"
     )
+
+
+@pytest.mark.parametrize("identity_registry_id,grant_registry_id", [
+    ("primary", "secondary"),
+    ("secondary", "primary"),
+])
+def test_valid_independently_signed_cross_registry_inputs_are_rejected(
+        identity_registry_id, grant_registry_id):
+    # Identity, root grant, approval AND v1 authorization all have correct
+    # signatures. They differ only in the signed registry selection.
+    value = fixture(identity_registry_id=identity_registry_id,
+                    grant_registry_id=grant_registry_id)
+    with pytest.raises(StateError, match="root grant binding mismatch"):
+        verify(value)
+
+
+def test_matching_nondefault_signed_registry_is_allowed():
+    value = fixture(identity_registry_id="secondary",
+                    grant_registry_id="secondary")
+    assert verify(value)["station_registry_id"] == "secondary"
+
+
+class SimulatedPublicationInterruption(RuntimeError):
+    """Represents termination after a real file fsync/link/unlink checkpoint."""
+
+
+@pytest.mark.parametrize("file_name", tuple(authority.FILES))
+@pytest.mark.parametrize("moment", ("staged", "linked", "published"))
+def test_interrupted_bundle_publication_resumes_without_replacement(
+        tmp_path, monkeypatch, file_name, moment):
+    value = fixture()
+    receipt = verify(value)
+    original = authority.publish
+    folder = tmp_path / authority.DIRECTORY_NAME
+
+    def interrupted(fd, name, data, *, mode, uid, gid):
+        def checkpoint(step):
+            if step == f"{moment}:{file_name}":
+                raise SimulatedPublicationInterruption(step)
+        return original(fd, name, data, mode=mode, uid=uid, gid=gid,
+                        checkpoint=checkpoint)
+
+    root = os.open(tmp_path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        with monkeypatch.context() as patcher:
+            patcher.setattr(authority, "publish", interrupted)
+            with pytest.raises(SimulatedPublicationInterruption,
+                               match=file_name):
+                authority._publish_bundle(
+                    root, value["materials"], receipt, os.getgid()
+                )
+        assert folder.is_dir()
+        assert (folder / authority.RECEIPT_NAME).exists() == (
+            file_name == authority.RECEIPT_NAME and moment != "staged"
+        )
+        old_inodes = {
+            name: (folder / name).stat().st_ino for name in authority.FILES
+            if (folder / name).exists()
+        }
+    finally:
+        os.close(root)
+
+    # Reopen a different descriptor, simulating process restart, and
+    # reconcile actual on-disk data (not a mocked publishing routine).
+    root = os.open(tmp_path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        authority._publish_bundle(root, value["materials"], receipt, os.getgid())
+        assert set(os.listdir(folder)) == set(authority.FILES)
+        assert (folder / authority.RECEIPT_NAME).read_bytes() == canonical(receipt)
+        for name, inode in old_inodes.items():
+            assert (folder / name).stat().st_ino == inode
+        after = {name: (folder / name).stat().st_ino for name in authority.FILES}
+        authority._publish_bundle(root, value["materials"], receipt, os.getgid())
+        assert {name: (folder / name).stat().st_ino
+                for name in authority.FILES} == after
+    finally:
+        os.close(root)
+
+
+@pytest.mark.parametrize("premature_name", (
+    authority.RECEIPT_NAME, ".pending." + authority.RECEIPT_NAME,
+))
+def test_premature_receipt_does_not_publish_missing_files(
+        tmp_path, premature_name):
+    value = fixture()
+    receipt = verify(value)
+    folder = tmp_path / authority.DIRECTORY_NAME
+    folder.mkdir(mode=0o700)
+    premature = folder / premature_name
+    premature.write_bytes(canonical(receipt))
+    premature.chmod(0o600)
+    root = os.open(tmp_path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        with pytest.raises(StateError, match="receipt present before complete"):
+            authority._publish_bundle(root, value["materials"], receipt, os.getgid())
+        assert set(os.listdir(folder)) == {premature_name}
+        assert premature.read_bytes() == canonical(receipt)
+    finally:
+        os.close(root)
+
+
+@pytest.mark.parametrize("corrupted_name", (
+    authority.RECEIPT_NAME, ".pending." + authority.RECEIPT_NAME,
+))
+def test_partial_receipt_bytes_fail_closed_with_no_replacement(
+        tmp_path, corrupted_name):
+    value = fixture()
+    receipt = verify(value)
+    root = os.open(tmp_path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        authority._publish_bundle(root, value["materials"], receipt, os.getgid())
+        folder = tmp_path / authority.DIRECTORY_NAME
+        (folder / authority.RECEIPT_NAME).unlink()
+        corrupt = folder / corrupted_name
+        corrupt.write_bytes(b'{"schema":"partial')
+        corrupt.chmod(0o600)
+        originals = {
+            name: (folder / name).stat().st_ino for name in authority.FILES
+            if name != authority.RECEIPT_NAME
+        }
+        with pytest.raises(StateError, match="record-conflict|publication-conflict"):
+            authority._publish_bundle(root, value["materials"], receipt, os.getgid())
+        assert corrupt.read_bytes() == b'{"schema":"partial'
+        if corrupted_name != authority.RECEIPT_NAME:
+            assert not (folder / authority.RECEIPT_NAME).exists()
+        for name, inode in originals.items():
+            assert (folder / name).stat().st_ino == inode
+    finally:
+        os.close(root)
