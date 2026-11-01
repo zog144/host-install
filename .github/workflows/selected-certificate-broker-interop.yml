@@ -1,0 +1,36 @@
+name: Selected certificate broker source interop
+on:
+  pull_request:
+    branches: [main, unstable]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  broker-source:
+    name: Exact broker + installer source (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: zog144/host-deploy
+          ref: 3c05cac13f46330959b436074a1e5b4cbddd9911
+          path: companions/host-deploy
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Verify immutable producer checkout
+        run: |
+          test "$(git -C companions/host-deploy rev-parse HEAD)" = "3c05cac13f46330959b436074a1e5b4cbddd9911"
+      - name: Run protected source plan and cross-repo schema/commit regressions
+        env:
+          PYTHONPATH: src
+          HOST_DEPLOY_SELECTED_BROKER_SOURCE: companions/host-deploy/src/zog/host_deploy/certificate_selected_broker_authority.py
+        run: |
+          python -m pip install 'pytest>=8,<10'
+          python -m compileall -q src/zog/host_install/certificate_selected_broker_install.py tests/test_certificate_selected_broker_install.py tests/test_certificate_selected_broker_interop.py
+          python -m pytest -q tests/test_certificate_selected_broker_install.py tests/test_certificate_selected_broker_interop.py -rs
