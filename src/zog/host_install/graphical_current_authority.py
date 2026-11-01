@@ -133,6 +133,7 @@ def _write_once(fd, name, data, mode):
                    os.O_NOFOLLOW | os.O_CLOEXEC, mode, dir_fd=fd)
     try:
         if os.write(leaf, data) != len(data): _deny()
+        os.fchmod(leaf, mode)
         os.fsync(leaf)
     finally:
         os.close(leaf)
@@ -145,6 +146,7 @@ def _replace(fd, name, data, mode, checkpoint):
                      os.O_NOFOLLOW | os.O_CLOEXEC, mode, dir_fd=fd)
     try:
         if os.write(filefd, data) != len(data): _deny()
+        os.fchmod(filefd, mode)
         os.fsync(filefd)
     finally:
         os.close(filefd)
@@ -154,7 +156,7 @@ def _replace(fd, name, data, mode, checkpoint):
     checkpoint("replaced-" + name)
 
 
-def _approval(data, expected_operator_key, expected_pin_sha256, new_pin, old):
+def _approval(data, expected_operator_key, expected_pin_sha256, new_pin, old, *, check_previous=True):
     a = _parse(data)
     if set(a) != APPROVAL_FIELDS or a["schema"] != APPROVAL_SCHEMA: _deny()
     if (type(expected_operator_key) is not bytes
@@ -162,7 +164,8 @@ def _approval(data, expected_operator_key, expected_pin_sha256, new_pin, old):
             or _sha(expected_operator_key) != expected_pin_sha256):
         _deny()
     if (a["new_pin_sha256"] != _sha(canonical(new_pin))
-            or a["previous_pin_sha256"] != (None if old is None else _sha(canonical(old)))
+            or (check_previous and a["previous_pin_sha256"] !=
+                (None if old is None else _sha(canonical(old))))
             or a["new_epoch"] != new_pin["epoch"]
             or a["host_id"] != new_pin["host_id"]
             or a["installation_id"] != new_pin["installation_id"]
@@ -211,8 +214,10 @@ def rotate_source(*, public_fd, private_fd, approved_pin_bytes, approval_bytes,
                 or previous_raw != approved_pin_bytes or pending is not None):
             _deny()
         # Already committed same bytes; require exact original approval.
+        if journal["approval_sha256"] != _sha(approval_bytes): _deny()
         _approval(approval_bytes, independently_pinned_operator_public_key,
-                  independently_expected_operator_sha256, pin, None)
+                  independently_expected_operator_sha256, pin, None,
+                  check_previous=False)
         return {"status":"same-byte", "epoch":pin["epoch"],"activated":False}
     # A pending reservation locks the old public pin; restart must use the
     # *same* operator approval and target bytes. The journal may already
@@ -240,7 +245,13 @@ def rotate_source(*, public_fd, private_fd, approved_pin_bytes, approval_bytes,
         if previous["public_key"] == pin["public_key"]: _deny()
     old_for_approval = previous if previous and previous["epoch"] < pin["epoch"] else None
     approved = _approval(approval_bytes, independently_pinned_operator_public_key,
-                         independently_expected_operator_sha256, pin, old_for_approval)
+                         independently_expected_operator_sha256, pin, old_for_approval,
+                         check_previous=not (pending is not None and journal is not None
+                                             and journal["epoch"] == pin["epoch"]
+                                             and previous is not None
+                                             and previous["epoch"] == pin["epoch"]))
+    if pending is not None and journal is not None and journal["epoch"] == pin["epoch"]:
+        if journal["approval_sha256"] != _sha(approval_bytes): _deny()
     _write_once(public_fd, PENDING_NAME, reservation, 0o444)
     checkpoint("pending")
     state = {"schema":JOURNAL_SCHEMA,"epoch":pin["epoch"],
