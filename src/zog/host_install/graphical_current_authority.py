@@ -105,7 +105,8 @@ def _protected_dir(fd, mode, uid):
     if type(fd) is not int or fd < 0: _deny()
     st = os.fstat(fd)
     if (not stat.S_ISDIR(st.st_mode) or st.st_uid != uid
-            or stat.S_IMODE(st.st_mode) != mode): _deny()
+            or stat.S_IMODE(st.st_mode) != mode
+            or (uid == 0 and st.st_gid != 0)): _deny()
 
 
 def _read(fd, name, mode, uid):
@@ -118,6 +119,7 @@ def _read(fd, name, mode, uid):
         st = os.fstat(leaf)
         if (not stat.S_ISREG(st.st_mode) or st.st_nlink != 1
                 or st.st_uid != uid or stat.S_IMODE(st.st_mode) != mode
+                or (uid == 0 and st.st_gid != 0)
                 or not 0 < st.st_size <= 8192):
             _deny()
         data = os.read(leaf, st.st_size+1)
@@ -308,7 +310,8 @@ def _stable_lock(private_fd, uid):
                              os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=private_fd)
         st = os.fstat(lockfd)
         if (not stat.S_ISREG(st.st_mode) or st.st_nlink != 1
-                or st.st_uid != uid or stat.S_IMODE(st.st_mode) != 0o600):
+                or st.st_uid != uid or stat.S_IMODE(st.st_mode) != 0o600
+                or (uid == 0 and st.st_gid != 0)):
             _deny()
         fcntl.flock(lockfd, fcntl.LOCK_EX)
         by_name = os.stat(LOCK_NAME, dir_fd=private_fd, follow_symlinks=False)
