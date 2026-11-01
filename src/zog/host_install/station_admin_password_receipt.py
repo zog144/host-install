@@ -30,6 +30,23 @@ def _deny():
     raise AdministratorReceiptContractError("protected-admin-commit-unverified") from None
 
 
+def verify_authorization(*, envelope, authority_key,
+                         expected_binding, expected_origin, now):
+    """Verify the exact authority-signed administrator authorization profile."""
+    try:
+        expected = cd.binding(expected_binding)
+        if (expected["consumer"] != CONSUMER
+                or expected["purpose"] != PURPOSE
+                or expected["credential_id"] != CREDENTIAL_ID):
+            _deny()
+        return cd.verify_authorization(
+            envelope, authority_key,
+            expected_issuer=signatures.origin(expected_origin),
+            expected_binding=expected, now=now)
+    except (ValueError, TypeError, KeyError):
+        _deny()
+
+
 def inspect(*, commit, authorization, request, delivery,
             expected_binding, expected_account_id, expected_origin, now):
     """Reject mismatched canonical binding or uncommitted/replayed local claims.
