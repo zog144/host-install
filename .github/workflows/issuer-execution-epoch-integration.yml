@@ -29,6 +29,12 @@ jobs:
           ref: baca7f815974dbf685950c0c7e78f693dd0a96e2
           path: companions/box-control
           persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: zog144/host-deploy
+          ref: e2e050a9562a07648ed58ba5a1357daed6da4e9e
+          path: companions/host-deploy
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
@@ -36,6 +42,7 @@ jobs:
         run: |
           test "$(git -C companions/root-control rev-parse HEAD)" = "c9fc6505c1018cc4661b3193e9753ab5989ee9cf"
           test "$(git -C companions/box-control rev-parse HEAD)" = "baca7f815974dbf685950c0c7e78f693dd0a96e2"
+          test "$(git -C companions/host-deploy rev-parse HEAD)" = "e2e050a9562a07648ed58ba5a1357daed6da4e9e"
           python - <<'PY'
           from pathlib import Path
           text=Path('src/zog/host_install/certificate_selected_broker_install.py').read_text()
@@ -44,16 +51,18 @@ jobs:
       - name: Re-run installer planning and commit consumer baseline
         run: |
           python -m pip install 'pytest>=8,<10' 'dbus-next==0.2.3'
-          PYTHONPATH="$PWD/src:$PWD/companions/root-control/src:$PWD/companions/box-control/box-control/src:$PWD/tests" \
+          PYTHONPATH="$PWD/src:$PWD/companions/root-control/src:$PWD/companions/box-control/box-control/src:$PWD/companions/host-deploy/src:$PWD/tests" \
             python -m pytest -q -rs \
             tests/test_certificate_selected_broker_install.py \
-            tests/test_certificate_selected_broker_interop.py
+            tests/test_certificate_selected_broker_interop.py \
+            tests/test_certificate_execution_commit_interop.py
       - name: Test root-owned concurrent selected admission and revocation
         run: |
           python -m pip install 'pytest>=8,<10' 'dbus-next==0.2.3'
-          PYTHONPATH="$PWD/src:$PWD/companions/root-control/src:$PWD/companions/box-control/box-control/src:$PWD/tests" \
-            python -m compileall -q src companions/root-control/src/zog/root_control/issuer_execution_fence.py tests/test_certificate_execution_epoch_integration.py
-          sudo -E env PYTHONPATH="$PWD/src:$PWD/companions/root-control/src:$PWD/companions/box-control/box-control/src:$PWD/tests" \
+          PYTHONPATH="$PWD/src:$PWD/companions/root-control/src:$PWD/companions/box-control/box-control/src:$PWD/companions/host-deploy/src:$PWD/tests" \
+            python -m compileall -q src companions/root-control/src/zog/root_control/issuer_execution_fence.py tests/test_certificate_execution_epoch_integration.py \
+            tests/test_certificate_execution_commit_interop.py
+          sudo -E env PYTHONPATH="$PWD/src:$PWD/companions/root-control/src:$PWD/companions/box-control/box-control/src:$PWD/companions/host-deploy/src:$PWD/tests" \
             "$(command -v python)" -m pytest -q -rs tests/test_certificate_execution_epoch_integration.py
       - name: Native authorization remains withheld
         if: always()
