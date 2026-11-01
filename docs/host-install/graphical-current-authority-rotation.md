@@ -24,6 +24,27 @@ The source `rotate_checked_source` retains the existing fixed local writer lock 
 4. Rechecks the external authority after local publication. A concurrent external change, unavailable issuer, stale replay, foreign Host/installation or stale local epoch is denied.
 5. Exposes `read_checked_source` as **source-only reader parity**: public pin with locally coherent private journal still fails if a fresh independent checkpoint is ahead or unavailable.
 
-The existing basic `rotate_source` and the host-deploy consumer's local `_read_public_pin` **do not yet require this external checkpoint**. They are NOT sufficient for native activation or rollback resistance. Protected native owner + gateway consumer must independently pin the external service's public key, install the authenticated transport, make it a mandatory online gate at rotation AND every live signing-key acceptance, synchronize with the true Host live-epoch issuer, and test power-loss plus external availability/failover. The source callbacks are test harnesses, not independently trusted native endpoints. The consumer must not use an offline cache or substitute the operator/Host key for the external checkpoint key.
+**Updated 2026-11-01:** The ordinary exported `rotate_source` now **mandatorily** retrieves the independently installed root 0444 checkpoint pin from the fixed `/etc/zog/host-deploy/graphical-external-checkpoint-pin-v1.json`, uses only the fixed `/run/zog/host-deploy/graphical-external-checkpoint.sock` transport, and calls `rotate_checked_source` with those implementation-owned read/CAS operations. Missing/malformed pin, transport unavailability, stale/wrong signer, old epoch, or operator/issuer key identity collision all fail before authorized local publication. The old unchecked **public facade is removed from shipped source**; pre-existing basic crash/lock tests use a helper defined only inside `tests/`. `rotate_checked_source` remains explicitly a synthetic contract harness accepting test callbacks and **must not be called as a protected native entrypoint**.
+
+**host-deploy integration:** `graphics_chain_export.load_selected_step` now requires an independently signed online snapshot matching the exact canonical current Host pin SHA and epoch *before* export signature validation, and independently rechecks with a new nonce *after* the Host live-epoch acknowledgement. The external signer key is distinct from the Host signing key, fixed and protected, and a separate UID-pinned relay transports but cannot mint signed checkpoint evidence. Coherent rollback of local public pin and private journal is rejected against the external highwater; caller-supplied alternate signer, reader or callback is not accepted. This closes the confirmed source consumer gap, **not** the native installation gate.
+
+The fixed pin and relay are NOT yet installed; the real independent issuer, its linearly durable ledger, CAS authorization and reboot/rotation race fencing are not established natively. Absence intentionally blocks all graphical stage selection. Protected native owner must independently pin the external key, install and authenticate the relay, ensure online availability and test its true nonrollbackable ledger before authorizing any compiler stage. Protected native owner + gateway consumer must independently pin the external service's public key, install the authenticated transport, make it a mandatory online gate at rotation AND every live signing-key acceptance, synchronize with the true Host live-epoch issuer, and test power-loss plus external availability/failover. The source callbacks are test harnesses, not independently trusted native endpoints. The consumer must not use an offline cache or substitute the operator/Host key for the external checkpoint key.
 
 Negative tests explicitly restore both local files to an earlier coherent snapshot while leaving the synthetic external highwater advanced; attempts to read or rotate then fail. Tests also cover unavailable issuer, nonce replay, wrong checkpoint signer, Host mismatch, same-epoch different key, and interruption after external CAS or during local publication. No production signing key, STATE or external service was changed.
+
+
+## Integration and secure handoff
+
+The ordinary graphical rotation's fixed online transport accepts no endpoint,
+issuer-key or reader callback from the caller. The source-level replica of the
+legacy local-only rotation lives only under `tests/test_graphical_current_authority.py`
+to preserve crash, fsync and stable-inode lock regression coverage. That
+synthetic fixture has no native installer or gateway authority.
+
+For native acceptance, the checkpoint issuer must be independently administered
+and monotonic outside the Host local rollback domain, and the protected installer
+must bind the exact user authorization, root-host current pin, source commit and
+operator signer. The gateway's external read must be a real fresh online
+signature, not a locally cached tuple or a response signed by the compiler Host.
+No external deployment, no protected STATE, no key rotation and no compiler
+submission was performed in this source pass.
