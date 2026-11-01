@@ -14,6 +14,7 @@ from zog.host_identify import credential_delivery as cd, signatures
 
 CONSUMER = "station-access"
 PURPOSE = "station-access-administrator-password"
+CREDENTIAL_ID = "station-admin"
 COMMIT_SCHEMA = "zog-station-admin-password-protected-commit-v1"
 COMMIT_FIELDS = frozenset({
     "schema", "state", "request_id", "delivery_id", "authorization_id",
@@ -51,6 +52,7 @@ def inspect(*, commit, authorization, request, delivery,
         expected = cd.binding(expected_binding)
         if (expected["consumer"] != CONSUMER
                 or expected["purpose"] != PURPOSE
+                or expected["credential_id"] != CREDENTIAL_ID
                 or cd.binding(authorization) != expected
                 or cd.binding(request) != expected):
             _deny()
