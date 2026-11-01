@@ -324,11 +324,11 @@ def _stable_lock(private_fd, uid):
             os.close(lockfd)
 
 
-def rotate_source(*, public_fd, private_fd, approved_pin_bytes, approval_bytes,
+def rotate_unchecked_fixture_source(*, public_fd, private_fd, approved_pin_bytes, approval_bytes,
                   independently_pinned_operator_public_key,
                   independently_expected_operator_sha256,
                   uid=0, checkpoint=None):
-    """Exclusive source transaction; no production fixed-path opener/activation."""
+    """Explicitly synthetic uncheckpointed source fixture; NEVER native authority."""
     _protected_dir(public_fd, 0o755, uid)
     _protected_dir(private_fd, 0o700, uid)
     with _stable_lock(private_fd, uid):
@@ -338,3 +338,35 @@ def rotate_source(*, public_fd, private_fd, approved_pin_bytes, approval_bytes,
             independently_pinned_operator_public_key=independently_pinned_operator_public_key,
             independently_expected_operator_sha256=independently_expected_operator_sha256,
             uid=uid, checkpoint=checkpoint)
+
+
+
+def rotate_source(*, public_fd, private_fd, approved_pin_bytes, approval_bytes,
+                  independently_pinned_operator_public_key,
+                  independently_expected_operator_sha256,
+                  uid=0, checkpoint=None):
+    """Mandatory independent checkpoint for the ordinary rotation entrypoint.
+
+    Neither the external signer, external key digest, remote endpoint nor
+    read/CAS operations are caller selectable. Native installation must
+    additionally authenticate the exact descriptors and operation provenance.
+    Without the separately installed online checkpoint: DENY before mutation.
+    """
+    from . import graphical_rotation_checkpoint as checkpoint_contract
+    from . import graphical_checkpoint_transport as online
+    pin, public_key = online.installed()
+    proposed = _pin(approved_pin_bytes)
+    if (pin["host_id"] != proposed["host_id"]
+            or pin["installation_id"] != proposed["installation_id"]
+            or public_key == independently_pinned_operator_public_key):
+        _deny()
+    return checkpoint_contract.rotate_checked_source(
+        public_fd=public_fd, private_fd=private_fd,
+        approved_pin_bytes=approved_pin_bytes, approval_bytes=approval_bytes,
+        independently_pinned_operator_public_key=independently_pinned_operator_public_key,
+        independently_expected_operator_sha256=independently_expected_operator_sha256,
+        independently_pinned_external_public_key=public_key,
+        independently_expected_external_sha256=pin["external_key_sha256"],
+        read_independent_checkpoint=online.read,
+        compare_and_advance_independent_checkpoint=online.advance,
+        uid=uid, checkpoint=checkpoint)
