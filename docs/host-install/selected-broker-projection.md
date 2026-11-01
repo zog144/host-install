@@ -1,7 +1,7 @@
 # Selected issuer broker authority: protected root-owner source contract
 
 **Owners:** host-install Regular and host-deploy Regular. **Native writes:** Work only.
-**Producer:** host-deploy draft PR #3 at 3c05cac13f46330959b436074a1e5b4cbddd9911.
+**Producer:** host-deploy draft PR #3 at b4e723abab3dadcf238b0552ee4d5f108e6a6d95.
 **Broker client:** box-control issuer-lifecycle client 9111606eef306292d70fd4d941eeb73f48b33ff1.
 
 The root approval **must be independently authenticated and digest-pinned**.
