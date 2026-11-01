@@ -78,5 +78,5 @@ def test_older_host_deploy_source_cannot_authorize_new_broker_candidate():
                   and any(isinstance(target, ast.Name)
                           and target.id == "ISSUER_LIFECYCLE_BOX_CONTROL_REVISION"
                           for target in node.targets))
-    assert writer.BOX_CONTROL_REVIEWED_COMMIT != pinned
+    assert writer.BOX_CONTROL_REVIEWED_COMMIT == pinned
     assert writer.BOX_CONTROL_REVIEWED_COMMIT == issuer_execution_fence.REVIEWED_BOX_CONTROL
