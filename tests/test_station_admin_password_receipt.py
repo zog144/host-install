@@ -3,6 +3,7 @@ import copy
 import time
 import uuid
 import pytest
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from zog.host_identify import credential_delivery as cd
 from zog.host_install import station_admin_password_receipt as checked
@@ -56,6 +57,24 @@ def fixture():
     return dict(commit=commit, authorization=auth, request=request,
                 delivery=delivery, expected_binding=binding,
                 expected_account_id=73, expected_origin="https://station.example.test", now=NOW)
+
+
+
+def test_exact_signed_authorization_profile_is_verified():
+    example = fixture()
+    authority = Ed25519PrivateKey.generate()
+    envelope = cd.sign_authorization(example["authorization"], authority)
+    verified = checked.verify_authorization(
+        envelope=envelope,
+        authority_key=authority.public_key(),
+        expected_binding=example["expected_binding"],
+        expected_origin=example["expected_origin"],
+        now=example["now"],
+    )
+    assert verified == example["authorization"]
+    assert verified["consumer"] == checked.CONSUMER
+    assert verified["purpose"] == checked.PURPOSE
+    assert verified["credential_id"] == checked.CREDENTIAL_ID
 
 
 def test_exact_receipt_contract_is_not_native_authority():
