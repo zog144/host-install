@@ -288,3 +288,161 @@ def revocation_plan(*, projection_bytes, install_receipt,
             "no_replacement": True, "irreversible": True,
             "tombstone_bytes": canonical(tombstone),
             "native_installation_authorized": False}
+
+
+
+# Native-only publication primitives. These expose no CLI, HTTP route,
+# unattended systemd service or automatic source-authentication shortcut.
+# The root owner must supply original evidence from a separately trusted
+# and installed native reader; dicts supplied by a request are not authority.
+import os
+import stat
+from contextlib import contextmanager
+
+from .state_io import lock, publish, raw
+
+
+LOCK_NAME = ".certificate-selected-broker-install.lock"
+PROJECTION_NAME = PROJECTION_PATH.rsplit("/", 1)[1]
+REVOCATION_NAME = REVOCATION_PATH.rsplit("/", 1)[1]
+INSTALL_RECEIPT_NAME = "certificate-issuer-broker-install-receipt.json"
+
+
+@contextmanager
+def _fixed_root_parent():
+    """Open the existing exact root ancestry without following symlinks."""
+    _valid(os.geteuid() == 0, "root-owner-required")
+    fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        for part in ("etc", "zog", "host-deploy"):
+            next_fd = os.open(
+                part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                dir_fd=fd,
+            )
+            os.close(fd)
+            fd = next_fd
+            info = os.fstat(fd)
+            _valid(stat.S_ISDIR(info.st_mode) and info.st_uid == 0
+                   and info.st_gid == 0
+                   and not stat.S_IMODE(info.st_mode) & 0o022,
+                   "unprotected-broker-authority-ancestry")
+        _valid(stat.S_IMODE(os.fstat(fd).st_mode) == 0o755,
+               "timer-readable-broker-parent-required")
+        yield fd
+    finally:
+        os.close(fd)
+
+
+def _revocation_clear(fd):
+    # Includes a staged-but-not-linked marker. Neither is safe to ignore.
+    for name in (REVOCATION_NAME, ".pending." + REVOCATION_NAME):
+        try:
+            os.stat(name, dir_fd=fd, follow_symlinks=False)
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise StateError("selected-broker-authority",
+                             "revocation-check-unavailable") from exc
+        raise StateError("selected-broker-authority",
+                         "revocation-tombstone-present")
+
+
+def publish_verified_projection(*, trusted_original_root_reader,
+                                trusted_source_attestor,
+                                expected_approval_sha256):
+    """Native root owner only; return protected nonsecret installed receipt.
+
+    Both callbacks are provided by the protected installer, NOT from input
+    JSON/CLI. The source attestor must check actual installed host-deploy,
+    box-control and host-install wheel RECORD, plus the root-ledger/STATE
+    source identity. No automatic activation follows successful publication.
+    """
+    _valid(os.geteuid() == 0
+           and callable(trusted_original_root_reader)
+           and callable(trusted_source_attestor),
+           "missing-protected-native-authority")
+    evidence = trusted_original_root_reader()
+    _valid(type(evidence) is dict and set(evidence) == {
+        "approval_bytes", "private_binding_bytes", "owner",
+        "root_owner_ledger", "host_policy_digest", "now",
+    }, "untrusted-root-evidence-contract")
+    proposal = projection_plan(
+        **evidence, expected_approval_sha256=expected_approval_sha256
+    )
+    _valid(trusted_source_attestor(proposal) is True,
+           "installed-source-attestation-missing")
+    installed_receipt = {
+        **proposal["receipt"],
+        "status": "installed",
+        "native_installation_verified": True,
+    }
+    with _fixed_root_parent() as fd:
+        with lock(fd, LOCK_NAME):
+            _revocation_clear(fd)
+            # Publish nonsecret 0444 policy and root-only 0600 receipt.
+            # An interrupted first publish is visible only to disabled
+            # native consumers; activation must wait for receipt readback.
+            publish(fd, PROJECTION_NAME, proposal["projection_bytes"],
+                    mode=0o444, uid=0, gid=0)
+            publish(fd, INSTALL_RECEIPT_NAME, canonical(installed_receipt),
+                    mode=0o600, uid=0, gid=0)
+            _revocation_clear(fd)
+            _valid(
+                raw(fd, PROJECTION_NAME, uid=0, gid=0, mode=0o444)
+                    == proposal["projection_bytes"]
+                and raw(fd, INSTALL_RECEIPT_NAME, uid=0, gid=0, mode=0o600)
+                    == canonical(installed_receipt),
+                "protected-projection-readback-mismatch",
+            )
+    return installed_receipt
+
+
+def publish_verified_revocation(*, trusted_original_revocation_reader,
+                                trusted_source_attestor,
+                                expected_approval_sha256):
+    """Publish permanent denial marker under the same root authority lock.
+
+    The protected native reader must independently reopen the current
+    revoked owner checkpoint and original installed projection/receipt.
+    A complete OR pending marker is irrevocable for this original path.
+    """
+    _valid(os.geteuid() == 0
+           and callable(trusted_original_revocation_reader)
+           and callable(trusted_source_attestor),
+           "missing-protected-native-authority")
+    inputs = trusted_original_revocation_reader()
+    _valid(type(inputs) is dict and set(inputs) == {
+        "revoked_owner", "revoked_ledger", "approval_bytes",
+    }, "untrusted-revocation-evidence-contract")
+    with _fixed_root_parent() as fd:
+        with lock(fd, LOCK_NAME):
+            original_projection = raw(
+                fd, PROJECTION_NAME, uid=0, gid=0, mode=0o444
+            )
+            original_receipt = raw(
+                fd, INSTALL_RECEIPT_NAME, uid=0, gid=0, mode=0o600
+            )
+            _valid(original_projection is not None
+                   and original_receipt is not None,
+                   "no-attested-installed-projection")
+            receipt = _canonical_bytes(original_receipt)
+            plan = revocation_plan(
+                projection_bytes=original_projection,
+                install_receipt=receipt,
+                expected_approval_sha256=expected_approval_sha256,
+                **inputs,
+            )
+            _valid(trusted_source_attestor(plan) is True,
+                   "installed-source-attestation-missing")
+            publish(fd, REVOCATION_NAME, plan["tombstone_bytes"],
+                    mode=0o444, uid=0, gid=0)
+            _valid(raw(fd, REVOCATION_NAME, uid=0, gid=0, mode=0o444)
+                   == plan["tombstone_bytes"],
+                   "protected-revocation-readback-mismatch")
+    return {
+        "schema": REVOCATION_SCHEMA,
+        "status": "root-owned-revocation-tombstone-retained",
+        "projection_sha256": _sha(original_projection),
+        "tombstone_sha256": _sha(plan["tombstone_bytes"]),
+        "production_activation_authorized": False,
+    }
