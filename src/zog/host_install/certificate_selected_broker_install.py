@@ -529,10 +529,11 @@ def _execution_revocation_fence():
     Runtime must have the independently installed root-control source and
     durable 0700 ledger. No missing-state bootstrap, no unfenced fallback.
     """
-    from zog.root_control.issuer_execution_adapter import protected_execution_directory
-    from zog.root_control.issuer_execution_fence import IssuerExecutionFence
-    with protected_execution_directory(for_revocation=True) as (fd, commit_sha):
-        fence = IssuerExecutionFence(fd)
+    from zog.root_control.issuer_execution_fence import installed_fence
+    # This is the SAME fixed protected directory/lock that the actual
+    # root-control BusctlSystemdBackend.start_service uses. Revocation
+    # alone may resume after a tombstone; launch can never use this mode.
+    with installed_fence(for_revocation=True) as (fence, commit_sha):
         state = fence._read()
         if (state is None or state["authority_commit_sha256"] != commit_sha):
             _valid(False, "execution-fence-installation-commit-mismatch")
