@@ -324,23 +324,6 @@ def _stable_lock(private_fd, uid):
             os.close(lockfd)
 
 
-def rotate_unchecked_fixture_source(*, public_fd, private_fd, approved_pin_bytes, approval_bytes,
-                  independently_pinned_operator_public_key,
-                  independently_expected_operator_sha256,
-                  uid=0, checkpoint=None):
-    """Explicitly synthetic uncheckpointed source fixture; NEVER native authority."""
-    _protected_dir(public_fd, 0o755, uid)
-    _protected_dir(private_fd, 0o700, uid)
-    with _stable_lock(private_fd, uid):
-        return _rotate_locked(
-            public_fd=public_fd, private_fd=private_fd,
-            approved_pin_bytes=approved_pin_bytes, approval_bytes=approval_bytes,
-            independently_pinned_operator_public_key=independently_pinned_operator_public_key,
-            independently_expected_operator_sha256=independently_expected_operator_sha256,
-            uid=uid, checkpoint=checkpoint)
-
-
-
 def rotate_source(*, public_fd, private_fd, approved_pin_bytes, approval_bytes,
                   independently_pinned_operator_public_key,
                   independently_expected_operator_sha256,
