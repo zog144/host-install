@@ -19,7 +19,7 @@ def fixture():
         "registry_id": "station-registry",
         "consumer": checked.CONSUMER,
         "purpose": checked.PURPOSE,
-        "credential_id": "station-admin-73",
+        "credential_id": checked.CREDENTIAL_ID,
     }
     auth = {
         "schema": cd.AUTHORIZATION_SCHEMA, "issuer": "https://station.example.test",
