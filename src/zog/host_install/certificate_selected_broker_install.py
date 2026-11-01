@@ -457,7 +457,7 @@ def publish_verified_projection(*, trusted_original_root_reader,
     return installed_receipt
 
 
-def publish_verified_revocation(*, trusted_original_revocation_reader,
+def _publish_revocation_record(*, trusted_original_revocation_reader,
                                 trusted_source_attestor,
                                 expected_approval_sha256):
     """Publish permanent denial marker under the same root authority lock.
@@ -517,5 +517,56 @@ def publish_verified_revocation(*, trusted_original_revocation_reader,
         "status": "root-owned-revocation-tombstone-retained",
         "projection_sha256": _sha(original_projection),
         "tombstone_sha256": _sha(plan["tombstone_bytes"]),
+        "production_activation_authorized": False,
+    }
+
+
+
+@contextmanager
+def _execution_revocation_fence():
+    """Exact root-control execution lock, not an independently chosen lock.
+
+    Runtime must have the independently installed root-control source and
+    durable 0700 ledger. No missing-state bootstrap, no unfenced fallback.
+    """
+    from zog.root_control.issuer_execution_adapter import protected_execution_directory
+    from zog.root_control.issuer_execution_fence import IssuerExecutionFence
+    with protected_execution_directory(for_revocation=True) as (fd, commit_sha):
+        fence = IssuerExecutionFence(fd)
+        state = fence._read()
+        if (state is None or state["authority_commit_sha256"] != commit_sha):
+            _valid(False, "execution-fence-installation-commit-mismatch")
+        yield fence
+
+
+def publish_verified_revocation(*, trusted_original_revocation_reader,
+                                trusted_source_attestor,
+                                expected_approval_sha256):
+    """The ONLY native entry: serialized against actual PID1 launch admission.
+
+    Revocation ledger transition is fsynced under the same stable root flock
+    as root-control StartTransientUnit. If marker publication fails after
+    that transition, the fence remains revoked and any reattempt must
+    reconcile the *same* bytes; no selected launch is resumed.
+    """
+    out = {}
+    with _execution_revocation_fence() as fence:
+        def publish():
+            out.update(_publish_revocation_record(
+                trusted_original_revocation_reader=
+                    trusted_original_revocation_reader,
+                trusted_source_attestor=trusted_source_attestor,
+                expected_approval_sha256=expected_approval_sha256,
+            ))
+            return True
+        state = fence.revoke(publish_pending_revocation=publish)
+    return {
+        **out,
+        "execution_epoch": state["epoch"],
+        "execution_revoked": state["revoked"],
+        "execution_cancel_pending": tuple(sorted(
+            rid for rid, op in state["operations"].items()
+            if op["phase"] != "terminal")),
+        "execution_cleanup_native_verified": False,
         "production_activation_authorized": False,
     }
