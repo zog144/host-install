@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 from zog.host_identify import credential_delivery as cd
 from .station_admin_password_receipt import (
-    AdministratorReceiptContractError, CONSUMER, PURPOSE, inspect)
+    AdministratorReceiptContractError, CONSUMER, PURPOSE, CREDENTIAL_ID, inspect)
 
 
 def _deny():
@@ -24,6 +24,7 @@ def _frame(*, authorization, request, delivery, account_id,
     try:
         binding = cd.binding(expected_binding)
         if (binding["consumer"] != CONSUMER or binding["purpose"] != PURPOSE
+            or binding["credential_id"] != CREDENTIAL_ID
             or cd.binding(authorization) != binding
             or cd.binding(request) != binding):
             _deny()
