@@ -245,3 +245,120 @@ def test_no_proposal_only_revocation():
     args["install_receipt"]["status"] = "source-plan-only"
     with pytest.raises(StateError, match="original-install-receipt-mismatch"):
         broker.revocation_plan(**args)
+
+
+
+# Privileged synthetic filesystem tests: only a temporary directory descriptor,
+# never the real /etc or STATE. The real native owner still must attest sources.
+@pytest.mark.skipif(__import__("os").geteuid() != 0,
+                    reason="root-owned descriptor publication requires root")
+def test_protected_root_publication_and_irreversible_revoke(tmp_path, monkeypatch):
+    from contextlib import contextmanager
+    import os
+
+    @contextmanager
+    def simulated_root_parent():
+        fd = os.open(tmp_path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            yield fd
+        finally:
+            os.close(fd)
+
+    monkeypatch.setattr(broker, "_fixed_root_parent", simulated_root_parent)
+    source = fixture()
+    kwargs = {
+        "trusted_original_root_reader": lambda: source,
+        "trusted_source_attestor": lambda plan: True,
+        "expected_approval_sha256": source["expected_approval_sha256"],
+    }
+    installed = broker.publish_verified_projection(**kwargs)
+    assert installed["status"] == "installed"
+    assert installed["native_installation_verified"] is True
+    projected_path = tmp_path / broker.PROJECTION_NAME
+    receipt_path = tmp_path / broker.INSTALL_RECEIPT_NAME
+    assert projected_path.is_file() and receipt_path.is_file()
+    original_inodes = (projected_path.stat().st_ino, receipt_path.stat().st_ino)
+    assert broker.publish_verified_projection(**kwargs) == installed
+    assert (projected_path.stat().st_ino, receipt_path.stat().st_ino) == original_inodes
+
+    # The protected source verifier cannot be bypassed just by having a
+    # syntactically valid operator digest and a root-owned directory.
+    with pytest.raises(StateError, match="installed-source-attestation-missing"):
+        broker.publish_verified_projection(**{
+            **kwargs, "trusted_source_attestor": lambda _: False,
+        })
+
+    revoked = installed_and_revoked()
+    result = broker.publish_verified_revocation(
+        trusted_original_revocation_reader=lambda: {
+            k: revoked[k] for k in ("revoked_owner", "revoked_ledger", "approval_bytes")
+        },
+        trusted_source_attestor=lambda _: True,
+        expected_approval_sha256=revoked["expected_approval_sha256"],
+    )
+    marker = tmp_path / broker.REVOCATION_NAME
+    assert marker.stat().st_ino > 0
+    assert result["status"] == "root-owned-revocation-tombstone-retained"
+    assert result["production_activation_authorized"] is False
+    assert broker.publish_verified_revocation(
+        trusted_original_revocation_reader=lambda: {
+            k: revoked[k] for k in ("revoked_owner", "revoked_ledger", "approval_bytes")
+        },
+        trusted_source_attestor=lambda _: True,
+        expected_approval_sha256=revoked["expected_approval_sha256"],
+    ) == result
+    with pytest.raises(StateError, match="revocation-tombstone-present"):
+        broker.publish_verified_projection(**kwargs)
+    assert (projected_path.stat().st_ino, receipt_path.stat().st_ino) == original_inodes
+
+
+@pytest.mark.skipif(__import__("os").geteuid() != 0,
+                    reason="root-owned descriptor publication requires root")
+@pytest.mark.parametrize("name,point", [
+    ("certificate-issuer-broker-authority.json", "staged"),
+    ("certificate-issuer-broker-authority.json", "linked"),
+    ("certificate-issuer-broker-authority.json", "published"),
+    ("certificate-issuer-broker-install-receipt.json", "staged"),
+    ("certificate-issuer-broker-install-receipt.json", "linked"),
+    ("certificate-issuer-broker-install-receipt.json", "published"),
+])
+def test_interrupted_root_publication_is_same_byte_recoverable(
+        tmp_path, monkeypatch, name, point):
+    import os
+    from contextlib import contextmanager
+
+    @contextmanager
+    def simulated_root_parent():
+        fd = os.open(tmp_path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            yield fd
+        finally:
+            os.close(fd)
+
+    monkeypatch.setattr(broker, "_fixed_root_parent", simulated_root_parent)
+    original_publish = broker.publish
+    def fault(fd, filename, data, *, mode, uid, gid):
+        def at(checkpoint):
+            if checkpoint == f"{point}:{name}":
+                raise RuntimeError("interrupted-protected-writer")
+        return original_publish(fd, filename, data, mode=mode, uid=uid,
+                                gid=gid, checkpoint=at)
+    root = fixture()
+    kwargs = {
+        "trusted_original_root_reader": lambda: root,
+        "trusted_source_attestor": lambda _: True,
+        "expected_approval_sha256": root["expected_approval_sha256"],
+    }
+    with monkeypatch.context() as patcher:
+        patcher.setattr(broker, "publish", fault)
+        with pytest.raises(RuntimeError, match="interrupted-protected-writer"):
+            broker.publish_verified_projection(**kwargs)
+    original = {name: (tmp_path / name).stat().st_ino
+                for name in (broker.PROJECTION_NAME, broker.INSTALL_RECEIPT_NAME)
+                if (tmp_path / name).exists()}
+    broker.publish_verified_projection(**kwargs)
+    assert all((tmp_path / name).stat().st_ino == inode
+               for name, inode in original.items())
+    assert set(os.listdir(tmp_path)) == {
+        broker.PROJECTION_NAME, broker.INSTALL_RECEIPT_NAME, broker.LOCK_NAME,
+    }
