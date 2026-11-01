@@ -58,6 +58,13 @@ recognized transient two-link publication is reconciled before success.
     if staged is None:
         f = os.open(pending, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode, dir_fd=fd)
         try:
+            # The caller selects a protected owner/group, not merely a DAC
+            # mode. O_CREAT uses the caller's effective GID (and may inherit
+            # a directory setgid), which is not necessarily the issuer-reader
+            # group. Publish nothing with a silently incorrect group.
+            created = os.fstat(f)
+            if (created.st_uid, created.st_gid) != (uid, gid):
+                os.fchown(f, uid, gid)
             os.fchmod(f, mode)
             view = memoryview(data)
             while view:
