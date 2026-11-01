@@ -69,8 +69,14 @@ def test_real_writer_to_broker_requires_exact_committed_projection(tmp_path, mon
 
 
 def test_older_host_deploy_source_cannot_authorize_new_broker_candidate():
-    from zog.host_deploy.certificate_issuer_lifecycle import (
-        ISSUER_LIFECYCLE_BOX_CONTROL_REVISION as pinned,
-    )
+    import ast
+    from pathlib import Path
+    path = Path("companions/host-deploy/src/zog/host_deploy/certificate_issuer_lifecycle.py")
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    pinned = next(ast.literal_eval(node.value) for node in tree.body
+                  if isinstance(node, ast.Assign)
+                  and any(isinstance(target, ast.Name)
+                          and target.id == "ISSUER_LIFECYCLE_BOX_CONTROL_REVISION"
+                          for target in node.targets))
     assert writer.BOX_CONTROL_REVIEWED_COMMIT != pinned
     assert writer.BOX_CONTROL_REVIEWED_COMMIT == issuer_execution_fence.REVIEWED_BOX_CONTROL
