@@ -362,3 +362,95 @@ def test_interrupted_root_publication_is_same_byte_recoverable(
     assert set(os.listdir(tmp_path)) == {
         broker.PROJECTION_NAME, broker.INSTALL_RECEIPT_NAME, broker.LOCK_NAME,
     }
+
+
+
+@pytest.mark.skipif(__import__("os").geteuid() != 0,
+                    reason="root-owned descriptor publication requires root")
+@pytest.mark.parametrize("moment", ("staged", "linked", "published"))
+def test_interrupted_root_revocation_never_reenables_projection(
+        tmp_path, monkeypatch, moment):
+    import os
+    from contextlib import contextmanager
+
+    @contextmanager
+    def root_parent():
+        fd = os.open(tmp_path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            yield fd
+        finally:
+            os.close(fd)
+
+    monkeypatch.setattr(broker, "_fixed_root_parent", root_parent)
+    source = fixture()
+    broker.publish_verified_projection(
+        trusted_original_root_reader=lambda: source,
+        trusted_source_attestor=lambda _: True,
+        expected_approval_sha256=source["expected_approval_sha256"],
+    )
+    evidence = installed_and_revoked()
+    kwargs = {
+        "trusted_original_revocation_reader": lambda: {
+            k: evidence[k] for k in ("revoked_owner", "revoked_ledger", "approval_bytes")
+        },
+        "trusted_source_attestor": lambda _: True,
+        "expected_approval_sha256": evidence["expected_approval_sha256"],
+    }
+    original = broker.publish
+    def fault(fd, filename, data, *, mode, uid, gid):
+        def checkpoint(step):
+            if step == f"{moment}:{broker.REVOCATION_NAME}":
+                raise RuntimeError("revocation-publish-interrupted")
+        return original(fd, filename, data, mode=mode, uid=uid, gid=gid,
+                        checkpoint=checkpoint)
+
+    with monkeypatch.context() as patcher:
+        patcher.setattr(broker, "publish", fault)
+        with pytest.raises(RuntimeError, match="revocation-publish-interrupted"):
+            broker.publish_verified_revocation(**kwargs)
+    assert any((tmp_path / name).exists() for name in (
+        broker.REVOCATION_NAME, ".pending." + broker.REVOCATION_NAME
+    ))
+    # Even an interrupted revocation is a permanent deny for the old
+    # projection; source reattempt must preserve the original file inode.
+    projection_inode = (tmp_path / broker.PROJECTION_NAME).stat().st_ino
+    with pytest.raises(StateError, match="revocation-tombstone-present"):
+        broker.publish_verified_projection(
+            trusted_original_root_reader=lambda: source,
+            trusted_source_attestor=lambda _: True,
+            expected_approval_sha256=source["expected_approval_sha256"],
+        )
+    receipt = broker.publish_verified_revocation(**kwargs)
+    assert receipt["status"] == "root-owned-revocation-tombstone-retained"
+    assert (tmp_path / broker.PROJECTION_NAME).stat().st_ino == projection_inode
+    assert not (tmp_path / (".pending." + broker.REVOCATION_NAME)).exists()
+
+
+@pytest.mark.skipif(__import__("os").geteuid() != 0,
+                    reason="root-owned descriptor publication requires root")
+def test_root_owner_changes_between_preflight_and_publication_fail_closed(
+        tmp_path, monkeypatch):
+    import os
+    from contextlib import contextmanager
+    @contextmanager
+    def root_parent():
+        fd = os.open(tmp_path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            yield fd
+        finally:
+            os.close(fd)
+    monkeypatch.setattr(broker, "_fixed_root_parent", root_parent)
+    source = fixture()
+    calls = [0]
+    def changed_reader():
+        calls[0] += 1
+        if calls[0] == 1:
+            return source
+        return {**source, "host_policy_digest": "sha256:"+"0"*64}
+    with pytest.raises(StateError, match="root-authority-changed-before-publication"):
+        broker.publish_verified_projection(
+            trusted_original_root_reader=changed_reader,
+            trusted_source_attestor=lambda _: True,
+            expected_approval_sha256=source["expected_approval_sha256"],
+        )
+    assert not (tmp_path / broker.PROJECTION_NAME).exists()
