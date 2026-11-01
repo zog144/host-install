@@ -74,6 +74,23 @@ def _read_signed(raw_bytes, *, pin, pin_sha, commit, revoke_approval):
         _deny()
 
 
+
+def _require_current_recovery_checkpoint(reader, signed, key):
+    """Independently selected current approval epoch; stale approvals denied.
+
+    Native reader must be root-protected and cannot be provided by an
+    untrusted request, just like the protected original revocation reader.
+    """
+    if not callable(reader):
+        _deny()
+    observed=reader()
+    if (type(observed) is not dict or set(observed) != {
+            "authorization_revision","operation_id","commit_sha256",
+            "operator_key_sha256"} or
+            any(observed.get(name) != signed[name] for name in observed)):
+        _deny()
+    return observed
+
 def _missing_provenance(fd):
     from zog.root_control.issuer_execution_provenance import NAME
     # Any entry, including symlink, malformed, or unreadable, is NOT a
@@ -125,7 +142,8 @@ def publish_recovery_only_revocation(
         trusted_source_attestor,
         expected_approval_sha256,
         independently_trusted_recovery_reader,
-        independently_pinned_recovery_key_reader):
+        independently_pinned_recovery_key_reader,
+        independently_trusted_recovery_checkpoint_reader):
     """Recovery-only root owner, with no fallback from normal revocation.
 
     Independent readers are protected native owner callbacks, not broker or
@@ -136,7 +154,8 @@ def publish_recovery_only_revocation(
             not all(callable(x) for x in (
                 trusted_original_revocation_reader, trusted_source_attestor,
                 independently_trusted_recovery_reader,
-                independently_pinned_recovery_key_reader))):
+                independently_pinned_recovery_key_reader,
+                independently_trusted_recovery_checkpoint_reader))):
         _deny()
     from zog.root_control.issuer_execution_fence import (
         REVIEWED_BOX_CONTROL,
@@ -168,11 +187,13 @@ def publish_recovery_only_revocation(
         pin=independently_pinned_recovery_key_reader()
         if (type(pin) is not dict or set(pin) != {"public_key","sha256"}):
             _deny()
-        _read_signed(recovery_bytes,pin=pin["public_key"],pin_sha=pin["sha256"],
+        signed=_read_signed(recovery_bytes,pin=pin["public_key"],pin_sha=pin["sha256"],
                      commit=commit,revoke_approval=evidence["approval_bytes"])
+        current=_require_current_recovery_checkpoint(
+            independently_trusted_recovery_checkpoint_reader,signed,pin)
         fd,fence=_existing_ledger(parent,hashlib.sha256(c).hexdigest())
         try:
-            # Execution and installer publication use the ORIGINAL shared
+            # Provenance could appear while the owner waits for the fence.\n            # In that case the fence may already be irrevocably revoked,\n            # while marker publication stays incomplete: never report success.\n            # Execution and installer publication use the ORIGINAL shared
             # lock order: epoch lock -> installer publication lock.
             def publish():
                 # Fail closed if source or recovery approval changed while
@@ -180,7 +201,8 @@ def publish_recovery_only_revocation(
                 _missing_provenance(fd)
                 if (trusted_original_revocation_reader() != evidence or
                         independently_trusted_recovery_reader() != recovery_bytes
-                        or independently_pinned_recovery_key_reader() != pin):
+                        or independently_pinned_recovery_key_reader() != pin
+                        or independently_trusted_recovery_checkpoint_reader() != current):
                     _deny()
                 broker._publish_verified_revocation_locked(
                     trusted_original_revocation_reader=
@@ -208,7 +230,8 @@ def publish_recovery_only_abandonment(
         trusted_source_attestor,
         expected_approval_sha256,
         independently_trusted_recovery_reader,
-        independently_pinned_recovery_key_reader):
+        independently_pinned_recovery_key_reader,
+        independently_trusted_recovery_checkpoint_reader):
     """Abandon an irrevocably committed broker BEFORE an execution ledger exists.
 
     Does not create an epoch/lock/provenance or assert that no old operation
@@ -219,7 +242,8 @@ def publish_recovery_only_abandonment(
     if (os.geteuid()!=0 or not all(callable(fn) for fn in (
             trusted_original_revocation_reader, trusted_source_attestor,
             independently_trusted_recovery_reader,
-            independently_pinned_recovery_key_reader))):
+            independently_pinned_recovery_key_reader,
+            independently_trusted_recovery_checkpoint_reader))):
         _deny()
     from zog.root_control.issuer_execution_fence import FIXED_DIRECTORY,STATE
     from zog.root_control.issuer_execution_provenance import NAME
@@ -266,8 +290,10 @@ def publish_recovery_only_abandonment(
         pin=independently_pinned_recovery_key_reader()
         if type(pin) is not dict or set(pin)!={"public_key","sha256"}:
             _deny()
-        _read_signed(approval,pin=pin["public_key"],pin_sha=pin["sha256"],
+        signed=_read_signed(approval,pin=pin["public_key"],pin_sha=pin["sha256"],
                      commit=commit,revoke_approval=evidence["approval_bytes"])
+        current=_require_current_recovery_checkpoint(
+            independently_trusted_recovery_checkpoint_reader,signed,pin)
         check_no_ledger(fd)
 
     # The underlying publisher takes the fixed root-owned installer lock,
@@ -282,6 +308,7 @@ def publish_recovery_only_abandonment(
             check_no_ledger(parent)
         if (independently_trusted_recovery_reader()!=approval
                 or independently_pinned_recovery_key_reader()!=pin
+                or independently_trusted_recovery_checkpoint_reader()!=current
                 or trusted_original_revocation_reader()!=evidence):
             _deny()
         return trusted_source_attestor(proposal) is True
