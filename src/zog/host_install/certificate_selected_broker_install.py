@@ -23,7 +23,7 @@ PROJECTION_PATH = "/etc/zog/host-deploy/certificate-issuer-broker-authority.json
 REVOCATION_PATH = "/etc/zog/host-deploy/certificate-issuer-broker-revoked.json"
 HOST_DEPLOY_REVIEWED_COMMIT = "e2e050a9562a07648ed58ba5a1357daed6da4e9e"
 HOST_DEPLOY_PROJECTION_BLOB = "c16c55f37495177974349100451d624f39cb9718"
-BOX_CONTROL_REVIEWED_COMMIT = "9111606eef306292d70fd4d941eeb73f48b33ff1"
+BOX_CONTROL_REVIEWED_COMMIT = "baca7f815974dbf685950c0c7e78f693dd0a96e2"
 PRIVATE_BINDING_SCHEMA = "zog-host-deploy-managed-certificate-consumer-binding-v1"
 OWNER_LEDGER_SCHEMA = "zog-host-install-certificate-owner-ledger-v1"
 OWNER_SCHEMA = "zog-host-deploy-certificate-owner-authority-v1"
@@ -300,7 +300,7 @@ import os
 import stat
 from contextlib import contextmanager
 
-from .state_io import lock, publish, raw
+from .state_io import lock, publish, raw, ensure_directory
 
 
 LOCK_NAME = ".certificate-selected-broker-install.lock"
@@ -454,12 +454,44 @@ def publish_verified_projection(*, trusted_original_root_reader,
             _revocation_clear(fd)
             _valid(raw(fd, COMMIT_NAME, uid=0, gid=0, mode=0o444) == commit,
                    "protected-broker-commit-readback-mismatch")
+            from zog.root_control.issuer_execution_fence import (
+                IssuerExecutionFence, FIXED_DIRECTORY, REVIEWED_BOX_CONTROL,
+                current_boot_id,
+            )
+            _valid(REVIEWED_BOX_CONTROL == BOX_CONTROL_REVIEWED_COMMIT,
+                   "issuer-execution-source-pin-mismatch")
+            execution_fd = ensure_directory(fd, FIXED_DIRECTORY, 0, 0, 0o700)
+            try:
+                IssuerExecutionFence(execution_fd).initialize(
+                    trusted_commit_sha256=_sha(commit),
+                    boot_id=current_boot_id())
+            finally:
+                os.close(execution_fd)
     return installed_receipt
 
 
 def publish_verified_revocation(*, trusted_original_revocation_reader,
                                 trusted_source_attestor,
                                 expected_approval_sha256):
+    """Root-only irrevocable publisher serialized with selected PID1 start."""
+    from zog.root_control.issuer_execution_fence import installed_fence
+    with installed_fence() as (fence, _digest):
+        published = []
+        def publish_original():
+            published.append(_publish_verified_revocation_locked(
+                trusted_original_revocation_reader=trusted_original_revocation_reader,
+                trusted_source_attestor=trusted_source_attestor,
+                expected_approval_sha256=expected_approval_sha256,
+            ))
+            return True
+        fence.revoke(publish_pending_revocation=publish_original)
+        _valid(len(published) == 1, "issuer-revocation-publication-unconfirmed")
+        return published[0]
+
+
+def _publish_verified_revocation_locked(*, trusted_original_revocation_reader,
+                                       trusted_source_attestor,
+                                       expected_approval_sha256):
     """Publish permanent denial marker under the same root authority lock.
 
     The protected native reader must independently reopen the current
