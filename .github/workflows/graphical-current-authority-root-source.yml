@@ -20,7 +20,7 @@ jobs:
         run: |
           python -m pip install 'pytest>=8,<10' 'cryptography>=44,<49'
           sudo -E env PYTHONPATH="$PWD/src" "$(command -v python)" \
-            -m pytest -q -rs tests/test_graphical_current_authority.py
+            -m pytest -q -rs tests/test_graphical_current_authority.py tests/test_graphical_rotation_checkpoint.py
       - name: Explicit protected native hold
         if: always()
         run: |
