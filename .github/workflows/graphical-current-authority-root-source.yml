@@ -1,0 +1,27 @@
+name: Graphical current-authority root source regression
+on:
+  push:
+    branches: [review/graphical-current-authority-rotation-20261101]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  root-synthetic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Root-owned authority DAC source tests (no installed Host)
+        run: |
+          python -m pip install 'pytest>=8,<10' 'cryptography>=44,<49'
+          sudo -E env PYTHONPATH="$PWD/src" "$(command -v python)" \
+            -m pytest -q -rs tests/test_graphical_current_authority.py
+      - name: Explicit protected native hold
+        if: always()
+        run: |
+          echo 'Source-only root fixture; actual installed operator pin, signer ownership, source RECORD and native relay remain unverified' >> "$GITHUB_STEP_SUMMARY"
