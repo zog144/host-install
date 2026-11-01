@@ -454,19 +454,27 @@ def publish_verified_projection(*, trusted_original_root_reader,
             _revocation_clear(fd)
             _valid(raw(fd, COMMIT_NAME, uid=0, gid=0, mode=0o444) == commit,
                    "protected-broker-commit-readback-mismatch")
-            from zog.root_control.issuer_execution_fence import (
-                IssuerExecutionFence, FIXED_DIRECTORY, REVIEWED_BOX_CONTROL,
-                current_boot_id,
-            )
-            _valid(REVIEWED_BOX_CONTROL == BOX_CONTROL_REVIEWED_COMMIT,
-                   "issuer-execution-source-pin-mismatch")
-            execution_fd = ensure_directory(fd, FIXED_DIRECTORY, 0, 0, 0o700)
-            try:
-                IssuerExecutionFence(execution_fd).initialize(
-                    trusted_commit_sha256=_sha(commit),
-                    boot_id=current_boot_id())
-            finally:
-                os.close(execution_fd)
+        # The installer writer lock must be RELEASED before acquiring the
+        # execution epoch lock. Revocation holds execution then installer;
+        # acquiring them in reverse order here would deadlock on reinstall.
+        # No certificate operation can launch before the root-owned fence
+        # has its durable commit-bound initial ledger.
+        from zog.root_control.issuer_execution_fence import (
+            IssuerExecutionFence, FIXED_DIRECTORY, REVIEWED_BOX_CONTROL,
+            current_boot_id,
+        )
+        _valid(REVIEWED_BOX_CONTROL == BOX_CONTROL_REVIEWED_COMMIT,
+               "issuer-execution-source-pin-mismatch")
+        execution_fd = ensure_directory(fd, FIXED_DIRECTORY, 0, 0, 0o700)
+        try:
+            epoch = IssuerExecutionFence(execution_fd).initialize(
+                trusted_commit_sha256=_sha(commit),
+                boot_id=current_boot_id())
+            _valid(epoch["revoked"] is False,
+                   "revoked-execution-epoch-cannot-be-reinstalled")
+        finally:
+            os.close(execution_fd)
+        _revocation_clear(fd)
     return installed_receipt
 
 
