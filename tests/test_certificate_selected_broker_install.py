@@ -276,10 +276,16 @@ def test_protected_root_publication_and_irreversible_revoke(tmp_path, monkeypatc
     assert installed["native_installation_verified"] is True
     projected_path = tmp_path / broker.PROJECTION_NAME
     receipt_path = tmp_path / broker.INSTALL_RECEIPT_NAME
-    assert projected_path.is_file() and receipt_path.is_file()
-    original_inodes = (projected_path.stat().st_ino, receipt_path.stat().st_ino)
+    commit_path = tmp_path / broker.COMMIT_NAME
+    assert projected_path.is_file() and receipt_path.is_file() and commit_path.is_file()
+    commit = json.loads(commit_path.read_bytes())
+    assert commit["install_receipt_sha256"] == digest(installed)
+    assert commit["projection_sha256"] == hashlib.sha256(projected_path.read_bytes()).hexdigest()
+    original_inodes = tuple(path.stat().st_ino for path in (
+        projected_path, receipt_path, commit_path))
     assert broker.publish_verified_projection(**kwargs) == installed
-    assert (projected_path.stat().st_ino, receipt_path.stat().st_ino) == original_inodes
+    assert tuple(path.stat().st_ino for path in (
+        projected_path, receipt_path, commit_path)) == original_inodes
 
     # The protected source verifier cannot be bypassed just by having a
     # syntactically valid operator digest and a root-owned directory.
@@ -309,7 +315,8 @@ def test_protected_root_publication_and_irreversible_revoke(tmp_path, monkeypatc
     ) == result
     with pytest.raises(StateError, match="revocation-tombstone-present"):
         broker.publish_verified_projection(**kwargs)
-    assert (projected_path.stat().st_ino, receipt_path.stat().st_ino) == original_inodes
+    assert tuple(path.stat().st_ino for path in (
+        projected_path, receipt_path, commit_path)) == original_inodes
 
 
 @pytest.mark.skipif(__import__("os").geteuid() != 0,
@@ -321,6 +328,9 @@ def test_protected_root_publication_and_irreversible_revoke(tmp_path, monkeypatc
     ("certificate-issuer-broker-install-receipt.json", "staged"),
     ("certificate-issuer-broker-install-receipt.json", "linked"),
     ("certificate-issuer-broker-install-receipt.json", "published"),
+    ("certificate-issuer-broker-install-commit.json", "staged"),
+    ("certificate-issuer-broker-install-commit.json", "linked"),
+    ("certificate-issuer-broker-install-commit.json", "published"),
 ])
 def test_interrupted_root_publication_is_same_byte_recoverable(
         tmp_path, monkeypatch, name, point):
@@ -353,6 +363,10 @@ def test_interrupted_root_publication_is_same_byte_recoverable(
         patcher.setattr(broker, "publish", fault)
         with pytest.raises(RuntimeError, match="interrupted-protected-writer"):
             broker.publish_verified_projection(**kwargs)
+    # Projection/receipt may exist without the commit, but never authorize
+    # the non-root consumer until the final marker is published.
+    assert (tmp_path / broker.COMMIT_NAME).exists() is (
+        name == broker.COMMIT_NAME and point in ("linked", "published"))
     original = {name: (tmp_path / name).stat().st_ino
                 for name in (broker.PROJECTION_NAME, broker.INSTALL_RECEIPT_NAME)
                 if (tmp_path / name).exists()}
@@ -360,7 +374,8 @@ def test_interrupted_root_publication_is_same_byte_recoverable(
     assert all((tmp_path / name).stat().st_ino == inode
                for name, inode in original.items())
     assert set(os.listdir(tmp_path)) == {
-        broker.PROJECTION_NAME, broker.INSTALL_RECEIPT_NAME, broker.LOCK_NAME,
+        broker.PROJECTION_NAME, broker.INSTALL_RECEIPT_NAME,
+        broker.COMMIT_NAME, broker.LOCK_NAME,
     }
 
 
