@@ -267,7 +267,7 @@ def test_protected_root_publication_and_irreversible_revoke(tmp_path, monkeypatc
     monkeypatch.setattr(broker, "_fixed_root_parent", simulated_root_parent)
     source = fixture()
     kwargs = {
-        "trusted_original_root_reader": lambda: source,
+        "trusted_original_root_reader": lambda: {k: v for k, v in source.items() if k != "expected_approval_sha256"},
         "trusted_source_attestor": lambda plan: True,
         "expected_approval_sha256": source["expected_approval_sha256"],
     }
@@ -345,7 +345,7 @@ def test_interrupted_root_publication_is_same_byte_recoverable(
                                 gid=gid, checkpoint=at)
     root = fixture()
     kwargs = {
-        "trusted_original_root_reader": lambda: root,
+        "trusted_original_root_reader": lambda: {k: v for k, v in root.items() if k != "expected_approval_sha256"},
         "trusted_source_attestor": lambda _: True,
         "expected_approval_sha256": root["expected_approval_sha256"],
     }
@@ -384,7 +384,7 @@ def test_interrupted_root_revocation_never_reenables_projection(
     monkeypatch.setattr(broker, "_fixed_root_parent", root_parent)
     source = fixture()
     broker.publish_verified_projection(
-        trusted_original_root_reader=lambda: source,
+        trusted_original_root_reader=lambda: {k: v for k, v in source.items() if k != "expected_approval_sha256"},
         trusted_source_attestor=lambda _: True,
         expected_approval_sha256=source["expected_approval_sha256"],
     )
@@ -416,7 +416,7 @@ def test_interrupted_root_revocation_never_reenables_projection(
     projection_inode = (tmp_path / broker.PROJECTION_NAME).stat().st_ino
     with pytest.raises(StateError, match="revocation-tombstone-present"):
         broker.publish_verified_projection(
-            trusted_original_root_reader=lambda: source,
+            trusted_original_root_reader=lambda: {k: v for k, v in source.items() if k != "expected_approval_sha256"},
             trusted_source_attestor=lambda _: True,
             expected_approval_sha256=source["expected_approval_sha256"],
         )
@@ -445,8 +445,8 @@ def test_root_owner_changes_between_preflight_and_publication_fail_closed(
     def changed_reader():
         calls[0] += 1
         if calls[0] == 1:
-            return source
-        return {**source, "host_policy_digest": "sha256:"+"0"*64}
+            return {k: v for k, v in source.items() if k != "expected_approval_sha256"}
+        return {**{k: v for k, v in source.items() if k != "expected_approval_sha256"}, "host_policy_digest": "sha256:"+"0"*64}
     with pytest.raises(StateError, match="root-authority-changed-before-publication"):
         broker.publish_verified_projection(
             trusted_original_root_reader=changed_reader,
