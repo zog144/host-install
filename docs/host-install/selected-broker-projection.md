@@ -1,7 +1,7 @@
 # Selected issuer broker authority: protected root-owner source contract
 
 **Owners:** host-install Regular and host-deploy Regular. **Native writes:** Work only.
-**Producer:** host-deploy draft PR #3 at b4e723abab3dadcf238b0552ee4d5f108e6a6d95.
+**Producer:** host-deploy draft PR #3 at e2e050a9562a07648ed58ba5a1357daed6da4e9e (consumer includes final install-commit validation).
 **Broker client:** box-control issuer-lifecycle client 9111606eef306292d70fd4d941eeb73f48b33ff1.
 
 The root approval **must be independently authenticated and digest-pinned**.
@@ -45,8 +45,20 @@ Native Work, **after** independent installed source and original root-file
 attestation, must publish that exact candidate using no-replacement,
 durable lock, fsync and safe parent dirfds. Same byte is idempotent; conflict,
 pending publication, installation/STATE mismatch and revoked marker all STOP.
-An independent receipt reflecting **actual installed bytes**, not a source
-plan, must be committed before any protected native acceptance.
+An independent root-only 0600 receipt reflecting **actual installed bytes**,
+not a source plan, must be fsynced and read back before publishing the last
+root-owned 0444 immutable `certificate-issuer-broker-install-commit.json`.
+This final commit binds SHA-256 of the exact 0444 projection, SHA-256 of the
+0600 installed receipt, original Host/installation/STATE/certificate/policy,
+original binding, owner revision/operation and pinned producer/box-control
+source. A projection alone, or a projection plus receipt without the final
+commit, is never usable by host-deploy. A pending, torn, altered, symlinked
+or mismatched commit is also a denial. The final commit is published with the
+same stable installer lock, exclusive no-replacement staging and fsync;
+the timer checks it before and after reading the projection, and again
+before **every** broker RPC. Original public projection and private receipt
+remain immutable; recovery after an interrupted write resumes only exact
+same-byte stages, without replacing an older generation.
 
 Revocation is **irreversible for this projection identity**, not an in-place
 replacement of the 0444 policy. A higher root-authenticated revoked owner
@@ -76,3 +88,22 @@ kernel FS, an authentic revocation marker, session/renewal race, latest
 signed hostname authority, and operator activation. Preserve host-deploy
 `_require_approved_native_inspection` rejection. No live ACME/DNS,
 Cloudflare secret, Certbot, nginx, 80/443, or canonical STATE mutation here.
+
+
+## Commit-bound source acceptance (2026-11-01)
+
+Source fixes add `COMMIT_SCHEMA`, the last-commit `publish_verified_projection`
+boundary, and a matching `host-deploy.certificate_selected_broker_authority`
+nonroot reader. The host-install interop workflow pins exact host-deploy
+`e2e050a9562a07648ed58ba5a1357daed6da4e9e` plus its consumer Git
+blob `c16c55f37495177974349100451d624f39cb9718`, and runs both
+modules against the same ephemeral root-owned filesystem, injecting
+interruptions after projection, after private receipt, and during the
+final commit hardlink publication. Missing commit always blocks; exact-byte
+recovery restores the authorized path without replacement.
+
+These CI fixtures do **not** install the authority in native /etc or
+prove root original-reader provenance, signed registry approval, root owner
+ledger continuity, actual systemd/peer UID, reboot durability or ACME/HTTPS.
+Selected-broker native activation remains NO-GO, and
+`_require_approved_native_inspection` is unchanged.
