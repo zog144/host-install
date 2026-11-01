@@ -1,0 +1,35 @@
+name: Selected issuer execution epoch cross-owner
+on:
+  pull_request:
+    branches: [main, unstable]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  selected-issuer-epoch:
+    name: Same root lock and PID1 source (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.12','3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: zog144/root-control
+          ref: e4ebfd07787c44cc48b7a425b1dbe9dbddc4866e
+          path: companions/root-control
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Verify immutable root-control source
+        run: |
+          test "$(git -C companions/root-control rev-parse HEAD)" = "e4ebfd07787c44cc48b7a425b1dbe9dbddc4866e"
+      - name: Cross-owner fixed lock / concurrent source tests
+        env:
+          PYTHONPATH: src:companions/root-control/src
+          ROOT_CONTROL_EPOCH_SOURCE: companions/root-control/src/zog/root_control
+        run: |
+          python -m pip install 'pytest>=8,<10' 'dbus-next==0.2.3'
+          python -m pytest -q tests/test_certificate_selected_execution_interop.py companions/root-control/tests/test_issuer_execution_fence.py -rs
