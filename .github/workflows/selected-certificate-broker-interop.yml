@@ -18,14 +18,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: zog144/host-deploy
-          ref: e2e050a9562a07648ed58ba5a1357daed6da4e9e
+          ref: e1e0ec43b3aa3b56d4627ff8ed8d24eb2495871a
           path: companions/host-deploy
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
       - name: Verify immutable producer checkout
         run: |
-          test "$(git -C companions/host-deploy rev-parse HEAD)" = "e2e050a9562a07648ed58ba5a1357daed6da4e9e"
+          test "$(git -C companions/host-deploy rev-parse HEAD)" = "e1e0ec43b3aa3b56d4627ff8ed8d24eb2495871a"
       - name: Run protected source plan and cross-repo schema/commit regressions
         env:
           PYTHONPATH: src
