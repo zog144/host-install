@@ -21,7 +21,7 @@ def uid(number):
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"zog-command-center-test-{number}"))
 
 
-def fixture():
+def fixture(*, identity_registry_id="primary", grant_registry_id="primary"):
     operator = Ed25519PrivateKey.generate()
     certificate = Ed25519PrivateKey.generate()
     credential = Ed25519PrivateKey.generate()
@@ -61,7 +61,7 @@ def fixture():
         "command_center_installation_id": uid(2),
         "external_host_instance_id": authority.COMMAND_CENTER_INSTANCE_ID,
         "external_host_evidence_sha256": hashlib.sha256(evidence).hexdigest(),
-        "station_registry_id": "primary",
+        "station_registry_id": identity_registry_id,
         "station_source_commit": authority.STATION_ACCESS_COMMIT,
         "database_path": observed["path"],
         "database_device": observed["device"],
@@ -125,7 +125,7 @@ def fixture():
         "installation_id": uid(4),
         "state_volume_id": uid(5),
         "authority_id": uid(8),
-        "registry_id": "primary",
+        "registry_id": grant_registry_id,
         "assignment_id": uid(6),
         "assignment_revision": 2,
         "credential_revision": 3,
@@ -166,7 +166,7 @@ def fixture():
         "host_fingerprint": "1" * 64,
         "installation_id": uid(4),
         "state_volume_id": uid(5),
-        "registry_id": "primary",
+        "registry_id": grant_registry_id,
         "consumer": authority.CONSUMER,
         "purpose": authority.PURPOSE,
         "credential_id": "cloudflare-" + uid(7).replace("-", ""),
