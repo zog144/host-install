@@ -13,6 +13,7 @@ import os
 import re
 import stat
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+from cryptography.exceptions import InvalidSignature
 
 from .state_contract import canonical
 from .state_io import raw
@@ -69,7 +70,7 @@ def _read_signed(raw_bytes, *, pin, pin_sha, commit, revoke_approval):
             proof, RECOVERY_DOMAIN + canonical({
                 k:v for k,v in row.items() if k != "signature_ed25519"}))
         return row
-    except (ValueError, TypeError, KeyError, UnicodeError, OverflowError):
+    except (ValueError, TypeError, KeyError, UnicodeError, OverflowError, InvalidSignature):
         _deny()
 
 
@@ -199,3 +200,99 @@ def publish_recovery_only_revocation(
                     "native_cleanup_verified":False}
         finally:
             os.close(fd)
+
+
+
+def publish_recovery_only_abandonment(
+        *, trusted_original_revocation_reader,
+        trusted_source_attestor,
+        expected_approval_sha256,
+        independently_trusted_recovery_reader,
+        independently_pinned_recovery_key_reader):
+    """Abandon an irrevocably committed broker BEFORE an execution ledger exists.
+
+    Does not create an epoch/lock/provenance or assert that no old operation
+    ever ran. A PRESENT ledger, even corrupted or symlinked, MUST use
+    preserved-ledger reconciliation, not this absence-only route.
+    No fallback from the normal publisher and no new-launch authority.
+    """
+    if (os.geteuid()!=0 or not all(callable(fn) for fn in (
+            trusted_original_revocation_reader, trusted_source_attestor,
+            independently_trusted_recovery_reader,
+            independently_pinned_recovery_key_reader))):
+        _deny()
+    from zog.root_control.issuer_execution_fence import FIXED_DIRECTORY,STATE
+    from zog.root_control.issuer_execution_provenance import NAME
+
+    def check_no_ledger(parent):
+        try:
+            fd=os.open(FIXED_DIRECTORY,os.O_RDONLY|os.O_DIRECTORY|
+                       os.O_NOFOLLOW|os.O_CLOEXEC,dir_fd=parent)
+        except FileNotFoundError:
+            # Boot/install interruption before private directory existed.
+            return
+        try:
+            st=os.fstat(fd)
+            if ((st.st_uid,st.st_gid,stat.S_IMODE(st.st_mode))!=(0,0,0o700)
+                    or st.st_dev!=os.fstat(parent).st_dev):
+                _deny()
+            for leaf in (NAME,STATE):
+                try:
+                    os.stat(leaf,dir_fd=fd,follow_symlinks=False)
+                except FileNotFoundError:
+                    continue
+                _deny()
+        finally:
+            os.close(fd)
+
+    with broker._fixed_root_parent() as fd:
+        p=raw(fd,broker.PROJECTION_NAME,uid=0,gid=0,mode=0o444)
+        r=raw(fd,broker.INSTALL_RECEIPT_NAME,uid=0,gid=0,mode=0o600)
+        c=raw(fd,broker.COMMIT_NAME,uid=0,gid=0,mode=0o444)
+        if None in (p,r,c): _deny()
+        proposal={"projection":broker._canonical_bytes(p),"projection_bytes":p}
+        original_receipt=broker._canonical_bytes(r)
+        if c!=canonical(broker._installation_commit(proposal,original_receipt)):
+            _deny()
+        commit=(broker._canonical_bytes(c),c)
+        evidence=trusted_original_revocation_reader()
+        if type(evidence) is not dict or set(evidence)!={
+                "revoked_owner","revoked_ledger","approval_bytes"}: _deny()
+        plan=broker.revocation_plan(
+            projection_bytes=p,install_receipt=original_receipt,
+            expected_approval_sha256=expected_approval_sha256,**evidence)
+        if trusted_source_attestor(plan) is not True: _deny()
+        approval=independently_trusted_recovery_reader()
+        pin=independently_pinned_recovery_key_reader()
+        if type(pin) is not dict or set(pin)!={"public_key","sha256"}:
+            _deny()
+        _read_signed(approval,pin=pin["public_key"],pin_sha=pin["sha256"],
+                     commit=commit,revoke_approval=evidence["approval_bytes"])
+        check_no_ledger(fd)
+
+    # The underlying publisher takes the fixed root-owned installer lock,
+    # then re-opens signed original owner intent and installed commit. The
+    # wrapper re-verifies missing ledger *inside* that publication lock.
+    # Source provenance installation requires an initialized epoch ledger,
+    # so an absent one cannot authorize a concurrent selected launch.
+    def guarded_attestor(proposal):
+        with broker._fixed_root_parent() as parent:
+            if raw(parent,broker.COMMIT_NAME,uid=0,gid=0,mode=0o444)!=c:
+                _deny()
+            check_no_ledger(parent)
+        if (independently_trusted_recovery_reader()!=approval
+                or independently_pinned_recovery_key_reader()!=pin
+                or trusted_original_revocation_reader()!=evidence):
+            _deny()
+        return trusted_source_attestor(proposal) is True
+
+    result=broker._publish_verified_revocation_locked(
+        trusted_original_revocation_reader=trusted_original_revocation_reader,
+        trusted_source_attestor=guarded_attestor,
+        expected_approval_sha256=expected_approval_sha256)
+    return {**result,"status":"recovery-only-abandoned-before-epoch",
+            "execution_history_unknown":True,
+            "execution_provenance_fabricated":False,
+            "execution_ledger_created":False,
+            "execution_authorized":False,
+            "native_cleanup_verified":False}
