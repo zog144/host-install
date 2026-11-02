@@ -1,0 +1,36 @@
+name: Protected graphical signing authority installation source
+on:
+  push:
+    branches: [regular/graphical-protected-authority-install-20261102]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  authority:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Protected source and signer regressions
+        run: |
+          python -m pip install 'pytest>=8,<10' 'cryptography>=44,<49'
+          PYTHONPATH="$PWD/src:$PWD/tests" python -m pytest -q -rs \
+            tests/test_graphical_protected_authority_install.py
+      - name: Ephemeral privileged path contract (never live /etc)
+        run: |
+          sudo -E env PYTHONPATH="$PWD/src:$PWD/tests" "$(command -v python)" \
+            -m pytest -q -rs tests/test_graphical_protected_authority_install.py \
+            tests/test_graphical_current_authority.py tests/test_graphical_rotation_checkpoint.py
+      - name: Native hold
+        if: always()
+        run: |
+          echo 'No real installed keys, source/wheel RECORD attestation, STATE, issuer service or signing-key activation; synthetic source acceptance only.' >> "$GITHUB_STEP_SUMMARY"

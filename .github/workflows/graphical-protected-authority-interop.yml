@@ -1,0 +1,48 @@
+name: Graphical protected installation three-owner source contract
+on:
+  push:
+    branches: [regular/graphical-protected-authority-install-20261102]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  exact-companions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.12','3.13']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: zog144/root-control
+          ref: 9036c98e8af6469a17e8fcc31e1a40795330ee48
+          path: companion/root-control
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: zog144/host-deploy
+          ref: 7d052b340a026497fd32afb82d0a290d1d6bc60e
+          path: companion/host-deploy
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Verify immutable source pins
+        run: |
+          test "$(git -C companion/root-control rev-parse HEAD)" = 9036c98e8af6469a17e8fcc31e1a40795330ee48
+          test "$(git -C companion/host-deploy rev-parse HEAD)" = 7d052b340a026497fd32afb82d0a290d1d6bc60e
+      - name: Synthetic current-key installation / exact signed issuer / gateway check
+        run: |
+          python -m pip install 'pytest>=8,<10' 'cryptography>=44,<49'
+          PYTHONPATH="$PWD/src:$PWD/tests:$PWD/companion/root-control/src:$PWD/companion/host-deploy/src" \
+          python -m pytest -q -rs tests/test_graphical_protected_cross_owner.py \
+          companion/root-control/tests/test_graphical_monotonic_issuer.py
+      - name: Explicit native and independent service hold
+        if: always()
+        run: |
+          echo 'Synthetic only. No actual independently operated rollback-resistant issuer, protected installed wheel RECORD, root-owned STATE or live signing key.' >> "$GITHUB_STEP_SUMMARY"
