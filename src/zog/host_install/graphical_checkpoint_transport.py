@@ -151,6 +151,9 @@ def advance(*, expected_epoch, expected_sequence, expected_pin_sha256,
         "next_epoch": next_epoch,
         "next_pin_sha256": next_pin_sha256,
         "next_approval_sha256": next_approval_sha256,
+        # Exact signed approval determines the stable retry identity. Never
+        # invent a new operation on an uncertain CAS acknowledgement.
+        "operation_id": "rotation-" + next_approval_sha256,
         "host_id": host_id,
         "installation_id": installation_id
     }, expected_uid=pin["relay_uid"])
