@@ -176,7 +176,10 @@ def publish_recovery_only_revocation(
         commit=(broker._canonical_bytes(c),c)
         if commit[0]["box_control_revision"] != REVIEWED_BOX_CONTROL:
             _deny()
+        # Snapshot caller-provided mapping values. Never retain a mutable
+        # reader-owned dictionary as the original validated authority.
         evidence=trusted_original_revocation_reader()
+        if type(evidence) is dict: evidence=dict(evidence)
         if type(evidence) is not dict or set(evidence) != {
                 "revoked_owner", "revoked_ledger", "approval_bytes"}: _deny()
         plan=broker.revocation_plan(
@@ -185,12 +188,13 @@ def publish_recovery_only_revocation(
         if trusted_source_attestor(plan) is not True: _deny()
         recovery_bytes=independently_trusted_recovery_reader()
         pin=independently_pinned_recovery_key_reader()
+        if type(pin) is dict: pin=dict(pin)
         if (type(pin) is not dict or set(pin) != {"public_key","sha256"}):
             _deny()
         signed=_read_signed(recovery_bytes,pin=pin["public_key"],pin_sha=pin["sha256"],
                      commit=commit,revoke_approval=evidence["approval_bytes"])
-        current=_require_current_recovery_checkpoint(
-            independently_trusted_recovery_checkpoint_reader,signed,pin)
+        current=dict(_require_current_recovery_checkpoint(
+            independently_trusted_recovery_checkpoint_reader,signed,pin))
         fd,fence=_existing_ledger(parent,hashlib.sha256(c).hexdigest())
         try:
             # Provenance could appear while the owner waits for the fence.\n            # In that case the fence may already be irrevocably revoked,\n            # while marker publication stays incomplete: never report success.\n            # Execution and installer publication use the ORIGINAL shared
@@ -202,7 +206,9 @@ def publish_recovery_only_revocation(
                 if (trusted_original_revocation_reader() != evidence or
                         independently_trusted_recovery_reader() != recovery_bytes
                         or independently_pinned_recovery_key_reader() != pin
-                        or independently_trusted_recovery_checkpoint_reader() != current):
+                        or _require_current_recovery_checkpoint(
+                            independently_trusted_recovery_checkpoint_reader,
+                            signed,pin) != current):
                     _deny()
                 broker._publish_verified_revocation_locked(
                     trusted_original_revocation_reader=
@@ -280,6 +286,7 @@ def publish_recovery_only_abandonment(
             _deny()
         commit=(broker._canonical_bytes(c),c)
         evidence=trusted_original_revocation_reader()
+        if type(evidence) is dict: evidence=dict(evidence)
         if type(evidence) is not dict or set(evidence)!={
                 "revoked_owner","revoked_ledger","approval_bytes"}: _deny()
         plan=broker.revocation_plan(
@@ -288,12 +295,13 @@ def publish_recovery_only_abandonment(
         if trusted_source_attestor(plan) is not True: _deny()
         approval=independently_trusted_recovery_reader()
         pin=independently_pinned_recovery_key_reader()
+        if type(pin) is dict: pin=dict(pin)
         if type(pin) is not dict or set(pin)!={"public_key","sha256"}:
             _deny()
         signed=_read_signed(approval,pin=pin["public_key"],pin_sha=pin["sha256"],
                      commit=commit,revoke_approval=evidence["approval_bytes"])
-        current=_require_current_recovery_checkpoint(
-            independently_trusted_recovery_checkpoint_reader,signed,pin)
+        current=dict(_require_current_recovery_checkpoint(
+            independently_trusted_recovery_checkpoint_reader,signed,pin))
         check_no_ledger(fd)
 
     # The underlying publisher takes the fixed root-owned installer lock,
@@ -308,7 +316,9 @@ def publish_recovery_only_abandonment(
             check_no_ledger(parent)
         if (independently_trusted_recovery_reader()!=approval
                 or independently_pinned_recovery_key_reader()!=pin
-                or independently_trusted_recovery_checkpoint_reader()!=current
+                or _require_current_recovery_checkpoint(
+                    independently_trusted_recovery_checkpoint_reader,
+                    signed,pin)!=current
                 or trusted_original_revocation_reader()!=evidence):
             _deny()
         return trusted_source_attestor(proposal) is True
