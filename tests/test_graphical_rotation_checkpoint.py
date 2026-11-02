@@ -229,3 +229,25 @@ def test_checkpoint_callback_substitution_never_reaches_ordinary_rotation(
                             compare_and_advance_independent_checkpoint=lambda **kw: None)
     assert not (public_dir/local.PUBLIC_NAME).exists()
     assert not (private_dir/local.PRIVATE_JOURNAL).exists()
+
+
+def test_reader_rejects_rotation_completed_during_external_roundtrip(checkpointed):
+    """Freshly signed evidence of an OLD epoch cannot survive a local CAS race."""
+    rotate, read, remote, args, public_dir, private_dir = checkpointed
+    rotate(1)
+    first = args(1)
+    def external_reply_then_complete_rotation(nonce):
+        old_signed_response = remote.read(nonce)
+        # The issuer moves to epoch 2 and the local public/private update
+        # finishes before the original reader receives its epoch-1 response.
+        rotate(2)
+        return old_signed_response
+    with pytest.raises(local.RotationDenied):
+        external.read_checked_source(
+            public_fd=first["public_fd"],
+            read_independent_checkpoint=external_reply_then_complete_rotation,
+            independently_pinned_external_public_key=pub(remote.signer),
+            independently_expected_external_sha256=local._sha(pub(remote.signer)),
+            uid=os.getuid())
+    assert remote.epoch == 2
+    assert read()["epoch"] == 2
