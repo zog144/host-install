@@ -276,10 +276,23 @@ def test_consumer_identity_cannot_be_reused_as_command_center():
         verify(value)
 
 
-def test_three_signing_roles_must_remain_distinct():
+@pytest.mark.parametrize("target_role,duplicate_role", [
+    ("authority_pin", "operator_pin"),
+    ("certificate_pin", "operator_pin"),
+    ("authority_pin", "certificate_pin"),
+])
+def test_three_signing_roles_must_remain_distinct(target_role, duplicate_role):
     value = fixture()
-    value["materials"]["authority_pin"] = value["materials"]["operator_pin"]
+    value["materials"][target_role] = value["materials"][duplicate_role]
     with pytest.raises(StateError, match="three distinct"):
+        verify(value)
+
+
+def test_matching_credential_authority_public_key_still_requires_original_private_key():
+    value = fixture()
+    other = fixture()
+    value["materials"]["authority_private_key"] = other["materials"]["authority_private_key"]
+    with pytest.raises(StateError, match="private/public signer mismatch"):
         verify(value)
 
 
