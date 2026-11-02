@@ -326,3 +326,43 @@ def test_mutated_checkpoint_mapping_cannot_bypass_pre_epoch_abandonment(
         recovery.publish_recovery_only_abandonment(**native)
     assert not (parent/epoch.STATE).exists()
     assert not (root/broker.REVOCATION_NAME).exists()
+
+
+def test_nested_original_owner_change_denied_before_marker_publisher(
+        staged, monkeypatch):
+    """Outer dict identity must not hide mutation of its nested evidence."""
+    root, parent, commit, intent, pins, native = staged
+    shared = native["trusted_original_revocation_reader"]()
+    original = IssuerExecutionFence.revoke
+    def changed_during_epoch(self, *, publish_pending_revocation):
+        def changed_before_publication():
+            shared["revoked_owner"]["revision"] += 1
+            return publish_pending_revocation()
+        return original(self, publish_pending_revocation=changed_before_publication)
+    monkeypatch.setattr(IssuerExecutionFence, "revoke", changed_during_epoch)
+    monkeypatch.setattr(broker, "_publish_verified_revocation_locked",
+        lambda **kwargs: pytest.fail("nested changed authority reached publisher"))
+    with pytest.raises((StateError, IssuerFenceDenied)):
+        recovery.publish_recovery_only_revocation(**native)
+    assert json.loads((parent / epoch.STATE).read_bytes())["revoked"] is True
+    assert not (root / broker.REVOCATION_NAME).exists()
+
+
+def test_nested_original_ledger_change_denied_on_pre_epoch_abandonment(
+        staged, monkeypatch):
+    root, parent, commit, intent, pins, native = staged
+    (parent / epoch.STATE).unlink()
+    shared = native["trusted_original_revocation_reader"]()
+    def changed_during_publication(**kwargs):
+        shared["revoked_ledger"]["revision"] += 1
+        # The real publisher invokes the supplied attestor after locking
+        # and re-reading the original record. Its wrapper must catch changes
+        # even when the independently trusted attestor itself accepts a plan.
+        if kwargs["trusted_source_attestor"]({}) is True:
+            pytest.fail("nested changed authority passed guarded attestor")
+    monkeypatch.setattr(broker, "_publish_verified_revocation_locked",
+                        changed_during_publication)
+    with pytest.raises((StateError, IssuerFenceDenied)):
+        recovery.publish_recovery_only_abandonment(**native)
+    assert not (parent / epoch.STATE).exists()
+    assert not (root / broker.REVOCATION_NAME).exists()
