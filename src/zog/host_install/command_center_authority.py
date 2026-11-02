@@ -771,7 +771,20 @@ def stage_offline(*, offline_directory, paths, reader_gid,
     root_fd = _offline_root(offline_directory)
     try:
         with lock(root_fd, LOCK_NAME):
+            # The station database is an identity input, not mutable source
+            # authority. A replacement between validation and durable
+            # publication must not be accepted even if all signed material
+            # still verifies against the earlier observation.
+            require(_observe_database(identity_value["database_path"]) == observed,
+                    "command-center-authority-database",
+                    "database identity changed before offline publication")
             _publish_bundle(root_fd, materials, receipt, reader_gid)
+            # An interruption after a durable receipt can leave inert staged
+            # files. Never *report* a successful adoption of a replaced DB.
+            # A subsequent inspect performs this readback again.
+            require(_observe_database(identity_value["database_path"]) == observed,
+                    "command-center-authority-database",
+                    "database identity changed during offline publication")
     finally:
         os.close(root_fd)
     return {
