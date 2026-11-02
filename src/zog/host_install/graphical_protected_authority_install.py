@@ -200,7 +200,26 @@ def _claim(private_fd,uid,epoch):
                          CLAIM_PREFIX+str(epoch)+".json",0o600,uid)
 
 
-def _retired_preflight(private_fd,uid,proposed):
+def _verified_claim(raw, *, epoch, proposed, grant_sha):
+    """Reject incomplete, foreign or re-bound retained key-use evidence.
+
+    These root-private claims are durable anti-reuse evidence, not signatures
+    or proof that the native Host/STATE issuer has been installed.
+    """
+    row=current._parse(raw)
+    if (set(row)!=CLAIM_FIELDS or row["schema"]!=CLAIM_SCHEMA
+            or type(row["epoch"]) is not int or row["epoch"]!=epoch
+            or row["host_id"]!=proposed["host_id"]
+            or row["installation_id"]!=proposed["installation_id"]
+            or row["original_grant_sha256"]!=grant_sha
+            or any(type(row[k]) is not str or _HEX.fullmatch(row[k]) is None
+                   for k in ("key_sha256","approved_pin_sha256",
+                             "approval_sha256","original_grant_sha256"))):
+        _deny()
+    return row
+
+
+def _retired_preflight(private_fd,uid,proposed,grant_sha):
     """Reject a known retired key before creating a public pending marker.
 
     The same condition is revalidated while holding the rotation flock.
@@ -211,9 +230,9 @@ def _retired_preflight(private_fd,uid,proposed):
     for epoch in range(1,target):
         raw=_claim(private_fd,uid,epoch)
         if raw is None: _deny()
-        record=current._parse(raw)
-        if (set(record)!=CLAIM_FIELDS or record["schema"]!=CLAIM_SCHEMA
-                or record["epoch"]!=epoch or record["key_sha256"]==key):
+        record=_verified_claim(raw,epoch=epoch,proposed=proposed,
+                               grant_sha=grant_sha)
+        if record["key_sha256"]==key:
             _deny()
 
 
@@ -228,14 +247,8 @@ def _claim_under_lock(private_fd,uid,proposed,approval,grant_sha):
         if raw is None:
             if epoch < target: _deny()
             continue
-        row=current._parse(raw)
-        if (set(row)!=CLAIM_FIELDS or row["schema"]!=CLAIM_SCHEMA
-                or row["epoch"]!=epoch
-                or row["host_id"]!=proposed["host_id"]
-                or row["installation_id"]!=proposed["installation_id"]
-                or type(row["key_sha256"]) is not str
-                or _HEX.fullmatch(row["key_sha256"]) is None):
-            _deny()
+        row=_verified_claim(raw,epoch=epoch,proposed=proposed,
+                            grant_sha=grant_sha)
         if epoch < target and row["key_sha256"]==key:
             _deny()
         if epoch==target and row!={
@@ -269,7 +282,8 @@ def _install_source(*,public_fd,private_fd,approved_pin_bytes,approval_bytes,uid
             or external["installation_id"]!=proposed["installation_id"]):
         _deny()
     initial=_fixed_evidence(private_fd,uid,proposed,approval_bytes,external)
-    _retired_preflight(private_fd,uid,proposed)
+    _retired_preflight(private_fd,uid,proposed,
+                       _hash(initial["grant_bytes"]))
     if key==initial["operator"] or key==base64.b64decode(
             proposed["public_key"],validate=True):
         _deny()
@@ -297,9 +311,17 @@ def _install_source(*,public_fd,private_fd,approved_pin_bytes,approval_bytes,uid
     # certificate of a prior installation lacking a protected key-use claim.
     raw=_claim(private_fd,uid,proposed["epoch"])
     if raw is None: _deny()
-    record=current._parse(raw)
-    if (record["approved_pin_sha256"]!=_hash(approved_pin_bytes)
-            or record["approval_sha256"]!=_hash(approval_bytes)):
+    record=_verified_claim(raw,epoch=proposed["epoch"],
+                           proposed=proposed,
+                           grant_sha=_hash(initial["grant_bytes"]))
+    if record!={"schema":CLAIM_SCHEMA,"epoch":proposed["epoch"],
+               "host_id":proposed["host_id"],
+               "installation_id":proposed["installation_id"],
+               "key_sha256":_hash(base64.b64decode(
+                   proposed["public_key"],validate=True)),
+               "approved_pin_sha256":_hash(approved_pin_bytes),
+               "approval_sha256":_hash(approval_bytes),
+               "original_grant_sha256":_hash(initial["grant_bytes"])}:
         _deny()
     return {**result,"original_grant_sha256":_hash(initial["grant_bytes"]),
             "state_volume_id":initial["grant"]["state_volume_id"],
