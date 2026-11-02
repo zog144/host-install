@@ -31,3 +31,21 @@ The native owner must first attest the exact host-install writer source/wheel RE
 Then independently verify AWS IID/instance provenance and the operator pin fingerprint. Supply already reviewed/signed authority inputs to `host-install command-center-authority-stage`, and rerun `command-center-authority-inspect` after interruption/restart to prove exact same-byte retention and unchanged database inode/owner/DAC.
 
 This issue does not authorize migration 0018/0019 on the live database, SecurityGate advancement, socket/nginx enablement, Cloudflare token reads, credential delivery, Certbot/ACME/DNS changes, or conversion of the retained station into a canonical host-install STATE installation. Those remain later separately approved gates.
+
+
+## Independent source-boundary review — 2026-11-02 (not native approval)
+
+The station-access consumer-side source review treats this externally managed Command-Center identity separately from the enrolled consumer Host/installation/STATE. The operator-signed identity binds the fixed AWS instance ID, station source revision, registry selection, original protected station application database path/owner/DAC/device/inode and parent inode. The root grant must match that registry and the separate enrolled consumer identity. None of these claims substitutes for genuine AWS IID verification or an operator pin from a channel outside the candidate station.
+
+The role graph requires all three *different* public Ed25519 key fingerprints: independently anchored operator, previously retained certificate-assignment signer and new Credential Authority signer. The operator signs the Command-Center identity, root grant approval and domain-separated role approval; the Credential Authority signs canonical v1 authorization, and its private PEM must match the authority public pin. Synthetic regressions exercise each possible signer-pair collision and a credential authority PEM/public-key mismatch.
+
+Material is stored only under an existing root:root 0700 offline directory below /opt/station-trust, in a root-owned 0700 child with protected file modes, no-follow/no-hardlink file checks and a writer lock. Receipt publication is last; known same-byte staged/linked/published crash states may resume under the lock without replacing bytes, and missing/partial/foreign receipts fail closed. Inspection rereads the entire exact bundle and the protected station database. The source reviewer added a second database identity observation **under the publication lock, before writing the first material**, and a third observation after receipt publication/fsync. Database replacement at either point cannot return a successful stage result. After an interrupted post-receipt publication, **inert** staged bytes can remain, but inspection rejects the changed database. This is not a native guarantee of disk rollback.
+
+### Remaining independent-owner and native holds
+
+1. Independent operator authentication of the original Command-Center AWS IID, station database origin and original operator key. Caller-supplied hash and unsigned synthetic AWS evidence file do not authenticate themselves.
+2. Attest exact 0.14.10 host-install installed wheel/RECORD, protected directories/mount/inode, real UID/GID separation, root writer lock and recovery. Generic state_io.lock is create-if-missing and does not durably bind the lock inode: native integration must prevent deletion/replacement of its pathname while another writer holds an old lock. The root-only offline directory protects unprivileged substitution, not independently authorized root coordination.
+3. Independently inspect the retained certificate signer and distinct Credential Authority signer, approved issuer-reader group, restart/reboot readback, operator approval revision and no-replacement evidence.
+4. Separate offline preparation from installation, production activation, certificate operations and canonical administrator credential delivery. This source never provisions STATE or authorizes a live listener/broker.
+
+A second source review with the same GitHub actor is not a different person's security approval. Native/production disposition is **NO-GO** pending independent operator and installed-byte evidence.
