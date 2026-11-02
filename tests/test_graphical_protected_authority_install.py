@@ -28,6 +28,7 @@ def authority(tmp_path,monkeypatch):
     fd_pub=os.open(pub,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
     fd_private=os.open(private,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
     operator=Ed25519PrivateKey.generate()
+    identity=Ed25519PrivateKey.generate()
     keys=[Ed25519PrivateKey.generate() for _ in range(3)]
     remote=Remote(pin(keys[0],1))
     remote_key=public(remote.signer)
@@ -48,6 +49,11 @@ def authority(tmp_path,monkeypatch):
         "sha256":g._sha(operator_pub),
     }
     put(private/protected.OPERATOR_PIN,g.canonical(op_pin))
+    identity_pub=public(identity)
+    put(private/protected.IDENTITY_PIN,g.canonical({
+        "schema":protected.IDENTITY_SCHEMA,
+        "public_key":base64.b64encode(identity_pub).decode(),
+        "sha256":g._sha(identity_pub)}))
     unsigned={
         "schema":protected.GRANT_SCHEMA,
         "host_id":"host-approved","installation_id":"installation-approved",
@@ -57,7 +63,7 @@ def authority(tmp_path,monkeypatch):
         "external_key_sha256":g._sha(remote_key),
         "authorization_revision":1,
     }
-    proof=operator.sign(protected.GRANT_DOMAIN+g.canonical(unsigned))
+    proof=identity.sign(protected.GRANT_DOMAIN+g.canonical(unsigned))
     grant=g.canonical({**unsigned,"signature_ed25519":
         base64.b64encode(proof).decode()})
     put(private/protected.ORIGINAL_GRANT,grant)
@@ -134,6 +140,15 @@ def test_interrupted_protected_rotation_resumes_only_same_approval(authority,eve
 
 def test_operator_key_and_original_source_or_state_substitution_denied(authority):
     install,args,pub,priv,remote,operator,keys,_=authority
+    identity_path=priv/protected.IDENTITY_PIN
+    original_identity=identity_path.read_bytes()
+    other_identity=Ed25519PrivateKey.generate()
+    put(identity_path,g.canonical({
+        "schema":protected.IDENTITY_SCHEMA,
+        "public_key":base64.b64encode(public(other_identity)).decode(),
+        "sha256":g._sha(public(other_identity))}))
+    with pytest.raises(g.RotationDenied):install(1)
+    put(identity_path,original_identity)
     old=(priv/protected.OPERATOR_PIN).read_bytes()
     other=Ed25519PrivateKey.generate()
     put(priv/protected.OPERATOR_PIN,g.canonical({
