@@ -7,6 +7,7 @@ nothing here exposes a broker RPC, generates STATE, or clears operations.
 """
 from __future__ import annotations
 import base64
+import copy
 import hashlib
 import json
 import os
@@ -179,7 +180,7 @@ def publish_recovery_only_revocation(
         # Snapshot caller-provided mapping values. Never retain a mutable
         # reader-owned dictionary as the original validated authority.
         evidence=trusted_original_revocation_reader()
-        if type(evidence) is dict: evidence=dict(evidence)
+        if type(evidence) is dict: evidence=copy.deepcopy(evidence)
         if type(evidence) is not dict or set(evidence) != {
                 "revoked_owner", "revoked_ledger", "approval_bytes"}: _deny()
         plan=broker.revocation_plan(
@@ -286,7 +287,7 @@ def publish_recovery_only_abandonment(
             _deny()
         commit=(broker._canonical_bytes(c),c)
         evidence=trusted_original_revocation_reader()
-        if type(evidence) is dict: evidence=dict(evidence)
+        if type(evidence) is dict: evidence=copy.deepcopy(evidence)
         if type(evidence) is not dict or set(evidence)!={
                 "revoked_owner","revoked_ledger","approval_bytes"}: _deny()
         plan=broker.revocation_plan(
