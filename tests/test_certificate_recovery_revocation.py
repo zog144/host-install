@@ -366,3 +366,63 @@ def test_nested_original_ledger_change_denied_on_pre_epoch_abandonment(
         recovery.publish_recovery_only_abandonment(**native)
     assert not (parent / epoch.STATE).exists()
     assert not (root / broker.REVOCATION_NAME).exists()
+
+
+def test_pre_epoch_abandonment_refuses_missing_original_writer_lock(
+        staged):
+    """Recovery may not create a replacement execution lock or guessed STATE."""
+    root,parent,commit,intent,pins,native=staged
+    (parent/epoch.STATE).unlink()
+    (parent/epoch.LOCK).unlink()
+    with pytest.raises((StateError,IssuerFenceDenied)):
+        recovery.publish_recovery_only_abandonment(**native)
+    assert not (parent/epoch.LOCK).exists()
+    assert not (parent/epoch.STATE).exists()
+    assert not (root/broker.REVOCATION_NAME).exists()
+
+
+def test_pre_epoch_abandonment_blocks_concurrent_epoch_initialization(
+        staged,monkeypatch):
+    """The original lock spans absence validation AND marker publication."""
+    from threading import Thread, Event
+    root,parent,commit,intent,pins,native=staged
+    (parent/epoch.STATE).unlink()
+    began,initialized=Event(),Event()
+    errors=[]
+    original=broker._publish_verified_revocation_locked
+    worker=[]
+    def publish_while_initializer_waits(**kwargs):
+        def initialize():
+            fd=os.open(parent,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+            try:
+                fence=IssuerExecutionFence(fd)
+                began.set()
+                fence.initialize(
+                    trusted_commit_sha256=hashlib.sha256(commit).hexdigest(),
+                    boot_id="a"*32)
+                initialized.set()
+            except Exception as exc:
+                errors.append(exc)
+            finally:
+                os.close(fd)
+        thread=Thread(target=initialize,daemon=True)
+        worker.append(thread)
+        thread.start()
+        assert began.wait(3)
+        # Even though the original installer may now resume, it must not
+        # initialize an admissible epoch before recovery writes its marker.
+        assert not initialized.wait(.08)
+        assert not (parent/epoch.STATE).exists()
+        published=original(**kwargs)
+        assert (root/broker.REVOCATION_NAME).exists()
+        assert not initialized.is_set()
+        return published
+    monkeypatch.setattr(broker,"_publish_verified_revocation_locked",
+                        publish_while_initializer_waits)
+    out=recovery.publish_recovery_only_abandonment(**native)
+    assert out["execution_authorized"] is False
+    worker[0].join(3)
+    assert not worker[0].is_alive() and not errors and initialized.is_set()
+    # An already-resumed installer may subsequently create its ledger; the
+    # irreversible public marker still prevents fixed-source admission.
+    assert (root/broker.REVOCATION_NAME).exists()
