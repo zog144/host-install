@@ -26,10 +26,12 @@ PUBLIC_PARENT = "/etc/zog/host-deploy"
 PRIVATE_PARENT = "/etc/zog/host-install/graphical-current-authority"
 ORIGINAL_GRANT = "original-graphical-authority-grant-v1.json"
 OPERATOR_PIN = "original-graphical-operator-pin-v1.json"
+IDENTITY_PIN = "original-graphical-installation-identity-pin-v1.json"
 SOURCE_ATTESTATION = "original-graphical-installed-source-v1.json"
 CLAIM_PREFIX = "graphical-key-use-epoch-"
 GRANT_SCHEMA = "zog-host-install-graphical-original-install-grant-v1"
 OPERATOR_SCHEMA = "zog-host-install-graphical-operator-pin-v1"
+IDENTITY_SCHEMA = "zog-host-install-graphical-installation-identity-pin-v1"
 SOURCE_SCHEMA = "zog-host-install-graphical-source-record-v1"
 CLAIM_SCHEMA = "zog-host-install-graphical-key-use-claim-v1"
 GRANT_DOMAIN = b"zog-host-install-graphical-original-install-grant-v1\x00"
@@ -139,22 +141,35 @@ def _signed_grant(raw, operator_key, sha256):
     return grant
 
 
-def _fixed_evidence(private_fd,uid, proposed, approval,external):
-    """Immutable root-only evidence, not a caller-selected signer/source."""
-    raw_pin=_strict_file(private_fd,OPERATOR_PIN,0o600,uid)
+def _read_pinned_key(private_fd, filename, schema, uid):
+    raw_pin=_strict_file(private_fd,filename,0o600,uid)
     pinned=current._parse(raw_pin)
-    if set(pinned)!={"schema","public_key","sha256"} or (
-            pinned["schema"] != OPERATOR_SCHEMA):
+    if (set(pinned)!={"schema","public_key","sha256"} or
+            pinned["schema"]!=schema):
         _deny()
     try:
-        operator=base64.b64decode(pinned["public_key"],validate=True)
+        key=base64.b64decode(pinned["public_key"],validate=True)
     except (ValueError,TypeError):
         _deny()
-    if (len(operator)!=32 or
-            base64.b64encode(operator).decode()!=pinned["public_key"]):
+    if (len(key)!=32 or base64.b64encode(key).decode()!=pinned["public_key"]
+            or _hash(key)!=pinned["sha256"]):
+        _deny()
+    return key,pinned["sha256"],raw_pin
+
+
+def _fixed_evidence(private_fd,uid, proposed, approval,external):
+    """Immutable root-only evidence, not a caller-selected signer/source."""
+    operator, operator_sha, raw_pin=_read_pinned_key(
+        private_fd,OPERATOR_PIN,OPERATOR_SCHEMA,uid)
+    identity, identity_sha, identity_pin=_read_pinned_key(
+        private_fd,IDENTITY_PIN,IDENTITY_SCHEMA,uid)
+    if (identity==operator or identity_sha==external["external_key_sha256"]
+            or identity==base64.b64decode(proposed["public_key"],validate=True)):
         _deny()
     original=_strict_file(private_fd,ORIGINAL_GRANT,0o600,uid)
-    grant=_signed_grant(original,operator,pinned["sha256"])
+    grant=_signed_grant(original,identity,identity_sha)
+    if grant["operator_key_sha256"]!=operator_sha:
+        _deny()
     source=current._parse(_strict_file(private_fd,SOURCE_ATTESTATION,0o600,uid))
     if (set(source)!=SOURCE_FIELDS or source["schema"]!=SOURCE_SCHEMA
             or source["original_grant_sha256"]!=_hash(original)
@@ -163,7 +178,7 @@ def _fixed_evidence(private_fd,uid, proposed, approval,external):
                 "source_revision","wheel_record_sha256"))):
         _deny()
     approved=current._approval(
-        approval,operator,pinned["sha256"],proposed,None,
+        approval,operator,operator_sha,proposed,None,
         check_previous=False)
     if (grant["host_id"]!=proposed["host_id"]
             or grant["installation_id"]!=proposed["installation_id"]
@@ -177,7 +192,8 @@ def _fixed_evidence(private_fd,uid, proposed, approval,external):
         _deny()
     return {"grant":grant,"grant_bytes":original,
             "source_bytes":current.canonical(source),"operator":operator,
-            "operator_sha256":pinned["sha256"],"pin_bytes":raw_pin}
+            "operator_sha256":operator_sha,"pin_bytes":raw_pin,
+            "identity_pin_bytes":identity_pin}
 
 
 def _claim(private_fd,uid,epoch):
