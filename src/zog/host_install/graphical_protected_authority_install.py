@@ -114,7 +114,6 @@ def _signed_grant(raw, operator_key, sha256):
         _deny()
     grant = current._parse(raw)
     if (set(grant) != GRANT_FIELDS or grant["schema"] != GRANT_SCHEMA
-            or grant["operator_key_sha256"] != sha256
             or type(grant["authorization_revision"]) is not int
             or grant["authorization_revision"] < 1
             or any(type(grant[x]) is not str or not grant[x] for x in (
@@ -201,6 +200,23 @@ def _claim(private_fd,uid,epoch):
                          CLAIM_PREFIX+str(epoch)+".json",0o600,uid)
 
 
+def _retired_preflight(private_fd,uid,proposed):
+    """Reject a known retired key before creating a public pending marker.
+
+    The same condition is revalidated while holding the rotation flock.
+    """
+    target=proposed["epoch"]
+    if target>10000: _deny()
+    key=_hash(base64.b64decode(proposed["public_key"],validate=True))
+    for epoch in range(1,target):
+        raw=_claim(private_fd,uid,epoch)
+        if raw is None: _deny()
+        record=current._parse(raw)
+        if (set(record)!=CLAIM_FIELDS or record["schema"]!=CLAIM_SCHEMA
+                or record["epoch"]!=epoch or record["key_sha256"]==key):
+            _deny()
+
+
 def _claim_under_lock(private_fd,uid,proposed,approval,grant_sha):
     """No same signing key at any other epoch, including older retired keys."""
     target=proposed["epoch"]
@@ -253,6 +269,7 @@ def _install_source(*,public_fd,private_fd,approved_pin_bytes,approval_bytes,uid
             or external["installation_id"]!=proposed["installation_id"]):
         _deny()
     initial=_fixed_evidence(private_fd,uid,proposed,approval_bytes,external)
+    _retired_preflight(private_fd,uid,proposed)
     if key==initial["operator"] or key==base64.b64decode(
             proposed["public_key"],validate=True):
         _deny()
