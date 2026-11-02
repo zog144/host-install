@@ -224,4 +224,13 @@ def read_checked_source(*, public_fd, read_independent_checkpoint,
     if (external["epoch"]!=pin["epoch"]
             or external["pin_sha256"]!=local._sha(raw)):
         _deny()
+    # A concurrent rotation can complete while the remote signed response is
+    # in flight. Refuse an already-obsolete local authority even when the
+    # response faithfully describes the state at the start of this call.
+    # This is a source-level postcheck, NOT native atomic admission; the
+    # installed gateway still needs its final protected commit fence.
+    if (local._read(public_fd,local.PENDING_NAME,0o444,uid) is not None
+            or local._read(public_fd,local.PUBLIC_NAME,0o444,uid)!=raw
+            or local._read(public_fd,local.PENDING_NAME,0o444,uid) is not None):
+        _deny()
     return pin
