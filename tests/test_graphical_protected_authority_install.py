@@ -88,6 +88,7 @@ def authority(tmp_path,monkeypatch):
         }
     def install(epoch,**kwargs):
         return protected._install_source(**args(epoch),**kwargs)
+    install.original_identity_signer=identity
     yield install,args,pub,private,remote,operator,keys,(fd_pub,fd_private)
     os.close(fd_pub);os.close(fd_private)
 
