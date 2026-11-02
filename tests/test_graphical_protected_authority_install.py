@@ -234,3 +234,52 @@ def test_fixed_native_entry_has_no_caller_selected_trust_or_path(authority):
             assert protected.install_current_authority(
                 approved_pin_bytes=args(1)["approved_pin_bytes"],
                 approval_bytes=args(1)["approval_bytes"])["epoch"]==1
+
+
+@pytest.mark.parametrize("field,change",[
+    ("original_grant_sha256","f"*64),
+    ("key_sha256","f"*64),
+    ("host_id","different-host"),
+    ("approval_sha256","f"*64),
+    ("epoch",2),
+    ("schema","foreign-schema"),
+])
+def test_same_byte_recovery_refuses_altered_retained_claim(
+        authority,field,change):
+    install,args,pub,priv,remote,*_=authority
+    install(1)
+    claim=priv/(protected.CLAIM_PREFIX+"1.json")
+    altered=g._parse(claim.read_bytes())
+    assert altered[field]!=change
+    altered[field]=change
+    put(claim,g.canonical(altered))
+    with pytest.raises(g.RotationDenied):
+        install(1)
+    assert remote.epoch==1
+    assert not (pub/g.PENDING_NAME).exists()
+
+
+@pytest.mark.parametrize("field,change",[
+    ("original_grant_sha256","f"*64),
+    ("installation_id","different-installation"),
+    ("approved_pin_sha256","not-a-sha"),
+    ("approval_sha256",None),
+])
+def test_new_rotation_refuses_corrupt_historical_claim_before_reservation(
+        authority,field,change):
+    install,args,pub,priv,remote,operator,keys,fds=authority
+    install(1)
+    install(2)
+    claim=priv/(protected.CLAIM_PREFIX+"1.json")
+    altered=g._parse(claim.read_bytes())
+    altered[field]=change
+    put(claim,g.canonical(altered))
+    third=pin(keys[2],3)
+    approval3=approval(operator,third,pin(keys[1],2))
+    with pytest.raises(g.RotationDenied):
+        protected._install_source(
+            public_fd=fds[0],private_fd=fds[1],
+            approved_pin_bytes=g.canonical(third),
+            approval_bytes=approval3,uid=os.geteuid())
+    assert remote.epoch==2
+    assert not (pub/g.PENDING_NAME).exists()
