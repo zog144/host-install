@@ -293,3 +293,36 @@ def test_loss_after_tombstone_is_same_authority_only(staged,monkeypatch):
     assert (root/broker.REVOCATION_NAME).exists()
     assert json.loads((parent/epoch.STATE).read_bytes())["revoked"]
     assert recovery.publish_recovery_only_revocation(**native)["revoked"]
+
+
+def test_mutated_checkpoint_mapping_cannot_bypass_fenced_revocation(staged,monkeypatch):
+    """A reader may reuse its dict; current authorization must be revalidated."""
+    root,parent,commit,intent,pins,native=staged
+    checkpoint=native["independently_trusted_recovery_checkpoint_reader"]()
+    original=IssuerExecutionFence.revoke
+    def race(self, *, publish_pending_revocation):
+        def publish_after_checkpoint_change():
+            checkpoint["authorization_revision"] += 1
+            return publish_pending_revocation()
+        return original(self,publish_pending_revocation=publish_after_checkpoint_change)
+    monkeypatch.setattr(IssuerExecutionFence,"revoke",race)
+    with pytest.raises((StateError,IssuerFenceDenied)):
+        recovery.publish_recovery_only_revocation(**native)
+    assert json.loads((parent/epoch.STATE).read_bytes())["revoked"] is True
+    assert not (root/broker.REVOCATION_NAME).exists()
+
+
+def test_mutated_checkpoint_mapping_cannot_bypass_pre_epoch_abandonment(
+        staged, monkeypatch):
+    root,parent,commit,intent,pins,native=staged
+    (parent/epoch.STATE).unlink()
+    checkpoint=native["independently_trusted_recovery_checkpoint_reader"]()
+    original=broker._publish_verified_revocation_locked
+    def race(**kwargs):
+        checkpoint["authorization_revision"] += 1
+        return original(**kwargs)
+    monkeypatch.setattr(broker,"_publish_verified_revocation_locked",race)
+    with pytest.raises((StateError,IssuerFenceDenied)):
+        recovery.publish_recovery_only_abandonment(**native)
+    assert not (parent/epoch.STATE).exists()
+    assert not (root/broker.REVOCATION_NAME).exists()
