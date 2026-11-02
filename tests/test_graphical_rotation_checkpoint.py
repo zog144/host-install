@@ -251,3 +251,27 @@ def test_reader_rejects_rotation_completed_during_external_roundtrip(checkpointe
             uid=os.getuid())
     assert remote.epoch == 2
     assert read()["epoch"] == 2
+
+
+def test_fixed_checkpoint_cas_wire_includes_stable_signed_approval_identity(
+        monkeypatch):
+    """The actual relay request must preserve root-control's CAS retry identity."""
+    from zog.host_install import graphical_checkpoint_transport as online
+    installed = {"host_id":"host-approved",
+                 "installation_id":"installation-approved", "relay_uid":23009}
+    calls=[]
+    monkeypatch.setattr(online,"installed",lambda:(installed,b"z"*32))
+    def receive(message, *, expected_uid):
+        assert expected_uid==23009
+        calls.append(message)
+        return b'{"schema":"zog-graphical-external-checkpoint-cas-ack-v1"}'
+    monkeypatch.setattr(online,"_exchange",receive)
+    params={"expected_epoch":0,"expected_sequence":1,
+            "expected_pin_sha256":None,"next_epoch":1,
+            "next_pin_sha256":"a"*64,"next_approval_sha256":"b"*64,
+            "host_id":"host-approved","installation_id":"installation-approved"}
+    online.advance(**params)
+    online.advance(**params)
+    assert calls[0]==calls[1]
+    assert calls[0]["operation_id"]=="rotation-"+"b"*64
+    assert calls[0]["next_approval_sha256"]=="b"*64
