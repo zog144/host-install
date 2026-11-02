@@ -8,6 +8,7 @@ nothing here exposes a broker RPC, generates STATE, or clears operations.
 from __future__ import annotations
 import base64
 import copy
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -252,7 +253,9 @@ def publish_recovery_only_abandonment(
             independently_pinned_recovery_key_reader,
             independently_trusted_recovery_checkpoint_reader))):
         _deny()
-    from zog.root_control.issuer_execution_fence import FIXED_DIRECTORY,STATE
+    from zog.root_control.issuer_execution_fence import (
+        FIXED_DIRECTORY, LOCK, STATE, IssuerExecutionFence,
+    )
     from zog.root_control.issuer_execution_provenance import NAME
 
     def check_no_ledger(parent):
@@ -260,12 +263,21 @@ def publish_recovery_only_abandonment(
             fd=os.open(FIXED_DIRECTORY,os.O_RDONLY|os.O_DIRECTORY|
                        os.O_NOFOLLOW|os.O_CLOEXEC,dir_fd=parent)
         except FileNotFoundError:
-            # Boot/install interruption before private directory existed.
-            return
+            # An absent execution directory has no stable writer lock. Its
+            # creation could race this abandonment: deny, never fabricate it.
+            _deny()
         try:
             st=os.fstat(fd)
             if ((st.st_uid,st.st_gid,stat.S_IMODE(st.st_mode))!=(0,0,0o700)
                     or st.st_dev!=os.fstat(parent).st_dev):
+                _deny()
+            try:
+                lock=os.stat(LOCK,dir_fd=fd,follow_symlinks=False)
+            except FileNotFoundError:
+                _deny()  # cannot serialize against ledger initialization
+            if (not stat.S_ISREG(lock.st_mode) or lock.st_nlink!=1
+                    or (lock.st_uid,lock.st_gid)!=(0,0)
+                    or stat.S_IMODE(lock.st_mode)!=0o600):
                 _deny()
             for leaf in (NAME,STATE):
                 try:
@@ -275,6 +287,24 @@ def publish_recovery_only_abandonment(
                 _deny()
         finally:
             os.close(fd)
+
+    @contextmanager
+    def protected_absent_epoch():
+        # The common writer lock must be acquired BEFORE the installation
+        # publication lock (the same order as ordinary revocation). An
+        # installer initializing its first epoch must wait for a durable
+        # denial marker, or else its ledger is already present and we deny.
+        with broker._fixed_root_parent() as parent:
+            check_no_ledger(parent)
+            fd=os.open(FIXED_DIRECTORY,os.O_RDONLY|os.O_DIRECTORY|
+                       os.O_NOFOLLOW|os.O_CLOEXEC,dir_fd=parent)
+            try:
+                fence=IssuerExecutionFence(fd)
+                with fence._locked():
+                    check_no_ledger(parent)
+                    yield
+            finally:
+                os.close(fd)
 
     with broker._fixed_root_parent() as fd:
         p=raw(fd,broker.PROJECTION_NAME,uid=0,gid=0,mode=0o444)
@@ -305,9 +335,9 @@ def publish_recovery_only_abandonment(
             independently_trusted_recovery_checkpoint_reader,signed,pin))
         check_no_ledger(fd)
 
-    # The underlying publisher takes the fixed root-owned installer lock,
-    # then re-opens signed original owner intent and installed commit. The
-    # wrapper re-verifies missing ledger *inside* that publication lock.
+    # The underlying publisher takes the installer lock only after the
+    # wrapper has acquired the ORIGINAL shared execution lock. This keeps
+    # an epoch-initializing installer from overtaking the absence check.
     # Source provenance installation requires an initialized epoch ledger,
     # so an absent one cannot authorize a concurrent selected launch.
     def guarded_attestor(proposal):
@@ -324,10 +354,11 @@ def publish_recovery_only_abandonment(
             _deny()
         return trusted_source_attestor(proposal) is True
 
-    result=broker._publish_verified_revocation_locked(
-        trusted_original_revocation_reader=trusted_original_revocation_reader,
-        trusted_source_attestor=guarded_attestor,
-        expected_approval_sha256=expected_approval_sha256)
+    with protected_absent_epoch():
+        result=broker._publish_verified_revocation_locked(
+            trusted_original_revocation_reader=trusted_original_revocation_reader,
+            trusted_source_attestor=guarded_attestor,
+            expected_approval_sha256=expected_approval_sha256)
     return {**result,"status":"recovery-only-abandoned-before-epoch",
             "execution_history_unknown":True,
             "execution_provenance_fabricated":False,
