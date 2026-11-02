@@ -24,7 +24,7 @@ from . import (beacon_profile, application_progress_profile,
                host_welcome_progress_profile, image_progress_profile,
                certify_manage_profile, certificate_native_observation,
                certificate_owner_authority, bootable_image_contract,
-               first_boot_a_plan)
+               first_boot_a_plan, command_center_authority)
 from .artifact import stage
 from .filesystem import build_root_fixture
 from .image import inspect, install
@@ -59,6 +59,31 @@ def main(argv=None):
     cmd.add_argument("--filesystem-uuid", required=True)
     sub.add_parser("bootable-image-contract", help="emit the immutable resident bootable-image contract")
     sub.add_parser("first-boot-a-plan", help="emit the frozen first disposable Boot A installation plan")
+    cmd = sub.add_parser("command-center-authority-stage", help="verify and no-replacement stage externally-managed Command-Center authority materials offline")
+    cmd.add_argument("--offline-directory", required=True)
+    cmd.add_argument("--reader-gid", required=True, type=int)
+    cmd.add_argument("--operator-public-pin", required=True)
+    cmd.add_argument("--expected-operator-pin-sha256", required=True)
+    cmd.add_argument("--signed-identity", required=True)
+    cmd.add_argument("--aws-iid-evidence", required=True)
+    cmd.add_argument("--expected-aws-instance-id", required=True)
+    cmd.add_argument("--expected-station-source-commit", required=True)
+    cmd.add_argument("--certificate-signer-pin", required=True)
+    cmd.add_argument("--root-grant", required=True)
+    cmd.add_argument("--root-grant-approval", required=True)
+    cmd.add_argument("--issuer-reader-projection", required=True)
+    cmd.add_argument("--credential-authority-private-key", required=True)
+    cmd.add_argument("--credential-authority-public-pin", required=True)
+    cmd.add_argument("--authorization-envelope", required=True)
+    cmd.add_argument("--authority-approval", required=True)
+    cmd.add_argument("--expected-authorization-issuer", required=True)
+    cmd = sub.add_parser("command-center-authority-inspect", help="read back and reverify inert Command-Center authority staging")
+    cmd.add_argument("--offline-directory", required=True)
+    cmd.add_argument("--reader-gid", required=True, type=int)
+    cmd.add_argument("--expected-operator-pin-sha256", required=True)
+    cmd.add_argument("--expected-aws-instance-id", required=True)
+    cmd.add_argument("--expected-station-source-commit", required=True)
+    cmd.add_argument("--expected-authorization-issuer", required=True)
     cmd = sub.add_parser("bootable-image-assess", help="assess a verified image-build host artifact against the bootable-image contract")
     cmd.add_argument("artifact", type=Path)
     cmd.add_argument("--expected-id", required=True)
@@ -185,7 +210,38 @@ def main(argv=None):
     cmd.add_argument("--record", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
-        if args.command == "certificate-owner-inspect":
+        if args.command == "command-center-authority-stage":
+            result = command_center_authority.stage_offline(
+                offline_directory=args.offline_directory,
+                paths={
+                    "operator_pin": args.operator_public_pin,
+                    "identity": args.signed_identity,
+                    "aws_evidence": args.aws_iid_evidence,
+                    "certificate_pin": args.certificate_signer_pin,
+                    "grant": args.root_grant,
+                    "grant_approval": args.root_grant_approval,
+                    "projection": args.issuer_reader_projection,
+                    "authority_private_key": args.credential_authority_private_key,
+                    "authority_pin": args.credential_authority_public_pin,
+                    "authorization": args.authorization_envelope,
+                    "authority_approval": args.authority_approval,
+                },
+                reader_gid=args.reader_gid,
+                expected_operator_pin_sha256=args.expected_operator_pin_sha256,
+                expected_instance_id=args.expected_aws_instance_id,
+                expected_station_source_commit=args.expected_station_source_commit,
+                expected_authorization_issuer=args.expected_authorization_issuer,
+            )
+        elif args.command == "command-center-authority-inspect":
+            result = command_center_authority.inspect_offline(
+                offline_directory=args.offline_directory,
+                reader_gid=args.reader_gid,
+                expected_operator_pin_sha256=args.expected_operator_pin_sha256,
+                expected_instance_id=args.expected_aws_instance_id,
+                expected_station_source_commit=args.expected_station_source_commit,
+                expected_authorization_issuer=args.expected_authorization_issuer,
+            )
+        elif args.command == "certificate-owner-inspect":
             result = certificate_owner_authority.inspect_live_owner()
         elif args.command == "certificate-owner-reconcile":
             result = certificate_owner_authority.reconcile_live(
