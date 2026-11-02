@@ -264,6 +264,7 @@ def test_same_byte_recovery_refuses_altered_retained_claim(
     ("installation_id","different-installation"),
     ("approved_pin_sha256","not-a-sha"),
     ("approval_sha256",None),
+    ("authorization_revision",0),
 ])
 def test_new_rotation_refuses_corrupt_historical_claim_before_reservation(
         authority,field,change):
@@ -283,3 +284,39 @@ def test_new_rotation_refuses_corrupt_historical_claim_before_reservation(
             approval_bytes=approval3,uid=os.geteuid())
     assert remote.epoch==2
     assert not (pub/g.PENDING_NAME).exists()
+
+
+def test_stale_lower_operator_revision_refused_before_rotation_reservation(
+        authority):
+    install,args,pub,priv,remote,operator,keys,fds=authority
+    first=args(1)
+    unsigned=g._parse(first["approval_bytes"])
+    unsigned.pop("operator_signature")
+    unsigned["authorization_revision"]=5
+    signature=operator.sign(
+        b"zog-graphical-current-authority-rotation-v1\x00"
+        +g.canonical(unsigned))
+    first["approval_bytes"]=g.canonical({
+        **unsigned,"operator_signature":base64.b64encode(signature).decode()})
+    assert protected._install_source(**first)["epoch"]==1
+    original_claim=g._parse(
+        (priv/(protected.CLAIM_PREFIX+"1.json")).read_bytes())
+    assert original_claim["authorization_revision"]==5
+    # Epoch 2 has a genuinely signed but lower authorization revision 2.
+    # Key epoch monotonicity does not justify accepting a stale approval.
+    with pytest.raises(g.RotationDenied):
+        install(2)
+    assert remote.epoch==1
+    assert not (pub/g.PENDING_NAME).exists()
+
+
+def test_current_claim_cannot_substitute_operator_revision_on_retry(authority):
+    install,args,pub,priv,remote,*_=authority
+    assert install(1)["epoch"]==1
+    claim=priv/(protected.CLAIM_PREFIX+"1.json")
+    altered=g._parse(claim.read_bytes())
+    altered["authorization_revision"]=2
+    put(claim,g.canonical(altered))
+    with pytest.raises(g.RotationDenied):
+        install(1)
+    assert remote.epoch==1
