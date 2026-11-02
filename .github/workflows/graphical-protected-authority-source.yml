@@ -24,13 +24,12 @@ jobs:
         run: |
           python -m pip install 'pytest>=8,<10' 'cryptography>=44,<49'
           PYTHONPATH="$PWD/src:$PWD/tests" python -m pytest -q -rs \
-            tests/test_graphical_protected_authority_install.py \
-            tests/test_graphical_current_authority.py \
-            tests/test_graphical_rotation_checkpoint.py
+            tests/test_graphical_protected_authority_install.py
       - name: Ephemeral privileged path contract (never live /etc)
         run: |
           sudo -E env PYTHONPATH="$PWD/src:$PWD/tests" "$(command -v python)" \
-            -m pytest -q -rs tests/test_graphical_protected_authority_install.py
+            -m pytest -q -rs tests/test_graphical_protected_authority_install.py \
+            tests/test_graphical_current_authority.py tests/test_graphical_rotation_checkpoint.py
       - name: Native hold
         if: always()
         run: |
