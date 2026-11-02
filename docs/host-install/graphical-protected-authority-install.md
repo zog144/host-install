@@ -41,7 +41,14 @@ operator epoch is checked against a fresh independently authenticated external
 checkpoint. A root-only no-replacement per-epoch key-use claim is written under
 the local rotation lock **after** the public pending-denial marker but **before**
 external compare-and-advance. Previously used signing public keys cannot be
-introduced at any later epoch, even after multiple rotations. The source
+introduced at any later epoch, even after multiple rotations. Each key-use
+claim also binds the exact operator authorization revision. Subsequent epochs
+cannot lower that revision, and a same-byte retry must match the complete
+original Host/installation/grant/key/approval/revision claim, rather than
+just its pin and approval hashes. This only proves monotonicity relative to
+retained protected claims: a separately installed current-authorization
+checkpoint remains necessary to recognize an approval revoked outside this
+Host. The source
 preflight also refuses a known retired key before creating a pending marker;
 the check is repeated under the writer lock.
 
