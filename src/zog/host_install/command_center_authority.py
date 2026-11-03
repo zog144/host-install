@@ -793,7 +793,8 @@ def prepare_offline_writer_lock_source(root_fd, *, uid, gid,
 
 
 @contextmanager
-def _offline_writer_lock(root_fd, *, uid=0, gid=0):
+def _offline_writer_lock(root_fd, *, uid=0, gid=0,
+                         original_directory_path=None):
     """Hold original root DIRECTORY flock plus persisted exact lock inode.
 
     Unlike state_io.lock this NEVER creates or adopts a replacement lock.
@@ -818,6 +819,21 @@ def _offline_writer_lock(root_fd, *, uid=0, gid=0):
             require(_writer_identity(root_fd, handle, uid, gid) == original,
                     "command-center-authority-writer-lock",
                     "protected writer identity changed during publication")
+            # The path from which this directory was opened must still name
+            # the original inode. A privileged rename cannot turn a success
+            # receipt into evidence for an unrelated replacement tree.
+            if original_directory_path is not None:
+                try:
+                    observed = os.stat(original_directory_path,
+                                       follow_symlinks=False)
+                except OSError as exc:
+                    raise StateError("command-center-authority-writer-root",
+                                     "original directory pathname disappeared") from exc
+                opened = os.fstat(root_fd)
+                require((observed.st_dev, observed.st_ino) ==
+                        (opened.st_dev, opened.st_ino),
+                        "command-center-authority-writer-root",
+                        "original directory pathname was replaced")
         check()
         yield check
         check()
@@ -826,13 +842,32 @@ def _offline_writer_lock(root_fd, *, uid=0, gid=0):
             os.close(handle)
         fcntl.flock(root_fd, fcntl.LOCK_UN)
 
+def _assert_original_child(root_fd, child_fd):
+    """The public offline subdirectory name must retain the opened inode."""
+    child = os.fstat(child_fd)
+    try:
+        named = os.stat(DIRECTORY_NAME, dir_fd=root_fd,
+                        follow_symlinks=False)
+    except OSError as exc:
+        raise StateError("command-center-authority-publication",
+                         "authority subdirectory pathname missing") from exc
+    require(stat.S_ISDIR(child.st_mode) and
+            (child.st_dev, child.st_ino) == (named.st_dev, named.st_ino),
+            "command-center-authority-publication",
+            "authority subdirectory pathname was replaced")
+
+
 def _publish_bundle(root_fd, materials, receipt, reader_gid, *,
                     verify_writer=lambda *_: None):
     verify_writer()
     child = ensure_directory(root_fd, DIRECTORY_NAME, 0, 0, 0o700,
                              checkpoint=verify_writer)
     verify_writer()
+    def check_child(*event):
+        verify_writer(*event)
+        _assert_original_child(root_fd, child)
     try:
+        check_child()
         allowed = set(FILES) | {".pending." + name for name in FILES}
         present = set(os.listdir(child))
         require(present <= allowed,
@@ -866,26 +901,26 @@ def _publish_bundle(root_fd, materials, receipt, reader_gid, *,
                 materials["authority_approval"],
         }
         for name, data in rows.items():
-            verify_writer()
+            check_child()
             mode, role = FILES[name]
             publish(
                 child, name, data, mode=mode, uid=0,
                 gid=reader_gid if role == "reader" else 0,
-                checkpoint=verify_writer,
+                checkpoint=check_child,
             )
-            verify_writer()
-        verify_writer()
+            check_child()
+        check_child()
         publish(
             child, RECEIPT_NAME, canonical(receipt),
             mode=0o600, uid=0, gid=0,
-            checkpoint=verify_writer,
+            checkpoint=check_child,
         )
-        verify_writer()
+        check_child()
         require(set(os.listdir(child)) == set(FILES),
                 "command-center-authority-publication",
                 "incomplete protected authority publication")
         os.fsync(child)
-        verify_writer()
+        check_child()
     finally:
         os.close(child)
 
@@ -915,7 +950,8 @@ def stage_offline(*, offline_directory, paths, reader_gid,
     )
     root_fd = _offline_root(offline_directory)
     try:
-        with _offline_writer_lock(root_fd) as verify_writer:
+        with _offline_writer_lock(root_fd,
+                                  original_directory_path=offline_directory) as verify_writer:
             # The station database is an identity input, not mutable source
             # authority. A replacement between validation and durable
             # publication must not be accepted even if all signed material
@@ -951,11 +987,13 @@ def inspect_offline(*, offline_directory, reader_gid,
     root_fd = _offline_root(offline_directory)
     child = None
     try:
-        with _offline_writer_lock(root_fd) as verify_writer:
+        with _offline_writer_lock(root_fd,
+                                  original_directory_path=offline_directory) as verify_writer:
             child = os.open(
                 DIRECTORY_NAME, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
                 dir_fd=root_fd,
             )
+            _assert_original_child(root_fd, child)
             info = os.fstat(child)
             require(info.st_uid == 0 and info.st_gid == 0
                     and stat.S_IMODE(info.st_mode) == 0o700
@@ -1009,6 +1047,7 @@ def inspect_offline(*, offline_directory, reader_gid,
                     "command-center-authority-publication",
                     "receipt/content mismatch")
             verify_writer()
+            _assert_original_child(root_fd, child)
             return {
                 **receipt,
                 "status": "protected-offline-authority-materials-retained",
