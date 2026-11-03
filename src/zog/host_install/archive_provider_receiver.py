@@ -282,6 +282,19 @@ class OfflineArchiveReceiver:
         finally:
             self._close(fd, lock, marker)
 
+    def inspect_handoff(self):
+        """Secret-free evidence only. Inspection grants no delivery retry."""
+        fd, lock, marker = self._open()
+        try:
+            state = _load(fd)
+            if state is None:
+                return {"status": "unavailable"}
+            return {"status": state["phase"], "request_id": state["request_id"],
+                    "delivery_id": state["delivery_id"],
+                    "receipt_id": state["receipt_id"], "revoked": state["revoked"]}
+        finally:
+            self._close(fd, lock, marker)
+
     def begin_install_handoff(self, *, request, delivery):
         """Irrevocably fence the actual archive consumer call BEFORE invoking it.
 
