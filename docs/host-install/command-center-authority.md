@@ -98,3 +98,16 @@ foreign already-running writer that ignores the protected protocol.
 No actual Command-Center signing authority, `/opt/station-trust`
 state, canonical STATE, key, station database, or credential was
 installed by these source changes.
+
+
+## Independent directory-entry race review — 2026-11-03
+
+PR #18 correctly protects the original **lock file inode** against unlink-and-recreate splitting. A separate namespace race remained: flock on the opened directory serializes that *inode*, but a privileged rename of the configured offline directory leaves the old writer holding a lock on a directory no longer reachable at the selected pathname. A new privileged writer at a replacement directory pathname can then obtain a different lock; checking only original lock and marker bytes through the old descriptor does not prove exclusive control of the selected destination.
+
+This source correction adds exact pathname-to-descriptor device/inode checks while the original directory and original lock flocks remain held. Stage and inspection provide the configured directory path. Checks occur at every publication checkpoint and before return, rejecting renamed, missing, symlinked or replaced directory entries. Regression tests rename the old directory *during a held flock*, then bootstrap a second synthetic protected directory with a different lock; the first writer fails before publishing a receipt. This is a fail-closed detection boundary, not authority to create a replacement offline installation.
+
+The writer also holds the durable marker file descriptor throughout publication, checking its inode and single-link permission metadata on each checkpoint. Even an identical-byte marker substitution during a stage is rejected, as are deletion, symlink and hardlink changes. Interrupted first bootstrap and a later missing marker remain manual holds; staging never restores missing inode identity. Original marker provenance **across restarts** still requires independent native attestation and protected directory custody. An already-compromised privileged root writer or mount/filesystem rollback is outside the source-only guarantee.
+
+Synthetic readback tests now explicitly prepare their original ephemeral protected lock+marker before testing later receipt or database failures. No canonical STATE is ever created. Same-byte interruption recovery against the unchanged original directory, lock and marker remains supported, and a conflicting or incomplete receipt is not silently replaced.
+
+[Exact Python 3.12/3.13 source workflow #41646163282](https://github.com/zog144/host-install/actions/runs/41646163282) passed **14 focused nonroot** and **77 ephemeral root-owned** tests per version before this documentation-only update. Native operator approval, authentic installed source, root privileges and directory/mount provenance, real reboot/recovery and signer/authority activation remain separate **NO-GO** gates.
