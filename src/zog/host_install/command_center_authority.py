@@ -813,6 +813,28 @@ def _writer_root_path_identity(root_fd, path):
             "original offline directory pathname was replaced")
 
 
+def _writer_ancestor_identities(path):
+    """Bind each original protected ancestor, not just the final leaf inode.
+
+    A renamed parent replaced with a symlink pointing at the same opened
+    offline root would pass a final-leaf st_dev/st_ino comparison. Preserve
+    the namespace identity of each original ancestor throughout stage
+    and inspect. _offline_root independently validates their owner and DAC.
+    """
+    try:
+        entries = []
+        for parent in reversed(Path(path).parents):
+            info = parent.lstat()
+            require(stat.S_ISDIR(info.st_mode),
+                    "command-center-authority-writer-root",
+                    "original offline ancestor is not a directory")
+            entries.append((str(parent), info.st_dev, info.st_ino))
+        return tuple(entries)
+    except OSError as exc:
+        raise StateError("command-center-authority-writer-root",
+                         "original offline ancestor pathname disappeared") from exc
+
+
 def _writer_marker_inode(root_fd, marker_fd, uid, gid):
     held = os.fstat(marker_fd)
     try:
@@ -842,9 +864,11 @@ def _offline_writer_lock(root_fd, *, uid=0, gid=0, path=None):
     fcntl.flock(root_fd, fcntl.LOCK_EX)
     handle = None
     marker_fd = None
+    original_ancestors = None
     try:
         if path is not None:
             _writer_root_path_identity(root_fd, path)
+            original_ancestors = _writer_ancestor_identities(path)
         try:
             handle = os.open(LOCK_NAME, os.O_RDWR | os.O_NOFOLLOW |
                              os.O_CLOEXEC, dir_fd=root_fd)
@@ -859,6 +883,9 @@ def _offline_writer_lock(root_fd, *, uid=0, gid=0, path=None):
         def check(*_):
             if path is not None:
                 _writer_root_path_identity(root_fd, path)
+                require(_writer_ancestor_identities(path) == original_ancestors,
+                        "command-center-authority-writer-root",
+                        "original offline ancestor pathname was replaced")
             _writer_marker_inode(root_fd, marker_fd, uid, gid)
             require(_writer_identity(root_fd, handle, uid, gid) == original,
                     "command-center-authority-writer-lock",
