@@ -438,12 +438,14 @@ def test_interrupted_bundle_publication_resumes_without_replacement(
     original = authority.publish
     folder = tmp_path / authority.DIRECTORY_NAME
 
-    def interrupted(fd, name, data, *, mode, uid, gid):
-        def checkpoint(step):
+    def interrupted(fd, name, data, *, mode, uid, gid,
+                    checkpoint=lambda _: None):
+        def interrupted_checkpoint(step):
+            checkpoint(step)
             if step == f"{moment}:{file_name}":
                 raise SimulatedPublicationInterruption(step)
         return original(fd, name, data, mode=mode, uid=uid, gid=gid,
-                        checkpoint=checkpoint)
+                        checkpoint=interrupted_checkpoint)
 
     root = os.open(tmp_path, os.O_RDONLY | os.O_DIRECTORY)
     try:
