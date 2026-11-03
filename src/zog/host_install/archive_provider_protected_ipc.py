@@ -22,13 +22,13 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 POLICY_SCHEMA = "zog-archive-provider-protected-ipc-policy-v1"
 TRANSFER_SCHEMA = "zog-archive-provider-fd-handoff-v1"
 ACK_SCHEMA = "zog-archive-provider-native-ack-v1"
-ACK_DOMAIN = b"zog-archive-provider-native-ack-v1\\0"
+ACK_DOMAIN = b"zog-archive-provider-native-ack-v1\0"
 PURPOSE = "archive-mirror-upstream-fetch"
 CONSUMER = "archive-mirror"
 MAX_SECRET = 65536
 MAX_CONTROL = 4096
 _SHA = re.compile(r"sha256:[0-9a-f]{64}\Z")
-_H64 = re.compile(r"[0-9a-f]{64}\\Z")
+_H64 = re.compile(r"[0-9a-f]{64}\Z")
 _FIELDS = frozenset({
     "schema", "consumer", "purpose", "host_id", "installation_id",
     "state_volume_id", "registry_id", "scope_id", "authority_revision",
