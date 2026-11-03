@@ -1174,3 +1174,79 @@ def test_inspection_rejects_aliased_ancestor_during_material_read(tmp_path, monk
     finally:
         _restore_parent_alias(parent, relocated)
         os.close(fd)
+
+
+@pytest.mark.skipif(os.geteuid() != 0, reason="root-owned ephemeral publication")
+def test_staged_child_mode_cannot_relax_during_publication(tmp_path):
+    """Detect a 0700 -> 0755 child mode race, even with the same inode."""
+    value = fixture()
+    receipt = verify(value)
+    folder, fd, uid, gid = _writer_root(tmp_path)
+    child = folder / authority.DIRECTORY_NAME
+    changed = []
+    try:
+        authority.prepare_offline_writer_lock_source(fd, uid=uid, gid=gid)
+        with pytest.raises(StateError, match="subdirectory ownership or mode changed"):
+            with authority._offline_writer_lock(
+                    fd, uid=uid, gid=gid, path=str(folder)) as check:
+                def change_mode(event=None):
+                    if event == "linked:root-grant.json" and not changed:
+                        changed.append(event)
+                        child.chmod(0o755)
+                    check()
+                authority._publish_bundle(
+                    fd, value["materials"], receipt, 21001,
+                    verify_writer=change_mode)
+        assert changed == ["linked:root-grant.json"]
+        assert not (child / authority.RECEIPT_NAME).exists()
+        assert (child / authority.LOCK_NAME).exists() is False
+    finally:
+        if child.exists():
+            child.chmod(0o700)
+        os.close(fd)
+
+
+@pytest.mark.skipif(os.geteuid() != 0, reason="root-owned ephemeral inspection")
+def test_staged_child_mode_cannot_relax_during_inspection(tmp_path, monkeypatch):
+    """Previously verified 0700 must remain true after every readback."""
+    value = fixture()
+    receipt = verify(value)
+    folder, fd, uid, gid = _writer_root(tmp_path)
+    child = folder / authority.DIRECTORY_NAME
+    changed = []
+    try:
+        authority.prepare_offline_writer_lock_source(fd, uid=uid, gid=gid)
+        with authority._offline_writer_lock(fd, uid=uid, gid=gid,
+                                            path=str(folder)) as check:
+            authority._publish_bundle(
+                fd, value["materials"], receipt, 21001,
+                verify_writer=check)
+        monkeypatch.setattr(authority, "_offline_root", lambda _:
+                            os.open(folder, os.O_RDONLY | os.O_DIRECTORY |
+                                    os.O_NOFOLLOW))
+        monkeypatch.setattr(authority, "_observe_database",
+                            lambda _: value["observed"])
+        monkeypatch.setattr(authority, "RETAINED_CERTIFICATE_SIGNER_SHA256",
+                            value["certificate_sha"])
+        actual_raw = authority.raw
+        def relax_dac_after_read(fd, name, **kwargs):
+            data = actual_raw(fd, name, **kwargs)
+            if name == "operator-ed25519.pub" and not changed:
+                changed.append(name)
+                child.chmod(0o755)
+            return data
+        with monkeypatch.context() as patcher:
+            patcher.setattr(authority, "raw", relax_dac_after_read)
+            with pytest.raises(StateError, match="subdirectory ownership or mode changed"):
+                authority.inspect_offline(
+                    offline_directory=str(folder), reader_gid=21001,
+                    expected_operator_pin_sha256=value["operator_sha"],
+                    expected_instance_id=authority.COMMAND_CENTER_INSTANCE_ID,
+                    expected_station_source_commit=authority.STATION_ACCESS_COMMIT,
+                    expected_authorization_issuer=value["issuer"], now=NOW)
+        assert changed == ["operator-ed25519.pub"]
+        assert (child / authority.RECEIPT_NAME).read_bytes() == canonical(receipt)
+    finally:
+        if child.exists():
+            child.chmod(0o700)
+        os.close(fd)
