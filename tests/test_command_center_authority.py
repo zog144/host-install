@@ -828,3 +828,44 @@ def test_missing_marker_after_completed_bootstrap_is_not_recreated(tmp_path):
         assert (folder / authority.LOCK_NAME).is_file()
     finally:
         os.close(fd)
+
+
+@pytest.mark.skipif(os.geteuid() != 0, reason="root-owned synthetic inspection")
+def test_inspect_refuses_detached_original_root_after_path_replacement(tmp_path, monkeypatch):
+    """Readback must not accept an old directory fd after namespace replacement."""
+    value = fixture()
+    receipt = verify(value)
+    folder, fd, uid, gid = _writer_root(tmp_path)
+    moved = folder.with_name(folder.name + "-detached")
+    try:
+        authority.prepare_offline_writer_lock_source(fd, uid=uid, gid=gid)
+        with authority._offline_writer_lock(fd, uid=uid, gid=gid,
+                                            path=str(folder)) as guard:
+            authority._publish_bundle(fd, value["materials"], receipt, 21001,
+                                      verify_writer=guard)
+        assert (folder / authority.DIRECTORY_NAME /
+                authority.RECEIPT_NAME).read_bytes() == canonical(receipt)
+        folder.rename(moved)
+        folder.mkdir(mode=0o700)
+        # Even with an otherwise intact original lock, marker, all material
+        # bytes and receipt at the *detached* inode, inspection must not claim
+        # authority for the new selected path.
+        monkeypatch.setattr(authority, "_offline_root", lambda _:
+                            os.open(moved, os.O_RDONLY | os.O_DIRECTORY |
+                                    os.O_NOFOLLOW))
+        monkeypatch.setattr(authority, "_observe_database",
+                            lambda _: value["observed"])
+        monkeypatch.setattr(authority, "RETAINED_CERTIFICATE_SIGNER_SHA256",
+                            value["certificate_sha"])
+        with pytest.raises(StateError, match="offline directory pathname was replaced"):
+            authority.inspect_offline(
+                offline_directory=str(folder), reader_gid=21001,
+                expected_operator_pin_sha256=value["operator_sha"],
+                expected_instance_id=authority.COMMAND_CENTER_INSTANCE_ID,
+                expected_station_source_commit=authority.STATION_ACCESS_COMMIT,
+                expected_authorization_issuer=value["issuer"], now=NOW)
+        assert not (folder / authority.DIRECTORY_NAME).exists()
+        assert (moved / authority.DIRECTORY_NAME /
+                authority.RECEIPT_NAME).read_bytes() == canonical(receipt)
+    finally:
+        os.close(fd)
