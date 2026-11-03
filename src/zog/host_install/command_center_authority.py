@@ -13,6 +13,8 @@ directory with durable no-replacement semantics.
 from __future__ import annotations
 
 import base64
+from contextlib import contextmanager
+import fcntl
 import binascii
 import hashlib
 import json
@@ -55,6 +57,8 @@ COMPANION_HOST_INSTALL_COMMIT = "6e8b3792c6bc43e6b55dd254892105f7abea5a29"
 
 DIRECTORY_NAME = "host-install-command-center-authority"
 LOCK_NAME = ".host-install-command-center-authority.lock"
+LOCK_IDENTITY_NAME = ".host-install-command-center-authority.lock-identity-v1.json"
+LOCK_IDENTITY_SCHEMA = "zog-host-install-command-center-stable-writer-lock-v1"
 RECEIPT_NAME = "receipt.json"
 
 FILES = {
@@ -692,8 +696,142 @@ def _read_inputs(paths, reader_gid):
     }
 
 
-def _publish_bundle(root_fd, materials, receipt, reader_gid):
-    child = ensure_directory(root_fd, DIRECTORY_NAME, 0, 0, 0o700)
+
+
+def _writer_root_shape(root_fd, uid, gid):
+    info = os.fstat(root_fd)
+    require(stat.S_ISDIR(info.st_mode)
+            and (info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode))
+                == (uid, gid, 0o700),
+            "command-center-authority-writer-root",
+            "protected writer directory must be owned and 0700")
+    return info
+
+
+def _writer_identity(root_fd, handle, uid, gid):
+    folder = _writer_root_shape(root_fd, uid, gid)
+    held = os.fstat(handle)
+    require(stat.S_ISREG(held.st_mode) and held.st_nlink == 1
+            and (held.st_uid, held.st_gid, stat.S_IMODE(held.st_mode))
+                == (uid, gid, 0o600),
+            "command-center-authority-writer-lock",
+            "protected lock identity or permissions changed")
+    try:
+        named = os.stat(LOCK_NAME, dir_fd=root_fd,
+                        follow_symlinks=False)
+    except OSError as exc:
+        raise StateError("command-center-authority-writer-lock",
+                         "original lock pathname disappeared") from exc
+    require((named.st_dev, named.st_ino) ==
+            (held.st_dev, held.st_ino),
+            "command-center-authority-writer-lock",
+            "writer lock pathname was replaced")
+    expected = canonical({
+        "schema": LOCK_IDENTITY_SCHEMA,
+        "root_device": folder.st_dev,
+        "root_inode": folder.st_ino,
+        "lock_device": held.st_dev,
+        "lock_inode": held.st_ino,
+    })
+    marker = raw(root_fd, LOCK_IDENTITY_NAME,
+                 uid=uid, gid=gid, mode=0o600)
+    require(marker == expected,
+            "command-center-authority-writer-lock",
+            "durable lock identity missing, stale or substituted")
+    return expected
+
+
+def prepare_offline_writer_lock_source(root_fd, *, uid, gid,
+                                       checkpoint=lambda _: None):
+    """Synthetic owner bootstrap; NOT called by stage_offline.
+
+    Real 0700 root writer and inode marker require a separately authorized
+    native bootstrap. An interrupted initial bootstrap is a HOLD, never
+    silently reinitialized or repaired by staging/inspection. The trusted
+    directory inode is the second serialization fence during bootstrap.
+    """
+    _writer_root_shape(root_fd, uid, gid)
+    fcntl.flock(root_fd, fcntl.LOCK_EX)
+    try:
+        existing = set(os.listdir(root_fd))
+        if LOCK_NAME in existing or LOCK_IDENTITY_NAME in existing:
+            require({LOCK_NAME, LOCK_IDENTITY_NAME} <= existing,
+                    "command-center-authority-writer-lock",
+                    "partial first writer bootstrap")
+            handle = os.open(LOCK_NAME, os.O_RDWR | os.O_NOFOLLOW |
+                             os.O_CLOEXEC, dir_fd=root_fd)
+            try:
+                _writer_identity(root_fd, handle, uid, gid)
+                return
+            finally:
+                os.close(handle)
+        require(not existing,
+                "command-center-authority-writer-lock",
+                "first writer bootstrap requires an empty protected root")
+        handle = os.open(LOCK_NAME, os.O_RDWR | os.O_CREAT | os.O_EXCL |
+                         os.O_NOFOLLOW | os.O_CLOEXEC, 0o600, dir_fd=root_fd)
+        try:
+            os.fchown(handle, uid, gid)
+            os.fchmod(handle, 0o600)
+            os.fsync(handle)
+            os.fsync(root_fd)
+            checkpoint("writer-created")
+            folder = os.fstat(root_fd)
+            leaf = os.fstat(handle)
+            publish(root_fd, LOCK_IDENTITY_NAME, canonical({
+                "schema": LOCK_IDENTITY_SCHEMA,
+                "root_device": folder.st_dev,
+                "root_inode": folder.st_ino,
+                "lock_device": leaf.st_dev,
+                "lock_inode": leaf.st_ino,
+            }), mode=0o600, uid=uid, gid=gid)
+            _writer_identity(root_fd, handle, uid, gid)
+        finally:
+            os.close(handle)
+    finally:
+        fcntl.flock(root_fd, fcntl.LOCK_UN)
+
+
+@contextmanager
+def _offline_writer_lock(root_fd, *, uid=0, gid=0):
+    """Hold original root DIRECTORY flock plus persisted exact lock inode.
+
+    Unlike state_io.lock this NEVER creates or adopts a replacement lock.
+    The directory flock ensures a second legitimate writer cannot enter
+    between the loss of a pathname and the first writer's fail-closed check.
+    The persisted marker survives restarts and prevents later adoption of a
+    freshly created but correctly permissioned replacement inode.
+    """
+    _writer_root_shape(root_fd, uid, gid)
+    fcntl.flock(root_fd, fcntl.LOCK_EX)
+    handle = None
+    try:
+        try:
+            handle = os.open(LOCK_NAME, os.O_RDWR | os.O_NOFOLLOW |
+                             os.O_CLOEXEC, dir_fd=root_fd)
+        except OSError as exc:
+            raise StateError("command-center-authority-writer-lock",
+                             "independently provisioned lock missing") from exc
+        original = _writer_identity(root_fd, handle, uid, gid)
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        def check(*_):
+            require(_writer_identity(root_fd, handle, uid, gid) == original,
+                    "command-center-authority-writer-lock",
+                    "protected writer identity changed during publication")
+        check()
+        yield check
+        check()
+    finally:
+        if handle is not None:
+            os.close(handle)
+        fcntl.flock(root_fd, fcntl.LOCK_UN)
+
+def _publish_bundle(root_fd, materials, receipt, reader_gid, *,
+                    verify_writer=lambda *_: None):
+    verify_writer()
+    child = ensure_directory(root_fd, DIRECTORY_NAME, 0, 0, 0o700,
+                             checkpoint=verify_writer)
+    verify_writer()
     try:
         allowed = set(FILES) | {".pending." + name for name in FILES}
         present = set(os.listdir(child))
@@ -728,19 +866,26 @@ def _publish_bundle(root_fd, materials, receipt, reader_gid):
                 materials["authority_approval"],
         }
         for name, data in rows.items():
+            verify_writer()
             mode, role = FILES[name]
             publish(
                 child, name, data, mode=mode, uid=0,
                 gid=reader_gid if role == "reader" else 0,
+                checkpoint=verify_writer,
             )
+            verify_writer()
+        verify_writer()
         publish(
             child, RECEIPT_NAME, canonical(receipt),
             mode=0o600, uid=0, gid=0,
+            checkpoint=verify_writer,
         )
+        verify_writer()
         require(set(os.listdir(child)) == set(FILES),
                 "command-center-authority-publication",
                 "incomplete protected authority publication")
         os.fsync(child)
+        verify_writer()
     finally:
         os.close(child)
 
@@ -770,7 +915,7 @@ def stage_offline(*, offline_directory, paths, reader_gid,
     )
     root_fd = _offline_root(offline_directory)
     try:
-        with lock(root_fd, LOCK_NAME):
+        with _offline_writer_lock(root_fd) as verify_writer:
             # The station database is an identity input, not mutable source
             # authority. A replacement between validation and durable
             # publication must not be accepted even if all signed material
@@ -778,7 +923,8 @@ def stage_offline(*, offline_directory, paths, reader_gid,
             require(_observe_database(identity_value["database_path"]) == observed,
                     "command-center-authority-database",
                     "database identity changed before offline publication")
-            _publish_bundle(root_fd, materials, receipt, reader_gid)
+            _publish_bundle(root_fd, materials, receipt, reader_gid,
+                            verify_writer=verify_writer)
             # An interruption after a durable receipt can leave inert staged
             # files. Never *report* a successful adoption of a replaced DB.
             # A subsequent inspect performs this readback again.
