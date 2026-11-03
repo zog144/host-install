@@ -69,7 +69,7 @@ def complete_offline(receiver, *, scope, expected_scope, signed_authorization,
     fd, lock, marker = receiver._open()
     try:
         state = _load(fd)
-        if (state is None or state["revoked"] or state["phase"] != "delivered"
+        if (state is None or state["revoked"] or state["phase"] not in ("delivered", "installing")
                 or state["request_id"] != request["request_id"]
                 or state["delivery_id"] != delivery["delivery_id"]):
             _hold("no durable one-time archive delivery claim")
@@ -88,9 +88,13 @@ def complete_offline(receiver, *, scope, expected_scope, signed_authorization,
         if before["status"] == "installed":
             _check_application(scope, delivery, consumer, installed_witness)
             disposition = "reconciled-without-redelivery"
-        elif before["status"] == "unavailable" and permit_first_install is True:
-            # Application-local pending/blocked evidence always HOLDS. The
-            # real adapter's own locks enforce its role and private paths.
+        elif (before["status"] == "unavailable" and permit_first_install is True
+              and state["phase"] == "delivered"):
+            # One-way attempt fence MUST be durable before calling consumer.
+            # A crash before/during/after install leaves "installing":
+            # subsequent calls may inspect/reconcile, NEVER install again.
+            state["phase"] = "installing"
+            receiver._persist(fd, lock, marker, state)
             consumer.install_verified(scope, current, request, delivery, now=now)
             disposition = "first-install"
         else:
