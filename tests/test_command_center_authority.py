@@ -745,3 +745,86 @@ def test_actual_stage_and_inspect_do_not_adopt_recreated_lock(tmp_path,monkeypat
                 authority.RECEIPT_NAME).read_bytes() == canonical(receipt)
     finally:
         os.close(fd)
+
+
+@pytest.mark.parametrize("change", ("renamed-away", "renamed-and-replaced"))
+def test_renamed_protected_root_cannot_continue_on_stale_directory_lock(tmp_path, change):
+    """Two root directories mean two distinct flock inodes. Reject old fd."""
+    folder, fd, uid, gid = _writer_root(tmp_path)
+    original = folder.with_name(folder.name + "-moved")
+    replacement_fd = None
+    try:
+        authority.prepare_offline_writer_lock_source(fd, uid=uid, gid=gid)
+        with pytest.raises(StateError, match="original offline"):
+            with authority._offline_writer_lock(fd, uid=uid, gid=gid,
+                                                path=str(folder)) as guard:
+                folder.rename(original)
+                if change == "renamed-and-replaced":
+                    folder.mkdir(mode=0o700)
+                    replacement_fd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY)
+                    # A different protected root can indeed acquire its own
+                    # separate directory lock; an old writer must not publish
+                    # into its disconnected inode after this namespace split.
+                    authority.prepare_offline_writer_lock_source(
+                        replacement_fd, uid=uid, gid=gid)
+                    with authority._offline_writer_lock(
+                            replacement_fd, uid=uid, gid=gid, path=str(folder)):
+                        pass
+                guard()
+        assert not (original / authority.DIRECTORY_NAME).exists()
+        if change == "renamed-and-replaced":
+            assert not (folder / authority.DIRECTORY_NAME).exists()
+        # Original lock and marker bytes remain inert; never repair/rewrite.
+        assert (original / authority.LOCK_NAME).is_file()
+        assert (original / authority.LOCK_IDENTITY_NAME).is_file()
+    finally:
+        if replacement_fd is not None:
+            os.close(replacement_fd)
+        os.close(fd)
+
+
+@pytest.mark.parametrize("change", ("removed", "same-bytes-replacement",
+                                     "symlink", "hardlink"))
+def test_durable_marker_entry_cannot_change_during_staging(tmp_path, change):
+    folder, fd, uid, gid = _writer_root(tmp_path)
+    try:
+        authority.prepare_offline_writer_lock_source(fd, uid=uid, gid=gid)
+        marker = folder / authority.LOCK_IDENTITY_NAME
+        original_bytes = marker.read_bytes()
+        with pytest.raises(StateError):
+            with authority._offline_writer_lock(fd, uid=uid, gid=gid,
+                                                path=str(folder)) as guard:
+                if change == "removed":
+                    marker.unlink()
+                elif change == "same-bytes-replacement":
+                    marker.rename(folder / "retained-original-marker")
+                    marker.write_bytes(original_bytes)
+                    marker.chmod(0o600)
+                elif change == "symlink":
+                    marker.rename(folder / "retained-original-marker")
+                    marker.symlink_to(folder / "retained-original-marker")
+                else:
+                    os.link(marker, folder / "foreign-marker-link")
+                guard()
+        assert not (folder / authority.DIRECTORY_NAME).exists()
+        assert (folder / authority.LOCK_NAME).is_file()
+    finally:
+        os.close(fd)
+
+
+def test_missing_marker_after_completed_bootstrap_is_not_recreated(tmp_path):
+    folder, fd, uid, gid = _writer_root(tmp_path)
+    try:
+        authority.prepare_offline_writer_lock_source(fd, uid=uid, gid=gid)
+        marker = folder / authority.LOCK_IDENTITY_NAME
+        marker.unlink()
+        with pytest.raises(StateError):
+            authority.prepare_offline_writer_lock_source(fd, uid=uid, gid=gid)
+        with pytest.raises(StateError):
+            with authority._offline_writer_lock(fd, uid=uid, gid=gid,
+                                                path=str(folder)):
+                pytest.fail("lost marker cannot be repaired on stage")
+        assert not marker.exists()
+        assert (folder / authority.LOCK_NAME).is_file()
+    finally:
+        os.close(fd)
