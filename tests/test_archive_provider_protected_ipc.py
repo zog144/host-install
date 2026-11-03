@@ -23,7 +23,7 @@ def identity():
             "boot_id":str(uuid.uuid4()),"invocation_id":str(uuid.uuid4())}
 
 def operation(p):
-    row={key:p[key] for key in ("scope_id","installation_id","state_volume_id",
+    row={key:p[key] for key in ("host_id","registry_id","scope_id","installation_id","state_volume_id",
                                 "boot_id","invocation_id","authority_revision")}
     row.update(schema=ipc.TRANSFER_SCHEMA,consumer=ipc.CONSUMER,purpose=ipc.PURPOSE,
                action="deliver",request_id=str(uuid.uuid4()),
@@ -47,7 +47,7 @@ def ack(p,t,*,kind="installed",sequence=2,nonce=None,key=None):
     key=key or Ed25519PrivateKey.generate()
     nonce=nonce or str(uuid.uuid4())
     body={"schema":ipc.ACK_SCHEMA,"kind":kind,
-          **{k:p[k] for k in ("scope_id","installation_id","state_volume_id",
+          **{k:p[k] for k in ("host_id","registry_id","scope_id","installation_id","state_volume_id",
                               "boot_id","invocation_id","authority_revision",
                               "app_source_sha256")},
           "request_id":t["request_id"],"delivery_id":t["delivery_id"],
@@ -154,6 +154,8 @@ def test_signed_native_install_byte_witness_and_revocation_ack_exact_binding():
             fresh_nonce=nonce,minimum_sequence=3,attester_public_key=pub)
 
 @pytest.mark.parametrize("change",[
+    lambda row:row.update(host_id=str(uuid.uuid4())),
+    lambda row:row.update(registry_id="foreign-registry"),
     lambda row:row.update(scope_id="f"*64),
     lambda row:row.update(installation_id=str(uuid.uuid4())),
     lambda row:row.update(state_volume_id=str(uuid.uuid4())),
