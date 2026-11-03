@@ -828,7 +828,11 @@ def _writer_ancestor_identities(path):
             require(stat.S_ISDIR(info.st_mode),
                     "command-center-authority-writer-root",
                     "original offline ancestor is not a directory")
-            entries.append((str(parent), info.st_dev, info.st_ino))
+            # Preserve the originally protected ancestor owner and DAC as
+            # well as inode. A mode-relaxation of the same directory inode
+            # could otherwise let a second process rename its children.
+            entries.append((str(parent), info.st_dev, info.st_ino,
+                            info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode)))
         return tuple(entries)
     except OSError as exc:
         raise StateError("command-center-authority-writer-root",
@@ -885,7 +889,7 @@ def _offline_writer_lock(root_fd, *, uid=0, gid=0, path=None):
                 _writer_root_path_identity(root_fd, path)
                 require(_writer_ancestor_identities(path) == original_ancestors,
                         "command-center-authority-writer-root",
-                        "original offline ancestor pathname was replaced")
+                        "original offline ancestor identity or permissions changed")
             _writer_marker_inode(root_fd, marker_fd, uid, gid)
             require(_writer_identity(root_fd, handle, uid, gid) == original,
                     "command-center-authority-writer-lock",
