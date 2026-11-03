@@ -806,6 +806,7 @@ def _offline_writer_lock(root_fd, *, uid=0, gid=0,
     _writer_root_shape(root_fd, uid, gid)
     fcntl.flock(root_fd, fcntl.LOCK_EX)
     handle = None
+    marker_handle = None
     try:
         try:
             handle = os.open(LOCK_NAME, os.O_RDWR | os.O_NOFOLLOW |
@@ -814,11 +815,28 @@ def _offline_writer_lock(root_fd, *, uid=0, gid=0,
             raise StateError("command-center-authority-writer-lock",
                              "independently provisioned lock missing") from exc
         original = _writer_identity(root_fd, handle, uid, gid)
+        marker_handle = os.open(LOCK_IDENTITY_NAME, os.O_RDONLY |
+                                os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=root_fd)
+        original_marker = os.fstat(marker_handle)
+        require(stat.S_ISREG(original_marker.st_mode) and
+                original_marker.st_nlink == 1,
+                "command-center-authority-writer-lock",
+                "identity marker must retain one original link")
         fcntl.flock(handle, fcntl.LOCK_EX)
         def check(*_):
             require(_writer_identity(root_fd, handle, uid, gid) == original,
                     "command-center-authority-writer-lock",
                     "protected writer identity changed during publication")
+            try:
+                current_marker = os.stat(LOCK_IDENTITY_NAME,
+                                         dir_fd=root_fd, follow_symlinks=False)
+            except OSError as exc:
+                raise StateError("command-center-authority-writer-lock",
+                                 "original marker pathname disappeared") from exc
+            require((current_marker.st_dev, current_marker.st_ino) ==
+                    (original_marker.st_dev, original_marker.st_ino),
+                    "command-center-authority-writer-lock",
+                    "original marker directory entry was replaced")
             # The path from which this directory was opened must still name
             # the original inode. A privileged rename cannot turn a success
             # receipt into evidence for an unrelated replacement tree.
@@ -838,6 +856,8 @@ def _offline_writer_lock(root_fd, *, uid=0, gid=0,
         yield check
         check()
     finally:
+        if marker_handle is not None:
+            os.close(marker_handle)
         if handle is not None:
             os.close(handle)
         fcntl.flock(root_fd, fcntl.LOCK_UN)
