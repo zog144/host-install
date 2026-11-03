@@ -200,6 +200,9 @@ class OfflineArchiveReceiver:
                     _hold("incomplete operation requires independent recovery")
                 if nonce in state["nonces"]:
                     _hold("nonce replay")
+                if any(row["request_id"] == request["request_id"]
+                       for row in state["canonical"]["requests"]):
+                    _hold("request identity already consumed")
                 canonical = cd.advance_authorization(state["canonical"], auth)
             else:
                 canonical = cd.new_ledger(auth)
@@ -247,13 +250,16 @@ class OfflineArchiveReceiver:
         finally:
             self._close(fd, lock)
 
-    def record_receipt(self, *, receipt, request, delivery, now):
+    def record_receipt(self, *, receipt, request, delivery, now,
+                       verify_installed_receipt=None):
         """Only a separately verified native installation may submit its receipt.
 
         This source-only method does not verify installed bytes or grant native
         use, and MUST NOT be wired to a production caller before owner review.
         """
         cd.validate_receipt(receipt, request, delivery, now=now)
+        if not callable(verify_installed_receipt):
+            _hold("missing independent installed-byte witness")
         fd, lock = self._open()
         try:
             state = _load(fd)
@@ -261,6 +267,11 @@ class OfflineArchiveReceiver:
                     state["request_id"] != request["request_id"] or
                     state["delivery_id"] != delivery["delivery_id"]):
                 _hold("no verified installation checkpoint")
+            # Native owner must independently attest destination bytes and
+            # durable archive application receipt while this guard is held.
+            # No synthetic boolean can substitute for that owner callback.
+            if verify_installed_receipt(request, delivery, receipt) is not True:
+                _hold("installed-byte witness denied")
             state["canonical"] = cd.record_installation(state["canonical"], receipt)
             state["phase"] = "installed"
             state["receipt_id"] = receipt["receipt_id"]
