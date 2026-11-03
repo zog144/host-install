@@ -1060,3 +1060,117 @@ def test_inspection_rejects_same_byte_marker_replacement_during_read(tmp_path, m
         assert (folder/authority.DIRECTORY_NAME/authority.RECEIPT_NAME).read_bytes()==canonical(receipt)
     finally:
         os.close(fd)
+
+
+def _protected_parent_alias_for_review(tmp_path):
+    """Simulate a privileged rename while preserving exact leaf inode."""
+    parent = tmp_path / "offline-parent"
+    parent.mkdir(mode=0o700)
+    folder, fd, uid, gid = _writer_root(parent)
+    relocated = tmp_path / "offline-parent-original"
+    return parent, relocated, folder, fd, uid, gid
+
+
+def _swap_parent_for_same_root_alias(parent, relocated):
+    parent.rename(relocated)
+    parent.symlink_to(relocated, target_is_directory=True)
+
+
+def _restore_parent_alias(parent, relocated):
+    if parent.is_symlink():
+        parent.unlink()
+    if relocated.exists():
+        relocated.rename(parent)
+
+
+def test_original_ancestor_symlink_alias_does_not_preserve_writer_path(tmp_path):
+    """Leaf st_dev/st_ino stays equal; ancestor entry must still be original."""
+    parent, relocated, folder, fd, uid, gid = _protected_parent_alias_for_review(tmp_path)
+    try:
+        authority.prepare_offline_writer_lock_source(fd, uid=uid, gid=gid)
+        named = os.stat(folder)
+        with pytest.raises(StateError, match="original offline ancestor"):
+            with authority._offline_writer_lock(
+                    fd, uid=uid, gid=gid, path=str(folder)) as check:
+                _swap_parent_for_same_root_alias(parent, relocated)
+                # The old guard checked ONLY the final leaf: the alias still
+                # points to the very same inode, so that check would pass.
+                assert (os.stat(folder).st_dev, os.stat(folder).st_ino) == (
+                    named.st_dev, named.st_ino)
+                check()
+        assert not (folder / authority.DIRECTORY_NAME).exists()
+    finally:
+        _restore_parent_alias(parent, relocated)
+        os.close(fd)
+
+
+@pytest.mark.skipif(os.geteuid() != 0, reason="root-owned ephemeral publication")
+def test_publication_rejects_aliased_ancestor_after_material_link(tmp_path):
+    value = fixture()
+    receipt = verify(value)
+    parent, relocated, folder, fd, uid, gid = _protected_parent_alias_for_review(tmp_path)
+    changed = []
+    try:
+        authority.prepare_offline_writer_lock_source(fd, uid=uid, gid=gid)
+        with pytest.raises(StateError, match="original offline ancestor"):
+            with authority._offline_writer_lock(
+                    fd, uid=uid, gid=gid, path=str(folder)) as guard:
+                def checkpoint(event=None):
+                    if event == "linked:root-grant.json" and not changed:
+                        changed.append(event)
+                        _swap_parent_for_same_root_alias(parent, relocated)
+                    guard()
+                authority._publish_bundle(
+                    fd, value["materials"], receipt, 21001,
+                    verify_writer=checkpoint)
+        assert changed == ["linked:root-grant.json"]
+        assert not (folder / authority.DIRECTORY_NAME /
+                    authority.RECEIPT_NAME).exists()
+        assert (relocated / folder.name / authority.LOCK_IDENTITY_NAME).is_file()
+    finally:
+        _restore_parent_alias(parent, relocated)
+        os.close(fd)
+
+
+@pytest.mark.skipif(os.geteuid() != 0, reason="root-owned ephemeral inspection")
+def test_inspection_rejects_aliased_ancestor_during_material_read(tmp_path, monkeypatch):
+    value = fixture()
+    receipt = verify(value)
+    parent, relocated, folder, fd, uid, gid = _protected_parent_alias_for_review(tmp_path)
+    changed = []
+    try:
+        authority.prepare_offline_writer_lock_source(fd, uid=uid, gid=gid)
+        with authority._offline_writer_lock(
+                fd, uid=uid, gid=gid, path=str(folder)) as guard:
+            authority._publish_bundle(
+                fd, value["materials"], receipt, 21001,
+                verify_writer=guard)
+        monkeypatch.setattr(authority, "_offline_root", lambda _:
+                            os.open(folder, os.O_RDONLY | os.O_DIRECTORY |
+                                    os.O_NOFOLLOW))
+        monkeypatch.setattr(authority, "_observe_database",
+                            lambda _: value["observed"])
+        monkeypatch.setattr(authority, "RETAINED_CERTIFICATE_SIGNER_SHA256",
+                            value["certificate_sha"])
+        original_raw = authority.raw
+        def substitute_after_read(fd, name, **kwargs):
+            result = original_raw(fd, name, **kwargs)
+            if name == "operator-ed25519.pub" and not changed:
+                changed.append(name)
+                _swap_parent_for_same_root_alias(parent, relocated)
+            return result
+        with monkeypatch.context() as patcher:
+            patcher.setattr(authority, "raw", substitute_after_read)
+            with pytest.raises(StateError, match="original offline ancestor"):
+                authority.inspect_offline(
+                    offline_directory=str(folder), reader_gid=21001,
+                    expected_operator_pin_sha256=value["operator_sha"],
+                    expected_instance_id=authority.COMMAND_CENTER_INSTANCE_ID,
+                    expected_station_source_commit=authority.STATION_ACCESS_COMMIT,
+                    expected_authorization_issuer=value["issuer"], now=NOW)
+        assert changed == ["operator-ed25519.pub"]
+        assert (relocated / folder.name / authority.DIRECTORY_NAME /
+                authority.RECEIPT_NAME).read_bytes() == canonical(receipt)
+    finally:
+        _restore_parent_alias(parent, relocated)
+        os.close(fd)
