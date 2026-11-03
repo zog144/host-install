@@ -998,7 +998,7 @@ def inspect_offline(*, offline_directory, reader_gid,
     root_fd = _offline_root(offline_directory)
     child = None
     try:
-        with _offline_writer_lock(root_fd) as verify_writer:
+        with _offline_writer_lock(root_fd, path=offline_directory) as verify_writer:
             child = os.open(
                 DIRECTORY_NAME, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
                 dir_fd=root_fd,
