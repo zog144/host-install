@@ -7,6 +7,8 @@ on:
       - src/zog/host_install/archive_provider_handoff.py
       - src/zog/host_install/archive_provider_receiver.py
       - tests/test_archive_provider_consumer_handoff.py
+      - tests/test_archive_provider_ipc_contract.py
+      - src/zog/host_install/archive_provider_ipc_contract.py
       - .github/workflows/archive-provider-consumer-handoff.yml
 permissions:
   contents: read
@@ -50,7 +52,8 @@ jobs:
           python -m pytest -q -rs \
             tests/test_archive_provider_receiver_contract.py \
             tests/test_archive_provider_receiver_owner.py \
-            tests/test_archive_provider_consumer_handoff.py
+            tests/test_archive_provider_consumer_handoff.py \
+            tests/test_archive_provider_ipc_contract.py
       - name: No live provider or installation
         if: always()
         run: echo 'Actual Python consumer source with synthetic token, disposable directories and no native credential/HTTPS/STATE.' >> "$GITHUB_STEP_SUMMARY"
