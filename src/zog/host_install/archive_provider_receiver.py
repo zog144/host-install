@@ -136,35 +136,67 @@ class OfflineArchiveReceiver:
         self.directory = Path(directory)
         self.enabled = enabled
 
+    def _guard(self, fd, lock, marker):
+        # Root-directory entry and original lock/marker inodes must still
+        # resolve to the same held objects. Privileged rename is a hard hold.
+        root = _safe_fd(fd, directory=True)
+        current = os.stat(self.directory, follow_symlinks=False)
+        if (root.st_dev, root.st_ino) != (current.st_dev, current.st_ino):
+            _hold("receiver root directory replaced")
+        for name, original in (("archive-provider.lock", lock),
+                               ("archive-provider-lock-identity.json", marker)):
+            held = _safe_fd(original)
+            named = os.stat(name, dir_fd=fd, follow_symlinks=False)
+            if (held.st_dev, held.st_ino) != (named.st_dev, named.st_ino):
+                _hold("receiver writer identity replaced")
+        expected = json.loads(os.pread(marker, 8192, 0), object_pairs_hook=_unique)
+        if (type(expected) is not dict or set(expected) != {
+                "schema", "root_device", "root_inode",
+                "lock_device", "lock_inode"} or
+                expected["schema"] != "zog-archive-provider-lock-identity-v1" or
+                (root.st_dev, root.st_ino) != (
+                    expected["root_device"], expected["root_inode"]) or
+                (os.fstat(lock).st_dev, os.fstat(lock).st_ino) != (
+                    expected["lock_device"], expected["lock_inode"])):
+            _hold("receiver original lock identity mismatch")
+
     def _open(self):
         if self.enabled is not True:
             _hold("archive receiver disabled")
         fd = os.open(self.directory, os.O_RDONLY | os.O_DIRECTORY |
                      os.O_NOFOLLOW | os.O_CLOEXEC)
+        lock = marker = None
         try:
             _safe_fd(fd, directory=True)
+            fcntl.flock(fd, fcntl.LOCK_EX)
             lock = os.open("archive-provider.lock", os.O_RDWR |
                            os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
-            try:
-                _safe_fd(lock)
-                fcntl.flock(lock, fcntl.LOCK_EX)
-                ls = os.stat("archive-provider.lock", dir_fd=fd,
-                             follow_symlinks=False)
-                original = os.fstat(lock)
-                if (ls.st_dev, ls.st_ino) != (original.st_dev, original.st_ino):
-                    _hold("writer lock substituted")
-                return fd, lock
-            except BaseException:
-                os.close(lock)
-                raise
+            _safe_fd(lock)
+            marker = os.open("archive-provider-lock-identity.json",
+                             os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                             dir_fd=fd)
+            _safe_fd(marker)
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            self._guard(fd, lock, marker)
+            return fd, lock, marker
         except BaseException:
+            if marker is not None:
+                os.close(marker)
+            if lock is not None:
+                os.close(lock)
             os.close(fd)
             raise
 
     @staticmethod
-    def _close(fd, lock):
+    def _close(fd, lock, marker):
+        os.close(marker)
         os.close(lock)
         os.close(fd)
+
+    def _persist(self, fd, lock, marker, state):
+        self._guard(fd, lock, marker)
+        _write(fd, "archive-provider-ledger.json", state)
+        self._guard(fd, lock, marker)
 
     @staticmethod
     def _match(value, expected):
@@ -190,7 +222,7 @@ class OfflineArchiveReceiver:
             url, method, headers, body, host_public_key, auth, now=now)
         if cd.binding(request) != archive.provider_binding(scope):
             _hold("wrong consumer or purpose")
-        fd, lock = self._open()
+        fd, lock, marker = self._open()
         try:
             state = _load(fd)
             if state is not None:
@@ -216,10 +248,10 @@ class OfflineArchiveReceiver:
             state["request_id"] = request["request_id"]
             state["delivery_id"] = None
             state["receipt_id"] = None
-            _write(fd, "archive-provider-ledger.json", state)
+            self._persist(fd, lock, marker, state)
             return {"status": "claimed", "request_id": request["request_id"]}
         finally:
-            self._close(fd, lock)
+            self._close(fd, lock, marker)
 
     def verify_and_record_delivery(self, *, scope, expected_scope,
                                    signed_authorization, authority_public_key,
@@ -233,7 +265,7 @@ class OfflineArchiveReceiver:
         delivered = cd.verify_delivery(
             signed_delivery, authority_public_key, request, auth, now=now)
         archive.validate_delivery(scope, auth, request, delivered, now=now)
-        fd, lock = self._open()
+        fd, lock, marker = self._open()
         try:
             state = _load(fd)
             if state is None or state["revoked"] or state["phase"] != "claimed":
@@ -245,10 +277,10 @@ class OfflineArchiveReceiver:
             state["canonical"] = canonical
             state["phase"] = "delivered"
             state["delivery_id"] = delivered["delivery_id"]
-            _write(fd, "archive-provider-ledger.json", state)
+            self._persist(fd, lock, marker, state)
             return {"status": "delivered", "delivery_id": delivered["delivery_id"]}
         finally:
-            self._close(fd, lock)
+            self._close(fd, lock, marker)
 
     def record_receipt(self, *, receipt, request, delivery, now,
                        verify_installed_receipt=None):
@@ -260,7 +292,7 @@ class OfflineArchiveReceiver:
         cd.validate_receipt(receipt, request, delivery, now=now)
         if not callable(verify_installed_receipt):
             _hold("missing independent installed-byte witness")
-        fd, lock = self._open()
+        fd, lock, marker = self._open()
         try:
             state = _load(fd)
             if (state is None or state["revoked"] or state["phase"] != "delivered" or
@@ -275,10 +307,10 @@ class OfflineArchiveReceiver:
             state["canonical"] = cd.record_installation(state["canonical"], receipt)
             state["phase"] = "installed"
             state["receipt_id"] = receipt["receipt_id"]
-            _write(fd, "archive-provider-ledger.json", state)
+            self._persist(fd, lock, marker, state)
             return {"status": "receipt-durable", "receipt_id": receipt["receipt_id"]}
         finally:
-            self._close(fd, lock)
+            self._close(fd, lock, marker)
 
     def hold_revoked(self, *, scope, expected_scope, signed_authorization,
                      authority_public_key, expected_issuer, now):
@@ -293,7 +325,7 @@ class OfflineArchiveReceiver:
             expected_issuer=expected_issuer, scope=scope, now=now)
         if auth["status"] != "revoked":
             _hold("not a signed revocation")
-        fd, lock = self._open()
+        fd, lock, marker = self._open()
         try:
             state = _load(fd)
             if state is None:
@@ -307,7 +339,7 @@ class OfflineArchiveReceiver:
             state["canonical"] = canonical
             state["phase"] = "revoked"
             state["revoked"] = True
-            _write(fd, "archive-provider-ledger.json", state)
+            self._persist(fd, lock, marker, state)
             return {"status": "revocation-hold-durable"}
         finally:
-            self._close(fd, lock)
+            self._close(fd, lock, marker)
