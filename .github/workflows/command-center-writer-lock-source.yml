@@ -23,7 +23,8 @@ jobs:
       - name: Install source test prerequisites
         run: python -m pip install 'pytest>=8,<10' 'cryptography>=44,<49'
       - name: Exercise unprivileged protected lock identity and interruption tests
-        run: PYTHONPATH="$PWD/src" python -m pytest -q -rs tests/test_command_center_authority.py
+        run: |
+          PYTHONPATH="$PWD/src" python -m pytest -q -rs tests/test_command_center_authority.py -k 'writer_first_bootstrap or interrupted_first_lock_provisioning or vanished_or_substituted_protected_lock or competing_writers'
       - name: Exercise actual root-owned offline stage and receipt inspection in ephemeral directories
         run: |
           sudo -E env PYTHONPATH="$PWD/src" "$(command -v python)" -m pytest -q -rs tests/test_command_center_authority.py
