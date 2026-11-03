@@ -723,7 +723,7 @@ def test_actual_stage_and_inspect_do_not_adopt_recreated_lock(tmp_path,monkeypat
                             lambda path:value["observed"])
         monkeypatch.setattr(authority,"RETAINED_CERTIFICATE_SIGNER_SHA256",
                             value["certificate_sha"])
-        args=dict(offline_directory="/opt/station-trust/synthetic-offline",
+        args=dict(offline_directory=str(folder),
                   paths={},reader_gid=21001,
                   expected_operator_pin_sha256=value["operator_sha"],
                   expected_instance_id=authority.COMMAND_CENTER_INSTANCE_ID,
