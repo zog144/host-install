@@ -723,7 +723,7 @@ def test_actual_stage_and_inspect_do_not_adopt_recreated_lock(tmp_path,monkeypat
                             lambda path:value["observed"])
         monkeypatch.setattr(authority,"RETAINED_CERTIFICATE_SIGNER_SHA256",
                             value["certificate_sha"])
-        args=dict(offline_directory="/opt/station-trust/synthetic-offline",
+        args=dict(offline_directory=str(folder),
                   paths={},reader_gid=21001,
                   expected_operator_pin_sha256=value["operator_sha"],
                   expected_instance_id=authority.COMMAND_CENTER_INSTANCE_ID,
@@ -743,5 +743,135 @@ def test_actual_stage_and_inspect_do_not_adopt_recreated_lock(tmp_path,monkeypat
                 if k!="paths"})
         assert (folder / authority.DIRECTORY_NAME /
                 authority.RECEIPT_NAME).read_bytes() == canonical(receipt)
+    finally:
+        os.close(fd)
+
+
+
+def test_missing_writer_identity_marker_with_retained_lock_is_hard_hold(tmp_path):
+    folder, fd, uid, gid = _writer_root(tmp_path)
+    try:
+        authority.prepare_offline_writer_lock_source(fd, uid=uid, gid=gid)
+        marker = folder / authority.LOCK_IDENTITY_NAME
+        original = (folder / authority.LOCK_NAME).stat()
+        marker.unlink()
+        with pytest.raises(StateError, match="durable lock identity missing"):
+            with authority._offline_writer_lock(fd, uid=uid, gid=gid):
+                pytest.fail("adopted missing marker")
+        assert (folder / authority.LOCK_NAME).stat().st_ino == original.st_ino
+        with pytest.raises(StateError, match="partial first writer bootstrap"):
+            authority.prepare_offline_writer_lock_source(fd, uid=uid, gid=gid)
+    finally:
+        os.close(fd)
+
+
+def test_writer_detects_replaced_same_byte_identity_marker_mid_operation(tmp_path):
+    folder, fd, uid, gid = _writer_root(tmp_path)
+    try:
+        authority.prepare_offline_writer_lock_source(fd, uid=uid, gid=gid)
+        marker = folder / authority.LOCK_IDENTITY_NAME
+        original = marker.read_bytes()
+        with pytest.raises(StateError, match="original marker directory entry was replaced"):
+            with authority._offline_writer_lock(fd, uid=uid, gid=gid) as check:
+                marker.rename(folder / "retained-old-marker")
+                marker.write_bytes(original)
+                marker.chmod(0o600)
+                check()
+        assert marker.read_bytes() == original
+        assert not (folder / authority.DIRECTORY_NAME).exists()
+    finally:
+        os.close(fd)
+
+
+def test_writer_rejects_renamed_original_parent_even_if_replacement_has_matching_permissions(tmp_path):
+    folder, fd, uid, gid = _writer_root(tmp_path)
+    original_path = str(folder)
+    try:
+        authority.prepare_offline_writer_lock_source(fd, uid=uid, gid=gid)
+        with pytest.raises(StateError, match="original directory pathname was replaced"):
+            with authority._offline_writer_lock(
+                    fd, uid=uid, gid=gid,
+                    original_directory_path=original_path) as check:
+                folder.rename(tmp_path / "original-directory-renamed")
+                folder.mkdir(mode=0o700)
+                check()
+        assert not (tmp_path / "original-directory-renamed" /
+                    authority.DIRECTORY_NAME).exists()
+    finally:
+        os.close(fd)
+
+
+def test_staged_child_entry_substitution_fails_before_receipt(tmp_path):
+    value = fixture()
+    receipt = verify(value)
+    folder, fd, uid, gid = _writer_root(tmp_path)
+    try:
+        authority.prepare_offline_writer_lock_source(fd, uid=uid, gid=gid)
+        touched = []
+        with pytest.raises(StateError, match="authority subdirectory pathname was replaced"):
+            with authority._offline_writer_lock(fd, uid=uid, gid=gid) as check:
+                def replace_child(event=None):
+                    # Let the original fsync/checkpoint finish; then displace
+                    # the public name while the writer keeps its child fd.
+                    if event == "linked:root-grant.json" and not touched:
+                        touched.append(event)
+                        child = folder / authority.DIRECTORY_NAME
+                        child.rename(folder / "retained-offline-bundle")
+                        child.mkdir(mode=0o700)
+                        child.chmod(0o700)
+                    check()
+                authority._publish_bundle(
+                    fd, value["materials"], receipt, os.getgid(),
+                    verify_writer=replace_child)
+        assert touched
+        assert not (folder / authority.DIRECTORY_NAME /
+                    authority.RECEIPT_NAME).exists()
+        assert not (folder / "retained-offline-bundle" /
+                    authority.RECEIPT_NAME).exists()
+    finally:
+        os.close(fd)
+
+
+def test_staged_child_entry_disappearance_fails_closed(tmp_path):
+    value = fixture()
+    receipt = verify(value)
+    folder, fd, uid, gid = _writer_root(tmp_path)
+    try:
+        authority.prepare_offline_writer_lock_source(fd, uid=uid, gid=gid)
+        with pytest.raises(StateError, match="authority subdirectory pathname missing"):
+            with authority._offline_writer_lock(fd, uid=uid, gid=gid) as check:
+                def unlink_child(event=None):
+                    if event == "staged:root-grant.json":
+                        (folder / authority.DIRECTORY_NAME).rename(
+                            folder / "renamed-no-name")
+                    check()
+                authority._publish_bundle(
+                    fd, value["materials"], receipt, os.getgid(),
+                    verify_writer=unlink_child)
+        assert not (folder / "renamed-no-name" /
+                    authority.RECEIPT_NAME).exists()
+    finally:
+        os.close(fd)
+
+
+def test_intact_original_child_entry_preserves_same_byte_retry(tmp_path):
+    value = fixture()
+    receipt = verify(value)
+    folder, fd, uid, gid = _writer_root(tmp_path)
+    try:
+        authority.prepare_offline_writer_lock_source(fd, uid=uid, gid=gid)
+        child = folder / authority.DIRECTORY_NAME
+        with authority._offline_writer_lock(fd, uid=uid, gid=gid) as check:
+            authority._publish_bundle(fd, value["materials"], receipt,
+                                      os.getgid(), verify_writer=check)
+        before = child.stat().st_ino
+        initial_inodes = {name:(child / name).stat().st_ino
+                          for name in authority.FILES}
+        with authority._offline_writer_lock(fd, uid=uid, gid=gid) as check:
+            authority._publish_bundle(fd, value["materials"], receipt,
+                                      os.getgid(), verify_writer=check)
+        assert child.stat().st_ino == before
+        assert initial_inodes == {name:(child / name).stat().st_ino
+                                  for name in authority.FILES}
     finally:
         os.close(fd)
