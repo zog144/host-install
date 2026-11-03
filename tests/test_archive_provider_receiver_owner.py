@@ -265,16 +265,29 @@ def test_receipt_requires_independent_witness_and_terminal_request_cannot_reopen
     assert (path / "archive-provider-ledger.json").exists()
 
 
-def test_missing_replaced_original_marker_is_hard_hold(tmp_path):
+def test_missing_original_marker_is_hard_hold(tmp_path):
     path, receiver, args, *_ = fixtures(tmp_path)
     marker = path / "archive-provider-lock-identity.json"
     marker.rename(path / "marker-retained")
     with pytest.raises(OSError):
         receiver.claim(**args)
-    marker.write_bytes((path / "marker-retained").read_bytes())
-    marker.chmod(0o600)
-    # Even byte-identical replacement cannot be adopted if the original
-    # marker was replaced mid-operation; this standalone pre-entry check
-    # establishes only that retained lock inode itself is still consistent.
-    assert receiver.claim(**args)["status"] == "claimed"
-    assert not (path / "marker-retained").is_symlink()
+    assert not (path / "archive-provider-ledger.json").exists()
+
+
+def test_marker_replacement_during_claim_prevents_receipt(tmp_path, monkeypatch):
+    path, receiver, args, *_ = fixtures(tmp_path)
+    original = receiver._persist
+    changed = []
+    def replace_before_publish(fd, lock, marker, state):
+        if not changed:
+            changed.append(True)
+            name = path / "archive-provider-lock-identity.json"
+            name.rename(path / "original-marker-retained")
+            name.write_bytes((path / "original-marker-retained").read_bytes())
+            name.chmod(0o600)
+        return original(fd, lock, marker, state)
+    monkeypatch.setattr(receiver, "_persist", replace_before_publish)
+    with pytest.raises(ReceiverHold, match="writer identity replaced"):
+        receiver.claim(**args)
+    assert changed
+    assert not (path / "archive-provider-ledger.json").exists()
