@@ -231,3 +231,14 @@ def test_canonical_pr22_disabled_policy_is_required_for_signed_ipc_extension():
         with pytest.raises((ipc.ArchiveIpcHold,ValueError)):
             ipc.verify_disabled_source_policy_compatibility(
                 {**selected,**source_change},p)
+
+def test_unframed_stream_cannot_replace_selected_seqpacket_fd_transport():
+    p=identity();t=operation(p);state=installed(t)
+    left,right=socket.socketpair(socket.AF_UNIX,socket.SOCK_STREAM)
+    fd=secret_fd()
+    try:
+        with pytest.raises(ipc.ArchiveIpcHold):
+            ipc.send_synthetic_fd_once(
+                left,fd=fd,transfer=t,policy=p,handoff_state=state)
+    finally:
+        os.close(fd);left.close();right.close()
