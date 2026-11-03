@@ -1313,3 +1313,22 @@ def test_integrated_staging_crash_retry_and_inspection_retain_original_inodes(
     assert (child / authority.RECEIPT_NAME).read_bytes() == canonical(receipt)
     for name, ino in prior_inodes.items():
         assert (child / name).stat().st_ino == ino, name
+
+
+def test_original_parent_dac_cannot_relax_while_writer_holds_lock(tmp_path):
+    """The same ancestor inode with wider DAC is not the reviewed parent."""
+    parent, relocated, folder, fd, uid, gid = _protected_parent_alias_for_review(tmp_path)
+    try:
+        authority.prepare_offline_writer_lock_source(fd, uid=uid, gid=gid)
+        original = parent.stat()
+        with pytest.raises(StateError, match="original offline ancestor"):
+            with authority._offline_writer_lock(
+                    fd, uid=uid, gid=gid, path=str(folder)) as guard:
+                parent.chmod(0o777)
+                assert parent.stat().st_ino == original.st_ino
+                guard()
+        assert (folder / authority.LOCK_NAME).stat().st_ino
+        assert not (folder / authority.DIRECTORY_NAME).exists()
+    finally:
+        parent.chmod(0o700)
+        os.close(fd)
