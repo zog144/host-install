@@ -24,3 +24,19 @@ Source CI is [integrated protected writer workflow](https://github.com/zog144/ho
 ## Remaining authorization and security limits
 
 This source evidence is not an independent human security signoff or rights permission. A malicious privileged writer that bypasses these functions, filesystem rollback, races replacing the entire trusted mount outside the configured path, physical disk or mount identity, reboot persistence, original root/marker custody, source-to-installed wheel attestation, real signer provenance, AWS IID, root grant, operator approval, and genuine STATION/STATE identity still require separately authorized verification. Real Credential Authority / certificate assignment / administrator-password delivery remains disabled; no production companion repin.
+
+
+## Independent follow-up: complete path and original permissions
+
+An additional source review of the consolidated PR #20 found two cases where checking only the final leaf inode was insufficient:
+
+1. The protected *ancestor directory* might be renamed, then replaced at the configured pathname by a symlink back to the original directory. The selected offline root would still have the same `st_dev` and `st_ino`, and the original lock would still be held, but the configured parent entry would no longer be the original protected path. The writer now pins the device/inode identities of **every original parent component** and rejects a changed or symlinked ancestor at each guard invocation. The configured leaf identity and existing separately checked DAC remain required. A regression deliberately gives the same root two paths through such an alias and verifies that protected staging and inspection cannot return success after the alias is substituted.
+2. The root-only **staged child directory** could change ownership, group or mode to become less restrictive while preserving its inode. The previous child-name check rejected renamed children but did not continuously recheck the original `root:root 0700` protection during material and receipt operations. The child guard now enforces its original owner/group/mode and same-device constraint at every staging and inspection readback checkpoint. New tests relax the child to 0755 during the protected material link and during an inspection read and require a hard failure before accepting the receipt.
+
+These are fail-closed source checks, not a guarantee against arbitrary activity by an already malicious privileged process between checkpoints, rollback of protected storage, inode reuse across host restarts or mount namespace substitution. The tests still use temporary synthetic roots and do not open a native Command-Center installation.
+
+## One source-selection rule
+
+**Select PR #20 as the only integrated protected writer source candidate.** Its parent is the final PR #18 original-lock candidate, with original host-install PR #8 beneath that; **PR #19 is a superseded and closed divergent ancestor candidate, not an acceptable installation source or production pin**. The source workflow verifies the exact current checkout, both original ancestor commits, the non-ancestry of the superseded PR #19 head, unchanged generic `state_io.py` and packaging, and this explicit source-selection statement.
+
+This does not repin an accepted station-access production companion or replace any currently staged Work venv. The independent protected installation owner must still approve the *specific installed bytes* and exact original offline directory/lock/marker identities before any native authority operation.
