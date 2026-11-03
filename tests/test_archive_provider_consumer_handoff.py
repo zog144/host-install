@@ -201,3 +201,31 @@ def test_rejected_cross_consumer_authority_scope_and_disabled(tmp_path,monkeypat
         bridge.deliver_once(signed_authorization=args["signed_authorization"],
                             request=altered,signed_delivery=signed,now=args["now"])
     assert provider.inspect(args["scope"])["status"]=="unavailable"
+
+def test_revocation_ack_lost_after_actual_tombstone_still_blocks_use_and_redelivery(tmp_path,monkeypatch):
+    bridge,args,authority,auth,req,delivery,signed,receipt,root=scene(tmp_path,monkeypatch)
+    deliver(bridge,args,req,signed)
+    bridge.reconcile_receipt(receipt=receipt,request=req,delivery=delivery,now=args["now"])
+    revoked={**auth,"status":"revoked","revision":auth["revision"]+1,
+             "revoked_at":args["now"]}
+    envelope=cd.sign_authorization(revoked,authority)
+    original=provider.apply_signed_revocation
+    calls=[]
+    def lost_response_after_real_tombstone(*a,**k):
+        result=original(*a,**k)
+        calls.append(result["status"])
+        raise RuntimeError("lost revocation acknowledgement")
+    monkeypatch.setattr(provider,"apply_signed_revocation",
+                        lost_response_after_real_tombstone)
+    with pytest.raises(RuntimeError,match="lost revocation"):
+        bridge.apply_revocation(signed_revocation=envelope,now=args["now"])
+    assert calls==["revoked"]
+    bridge.receiver=OfflineArchiveReceiver(bridge.receiver.directory,enabled=True)
+    assert bridge.receiver.inspect_handoff()["revoked"] is True
+    assert provider.inspect(args["scope"])["reason"]=="authorization-revoked"
+    with pytest.raises(provider.ProviderCredentialError):
+        provider.open_for(args["scope"],operation="fetch",collection="sources")
+    with pytest.raises((ReceiverHold,ValueError)):
+        bridge.deliver_once(signed_authorization=args["signed_authorization"],
+                            request=req,signed_delivery=signed,now=args["now"])
+    assert calls==["revoked"]
