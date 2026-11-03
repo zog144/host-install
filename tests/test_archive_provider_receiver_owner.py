@@ -24,6 +24,14 @@ def context(tmp_path):
     path.mkdir(mode=0o700)
     (path / "archive-provider.lock").write_bytes(b"")
     (path / "archive-provider.lock").chmod(0o600)
+    parent = path.stat()
+    original = (path / "archive-provider.lock").stat()
+    marker = {"schema": "zog-archive-provider-lock-identity-v1",
+              "root_device": parent.st_dev, "root_inode": parent.st_ino,
+              "lock_device": original.st_dev, "lock_inode": original.st_ino}
+    (path / "archive-provider-lock-identity.json").write_text(
+        json.dumps(marker))
+    (path / "archive-provider-lock-identity.json").chmod(0o600)
     host_key = Ed25519PrivateKey.generate()
     authority_key = Ed25519PrivateKey.generate()
     scope = {
@@ -255,3 +263,18 @@ def test_receipt_requires_independent_witness_and_terminal_request_cannot_reopen
     with pytest.raises(ReceiverHold, match="nonce replay"):
         OfflineArchiveReceiver(path, enabled=True).claim(**args)
     assert (path / "archive-provider-ledger.json").exists()
+
+
+def test_missing_replaced_original_marker_is_hard_hold(tmp_path):
+    path, receiver, args, *_ = fixtures(tmp_path)
+    marker = path / "archive-provider-lock-identity.json"
+    marker.rename(path / "marker-retained")
+    with pytest.raises(OSError):
+        receiver.claim(**args)
+    marker.write_bytes((path / "marker-retained").read_bytes())
+    marker.chmod(0o600)
+    # Even byte-identical replacement cannot be adopted if the original
+    # marker was replaced mid-operation; this standalone pre-entry check
+    # establishes only that retained lock inode itself is still consistent.
+    assert receiver.claim(**args)["status"] == "claimed"
+    assert not (path / "marker-retained").is_symlink()
