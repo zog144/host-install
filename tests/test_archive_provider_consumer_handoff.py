@@ -8,6 +8,19 @@ from pathlib import Path
 import uuid
 
 import pytest
+from django.conf import settings
+if not settings.configured:
+    # The actual pinned archive model imports require an initialized Django
+    # app registry, but this test never opens a database or production config.
+    settings.configure(
+        INSTALLED_APPS=["zog.archive_mirror"],
+        DATABASES={"default":{"ENGINE":"django.db.backends.sqlite3",
+                              "NAME":":memory:"}},
+        SECRET_KEY="synthetic-offline-review-only",
+        USE_TZ=True,
+    )
+import django
+django.setup()
 from zog.host_identify import archive_credentials as ac
 from zog.host_identify import credential_delivery as cd
 from zog.host_install.archive_provider_handoff import ArchiveProviderHandoff
