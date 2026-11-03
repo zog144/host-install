@@ -913,6 +913,14 @@ def _assert_original_child(root_fd, child_fd):
             (child.st_dev, child.st_ino) == (named.st_dev, named.st_ino),
             "command-center-authority-publication",
             "authority subdirectory pathname was replaced")
+    # Publication and inspection readback require the same root-only
+    # 0700 namespace protection for the *entire* operation. Checking mode
+    # only at opening would allow mid-operation permission relaxation.
+    require((child.st_uid, child.st_gid, stat.S_IMODE(child.st_mode))
+                == (0, 0, 0o700)
+            and child.st_dev == os.fstat(root_fd).st_dev,
+            "command-center-authority-publication",
+            "protected authority subdirectory ownership or mode changed")
 
 
 def _publish_bundle(root_fd, materials, receipt, reader_gid, *,
