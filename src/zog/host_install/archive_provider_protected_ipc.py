@@ -77,7 +77,7 @@ def validate_policy(policy):
             or not isinstance(policy["registry_id"], str)
             or not policy["registry_id"]
             or not isinstance(policy["scope_id"], str)
-            or not _SHA.fullmatch(policy["scope_id"])  # protected scope fingerprint
+            or not _H64.fullmatch(policy["scope_id"])  # protected scope fingerprint
             or type(policy["authority_revision"]) is not int
             or policy["authority_revision"] < 1
             or type(policy["app_uid"]) is not int or policy["app_uid"] < 1
