@@ -28,6 +28,7 @@ CONSUMER = "archive-mirror"
 MAX_SECRET = 65536
 MAX_CONTROL = 4096
 _SHA = re.compile(r"sha256:[0-9a-f]{64}\Z")
+_H64 = re.compile(r"[0-9a-f]{64}\\Z")
 _FIELDS = frozenset({
     "schema", "consumer", "purpose", "host_id", "installation_id",
     "state_volume_id", "registry_id", "scope_id", "authority_revision",
