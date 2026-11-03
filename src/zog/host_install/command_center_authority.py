@@ -792,29 +792,74 @@ def prepare_offline_writer_lock_source(root_fd, *, uid, gid,
         fcntl.flock(root_fd, fcntl.LOCK_UN)
 
 
+def _writer_root_path_identity(root_fd, path):
+    """The configured pathname must still resolve to the held root inode.
+
+    A directory can be renamed while its flock is held. Without this check
+    a replacement directory could be independently bootstrapped at the same
+    pathname, giving two writers different *directory* lock objects.
+    """
+    require(type(path) is str and path.startswith("/"),
+            "command-center-authority-writer-root", "absolute offline root required")
+    try:
+        named = os.lstat(path)
+        held = os.fstat(root_fd)
+    except OSError as exc:
+        raise StateError("command-center-authority-writer-root",
+                         "original offline pathname disappeared") from exc
+    require(stat.S_ISDIR(named.st_mode)
+            and (named.st_dev, named.st_ino) == (held.st_dev, held.st_ino),
+            "command-center-authority-writer-root",
+            "original offline directory pathname was replaced")
+
+
+def _writer_marker_inode(root_fd, marker_fd, uid, gid):
+    held = os.fstat(marker_fd)
+    try:
+        named = os.stat(LOCK_IDENTITY_NAME, dir_fd=root_fd,
+                        follow_symlinks=False)
+    except OSError as exc:
+        raise StateError("command-center-authority-writer-lock",
+                         "durable writer marker disappeared") from exc
+    require(stat.S_ISREG(held.st_mode) and held.st_nlink == 1
+            and (held.st_uid, held.st_gid, stat.S_IMODE(held.st_mode))
+                == (uid, gid, 0o600)
+            and (named.st_dev, named.st_ino) == (held.st_dev, held.st_ino),
+            "command-center-authority-writer-lock",
+            "durable writer marker inode was replaced")
+
+
 @contextmanager
-def _offline_writer_lock(root_fd, *, uid=0, gid=0):
+def _offline_writer_lock(root_fd, *, uid=0, gid=0, path=None):
     """Hold original root DIRECTORY flock plus persisted exact lock inode.
 
-    Unlike state_io.lock this NEVER creates or adopts a replacement lock.
-    The directory flock ensures a second legitimate writer cannot enter
-    between the loss of a pathname and the first writer's fail-closed check.
-    The persisted marker survives restarts and prevents later adoption of a
-    freshly created but correctly permissioned replacement inode.
+    If path is supplied by stage/inspect, also bind the configured directory
+    namespace entry. A same-byte marker replacement *during* this operation
+    is not accepted, even though its contents still describe the original
+    lock inode. Neither stage nor inspect creates a new lock or marker.
     """
     _writer_root_shape(root_fd, uid, gid)
     fcntl.flock(root_fd, fcntl.LOCK_EX)
     handle = None
+    marker_fd = None
     try:
+        if path is not None:
+            _writer_root_path_identity(root_fd, path)
         try:
             handle = os.open(LOCK_NAME, os.O_RDWR | os.O_NOFOLLOW |
                              os.O_CLOEXEC, dir_fd=root_fd)
+            marker_fd = os.open(LOCK_IDENTITY_NAME,
+                                os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                                dir_fd=root_fd)
         except OSError as exc:
             raise StateError("command-center-authority-writer-lock",
-                             "independently provisioned lock missing") from exc
+                             "independently provisioned lock/marker missing") from exc
         original = _writer_identity(root_fd, handle, uid, gid)
         fcntl.flock(handle, fcntl.LOCK_EX)
         def check(*_):
+            if path is not None:
+                _writer_root_path_identity(root_fd, path)
+            _writer_marker_inode(root_fd, marker_fd, uid, gid)
             require(_writer_identity(root_fd, handle, uid, gid) == original,
                     "command-center-authority-writer-lock",
                     "protected writer identity changed during publication")
@@ -822,6 +867,8 @@ def _offline_writer_lock(root_fd, *, uid=0, gid=0):
         yield check
         check()
     finally:
+        if marker_fd is not None:
+            os.close(marker_fd)
         if handle is not None:
             os.close(handle)
         fcntl.flock(root_fd, fcntl.LOCK_UN)
@@ -915,7 +962,7 @@ def stage_offline(*, offline_directory, paths, reader_gid,
     )
     root_fd = _offline_root(offline_directory)
     try:
-        with _offline_writer_lock(root_fd) as verify_writer:
+        with _offline_writer_lock(root_fd, path=offline_directory) as verify_writer:
             # The station database is an identity input, not mutable source
             # authority. A replacement between validation and durable
             # publication must not be accepted even if all signed material
