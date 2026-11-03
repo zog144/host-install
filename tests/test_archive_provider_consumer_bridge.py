@@ -157,6 +157,12 @@ def test_pending_or_wrong_purpose_denies_before_consumer_install(tmp_path, monke
 def test_actual_signed_revocation_and_interruption_preserve_objects(tmp_path, monkeypatch):
     owner, root, receiver, params, auth, key, delivery = ready(tmp_path, monkeypatch)
     complete_offline(receiver, **params, permit_first_install=True)
+    from django.core.management import call_command
+    from zog.archive_mirror.models import Archive, Pin
+    call_command("migrate", verbosity=0, interactive=False)
+    retained = Archive.objects.create(collection="sources", digest="a" * 64,
+                                      size=16, kind="source", provenance={"source": "fixture"})
+    Pin.objects.create(archive=retained, name="keep-forever")
     objects = root / "objects"; objects.mkdir()
     pins = root / "retained-pins"; pins.mkdir()
     (objects / "sample-object").write_bytes(b"immutable-object")
@@ -185,6 +191,8 @@ def test_actual_signed_revocation_and_interruption_preserve_objects(tmp_path, mo
         consumer.open_for(params["scope"], operation="fetch", collection="sources")
     assert (objects / "sample-object").read_bytes() == b"immutable-object"
     assert (pins / "pin-evidence").read_bytes() == b"retained-pin"
+    assert Archive.objects.filter(pk=retained.pk).exists()
+    assert Pin.objects.filter(archive=retained, name="keep-forever").exists()
     assert revoke_offline(receiver, **call)["status"] == (
         "application-revocation-observed-no-native-ack")
 
