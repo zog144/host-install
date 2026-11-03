@@ -17,14 +17,14 @@ def identity():
     return {"schema":ipc.POLICY_SCHEMA,"consumer":ipc.CONSUMER,"purpose":ipc.PURPOSE,
             "host_id":str(uuid.uuid4()),"installation_id":str(uuid.uuid4()),
             "state_volume_id":str(uuid.uuid4()),"registry_id":"registry-a",
-            "scope_id":"a"*64,"authority_revision":8,
+            "scope_id":"a"*64,"credential_revision":6,"authority_revision":8,
             "app_uid":uid,"app_gid":gid,"app_pid":os.getpid(),
             "app_source_sha256":"sha256:"+"b"*64,
             "boot_id":str(uuid.uuid4()),"invocation_id":str(uuid.uuid4())}
 
 def operation(p):
     row={key:p[key] for key in ("host_id","registry_id","scope_id","installation_id","state_volume_id",
-                                "boot_id","invocation_id","authority_revision")}
+                                "boot_id","invocation_id","credential_revision","authority_revision")}
     row.update(schema=ipc.TRANSFER_SCHEMA,consumer=ipc.CONSUMER,purpose=ipc.PURPOSE,
                action="deliver",request_id=str(uuid.uuid4()),
                delivery_id=str(uuid.uuid4()))
@@ -48,7 +48,7 @@ def ack(p,t,*,kind="installed",sequence=2,nonce=None,key=None):
     nonce=nonce or str(uuid.uuid4())
     body={"schema":ipc.ACK_SCHEMA,"kind":kind,
           **{k:p[k] for k in ("host_id","registry_id","scope_id","installation_id","state_volume_id",
-                              "boot_id","invocation_id","authority_revision",
+                              "boot_id","invocation_id","credential_revision","authority_revision",
                               "app_source_sha256")},
           "request_id":t["request_id"],"delivery_id":t["delivery_id"],
           "sequence":sequence,"fresh_nonce":nonce,
@@ -161,6 +161,7 @@ def test_signed_native_install_byte_witness_and_revocation_ack_exact_binding():
     lambda row:row.update(state_volume_id=str(uuid.uuid4())),
     lambda row:row.update(boot_id=str(uuid.uuid4())),
     lambda row:row.update(invocation_id=str(uuid.uuid4())),
+    lambda row:row.update(credential_revision=7),
     lambda row:row.update(authority_revision=9),
     lambda row:row.update(app_source_sha256="sha256:"+"f"*64),
     lambda row:row.update(witness={"status":"installed","installed_bytes_verified":False}),
@@ -195,3 +196,38 @@ def test_wrong_attester_nonce_and_ack_after_power_loss_is_not_send_permission():
                 handoff_state={"status":"installed","request_id":t["request_id"],
                                "delivery_id":t["delivery_id"],"revoked":False})
     finally:os.close(fd);a.close();b.close()
+
+def canonical_disabled_source_policy(p):
+    from zog.host_install import archive_provider_ipc_contract as original
+    return dict(schema=original.SCHEMA,enabled=False,native_accepted=False,
+                purpose=original.PURPOSE,consumer=original.CONSUMER,root_uid=0,
+                application_uid=p["app_uid"],application_gid=p["app_gid"],
+                host_id=p["host_id"],installation_id=p["installation_id"],
+                state_volume_id=p["state_volume_id"],scope_id=p["scope_id"],
+                credential_revision=p["credential_revision"],
+                authorization_revision=p["authority_revision"],
+                consumer_source_sha256=p["app_source_sha256"][7:],
+                socket_path="/run/zog/archive-provider-credential.sock")
+
+
+def test_canonical_pr22_disabled_policy_is_required_for_signed_ipc_extension():
+    p=identity()
+    selected=canonical_disabled_source_policy(p)
+    result=ipc.verify_disabled_source_policy_compatibility(selected,p)
+    assert result["native_accepted"] is False
+    for source_change in (
+        {"host_id":str(uuid.uuid4())},
+        {"installation_id":str(uuid.uuid4())},
+        {"state_volume_id":str(uuid.uuid4())},
+        {"credential_revision":p["credential_revision"]+1},
+        {"authorization_revision":p["authority_revision"]+1},
+        {"consumer_source_sha256":"f"*64},
+        {"application_uid":p["app_uid"]+1},
+        {"application_gid":p["app_gid"]+1},
+        {"purpose":"issuer-cloudflare-dns01"},
+        {"enabled":True},
+        {"native_accepted":True},
+    ):
+        with pytest.raises((ipc.ArchiveIpcHold,ValueError)):
+            ipc.verify_disabled_source_policy_compatibility(
+                {**selected,**source_change},p)
