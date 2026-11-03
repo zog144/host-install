@@ -1,4 +1,4 @@
-name: Archive provider receiver interface source model
+name: Archive provider receiver offline owner source
 on:
   push:
     branches: [regular/archive-provider-receiver-interface-20261103]
@@ -8,7 +8,7 @@ permissions:
 jobs:
   archive-provider-interface:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -17,11 +17,19 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: zog144/host-identify
+          ref: 59dbc181f54c6ac29ee5eb1f83b6f322fb73c037
+          path: companion-host-identify
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - run: python -m pip install 'pytest>=8,<10'
-      - run: python -m pytest -q tests/test_archive_provider_receiver_contract.py
-      - name: No authority installation
+      - run: python -m pip install 'pytest>=8,<10' cryptography requests http-message-signatures
+      - name: Verify disabled contract and offline cryptographic/ledger source
+        run: |
+          PYTHONPATH="$PWD/src:$PWD/companion-host-identify/src" python -m pytest -q tests/test_archive_provider_receiver_contract.py tests/test_archive_provider_receiver_owner.py
+      - name: No native credential receiver
         if: always()
-        run: echo 'Source-only, disabled receiver contract model. No network, credential, archive data or native installation.' >> "$GITHUB_STEP_SUMMARY"
+        run: echo 'Offline source only. No HTTPS listener, real credentials, archive installation, STATE, service enablement or native acceptance.' >> "$GITHUB_STEP_SUMMARY"
