@@ -228,7 +228,7 @@ class OfflineArchiveReceiver:
             if state is not None:
                 if state["revoked"] or state["canonical"]["authorization_status"] == "revoked":
                     _hold("revoked ledger")
-                if state["phase"] in ("claimed", "delivered"):
+                if state["phase"] in ("claimed", "delivered", "installing"):
                     _hold("incomplete operation requires independent recovery")
                 if nonce in state["nonces"]:
                     _hold("nonce replay")
@@ -282,6 +282,39 @@ class OfflineArchiveReceiver:
         finally:
             self._close(fd, lock, marker)
 
+    def begin_install_handoff(self, *, request, delivery):
+        """Irrevocably fence the actual archive consumer call BEFORE invoking it.
+
+        A restart in 'installing' may ONLY reconcile with independent installed
+        proof. It may not re-enter install_verified, even with identical bytes.
+        Archive objects and pins remain untouched.
+        """
+        if not isinstance(request, dict) or not isinstance(delivery, dict):
+            _hold("invalid archive application handoff")
+        if (request.get("request_id") != delivery.get("request_id") or
+                request.get("authorization_id") != delivery.get("authorization_id") or
+                request.get("credential_revision") != delivery.get("credential_revision")):
+            _hold("archive application handoff identity mismatch")
+        fd, lock, marker = self._open()
+        try:
+            state = _load(fd)
+            if (state is None or state["revoked"] or state["phase"] != "delivered"
+                    or state["request_id"] != request.get("request_id")
+                    or state["delivery_id"] != delivery.get("delivery_id")):
+                _hold("archive application handoff already claimed or uncertain")
+            matched = [row for row in state["canonical"]["requests"]
+                       if row["request_id"] == request["request_id"]]
+            if len(matched) != 1 or matched[0]["status"] != "delivered":
+                _hold("canonical archive delivery not confirmed")
+            # This MUST commit before the first archive consumer side effect.
+            state["phase"] = "installing"
+            self._persist(fd, lock, marker, state)
+            return {"status": "installation-uncertain",
+                    "request_id": request["request_id"],
+                    "delivery_id": delivery["delivery_id"]}
+        finally:
+            self._close(fd, lock, marker)
+
     def record_receipt(self, *, receipt, request, delivery, now,
                        verify_installed_receipt=None):
         """Only a separately verified native installation may submit its receipt.
@@ -295,7 +328,7 @@ class OfflineArchiveReceiver:
         fd, lock, marker = self._open()
         try:
             state = _load(fd)
-            if (state is None or state["revoked"] or state["phase"] != "delivered" or
+            if (state is None or state["revoked"] or state["phase"] != "installing" or
                     state["request_id"] != request["request_id"] or
                     state["delivery_id"] != delivery["delivery_id"]):
                 _hold("no verified installation checkpoint")
