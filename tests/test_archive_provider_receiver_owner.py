@@ -74,9 +74,10 @@ def request(scope, authorization, host_key, now):
         "created_at": now - 1,
         "expires_at": now + 60,
     }
-    msg = cd.prepare_request(URL, value, authorization, host_key,
-                             now=datetime.fromtimestamp(now, timezone.utc),
-                             nonce="K" * 24)
+    cd.validate_request(value, authorization, now=now)
+    msg = signatures.sign(URL, cd.canonical(value), host_key, value["host_id"],
+                          now=datetime.fromtimestamp(now, timezone.utc),
+                          nonce="K" * 24)
     return value, msg
 
 
@@ -108,7 +109,6 @@ def test_disabled_and_signed_claim_persists_no_secrets(tmp_path):
     assert (path / "archive-provider-ledger.json").stat().st_mode & 0o777 == 0o600
     with pytest.raises(ReceiverHold, match="incomplete"):
         OfflineArchiveReceiver(path, enabled=True).claim(**args)
-    assert receiver.claim if callable(receiver.claim) else False
 
 
 @pytest.mark.parametrize("field,replacement", [
