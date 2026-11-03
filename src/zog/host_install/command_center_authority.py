@@ -853,7 +853,7 @@ def _offline_writer_lock(root_fd, *, uid=0, gid=0, path=None):
                                 dir_fd=root_fd)
         except OSError as exc:
             raise StateError("command-center-authority-writer-lock",
-                             "independently provisioned lock/marker missing") from exc
+                             "durable lock identity missing or independently provisioned lock absent") from exc
         original = _writer_identity(root_fd, handle, uid, gid)
         fcntl.flock(handle, fcntl.LOCK_EX)
         def check(*_):
