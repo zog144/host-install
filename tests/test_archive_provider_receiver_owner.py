@@ -206,3 +206,52 @@ def test_signed_revocation_persists_through_restart(tmp_path):
         OfflineArchiveReceiver(path, enabled=True).claim(**args)
     with pytest.raises((ValueError, ReceiverHold)):
         receiver.hold_revoked(**{**rev_args, "signed_authorization": args["signed_authorization"]})
+
+
+def test_receipt_requires_independent_witness_and_terminal_request_cannot_reopen(tmp_path):
+    path, receiver, args, auth, authority, req = fixtures(tmp_path)
+    receiver.claim(**args)
+    delivered = {
+        "schema": cd.DELIVERY_SCHEMA, "request_id": req["request_id"],
+        "delivery_id": str(uuid.uuid4()),
+        "authorization_id": auth["authorization_id"],
+        "authorization_revision": auth["revision"],
+        "credential_id": auth["credential_id"],
+        "credential_revision": auth["credential_revision"],
+        "consumer": "archive-mirror",
+        "purpose": "archive-mirror-upstream-fetch",
+        "issued_at": args["now"] - 1, "expires_at": args["now"] + 60,
+        "secret_format": "base64", "secret": "dGVzdA==",
+    }
+    signed = cd.sign_delivery(delivered, authority)
+    dargs = {k: args[k] for k in (
+        "scope", "expected_scope", "signed_authorization",
+        "authority_public_key", "expected_issuer", "now")}
+    receiver.verify_and_record_delivery(
+        **dargs, request=req, signed_delivery=signed)
+    receipt = {
+        "schema": cd.RECEIPT_SCHEMA, **ac.provider_binding(args["scope"]),
+        "credential_revision": req["credential_revision"],
+        "authorization_id": req["authorization_id"],
+        "authorization_revision": req["authorization_revision"],
+        "request_id": req["request_id"],
+        "delivery_id": delivered["delivery_id"],
+        "receipt_id": str(uuid.uuid4()),
+        "outcome": "installed",
+        "installed_at": args["now"],
+    }
+    rargs = dict(receipt=receipt, request=req,
+                 delivery=delivered, now=args["now"])
+    with pytest.raises(ReceiverHold, match="missing independent"):
+        receiver.record_receipt(**rargs)
+    with pytest.raises(ReceiverHold, match="witness denied"):
+        receiver.record_receipt(**rargs,
+                                verify_installed_receipt=lambda *_: False)
+    assert receiver.record_receipt(
+        **rargs, verify_installed_receipt=lambda *_: True
+    )["status"] == "receipt-durable"
+    # Re-signed request with an unused nonce still cannot consume the same
+    # request identity once the installation was acknowledged.
+    with pytest.raises(ReceiverHold, match="nonce replay"):
+        OfflineArchiveReceiver(path, enabled=True).claim(**args)
+    assert (path / "archive-provider-ledger.json").exists()
