@@ -18,7 +18,7 @@ It verifies the operator signature over the Command-Center identity, the PR #9 r
 
 ## Offline publication
 
-The destination must already be a root:root 0700 directory below `/opt/station-trust/` whose basename ends in `-offline`. The writer creates only `host-install-command-center-authority/` below that inert directory and uses the persistent root-owner lock `.host-install-command-center-authority.lock`.
+The destination must already be a root:root 0700 directory below `/opt/station-trust/` whose basename ends in `-offline`. The writer creates only `host-install-command-center-authority/` below that inert directory. **Staging and inspection now require a separately pre-provisioned, persistent root-owned `.host-install-command-center-authority.lock` plus immutable-in-place `.host-install-command-center-authority.lock-identity-v1.json`.** Neither operation creates or repairs a missing/replaced lock.
 
 Publication uses host-install's descriptor-anchored `state_io.publish`: O_EXCL/O_NOFOLLOW staging, fsync, hard-link publication, same-byte recovery, and refusal to replace conflicting bytes. It stages the operator pin, signed identity and AWS evidence; retained certificate signer pin; root grant and operator approval; issuer-reader projection; Credential Authority private PEM and public pin; canonical signed authorization and operator role approval; and a root-private secret-free receipt.
 
@@ -44,8 +44,57 @@ Material is stored only under an existing root:root 0700 offline directory below
 ### Remaining independent-owner and native holds
 
 1. Independent operator authentication of the original Command-Center AWS IID, station database origin and original operator key. Caller-supplied hash and unsigned synthetic AWS evidence file do not authenticate themselves.
-2. Attest exact 0.14.10 host-install installed wheel/RECORD, protected directories/mount/inode, real UID/GID separation, root writer lock and recovery. Generic state_io.lock is create-if-missing and does not durably bind the lock inode: native integration must prevent deletion/replacement of its pathname while another writer holds an old lock. The root-only offline directory protects unprivileged substitution, not independently authorized root coordination.
+2. Attest exact 0.14.10 host-install installed wheel/RECORD, protected directories/mount/inode, real UID/GID separation, the original separately prepared root writer-lock inode and root-directory identity. The Command-Center path **does not** use generic state_io.lock anymore; the new anchored writer guard requires external bootstrap and tests loss/replacement as fail closed. Native integration must still verify genuine filesystem/disk provenance and recover a partial initial bootstrap through explicit operator review, not a silent replacement.
 3. Independently inspect the retained certificate signer and distinct Credential Authority signer, approved issuer-reader group, restart/reboot readback, operator approval revision and no-replacement evidence.
 4. Separate offline preparation from installation, production activation, certificate operations and canonical administrator credential delivery. This source never provisions STATE or authorizes a live listener/broker.
 
 A second source review with the same GitHub actor is not a different person's security approval. Native/production disposition is **NO-GO** pending independent operator and installed-byte evidence.
+
+
+## Protected offline writer-lock identity — source review 2026-11-03
+
+The previously selected `state_io.lock` opened its lock pathname with
+`O_CREAT`. If another root-owner path replaced that inode during an
+interrupted multi-file publication, concurrent writers could acquire
+different `flock` objects. The new Command-Center-specific source contract
+refuses lock creation during **both** `stage_offline` and `inspect_offline`.
+
+Before the *first* offline staging operation, the independently approved
+protected native owner must prepare the existing root:root 0700 offline
+directory's 0600 lock and a durable 0600 lock-identity marker recording
+the exact root-directory `(st_dev, st_ino)` and lock-file `(st_dev, st_ino)`.
+The source-only `prepare_offline_writer_lock_source` helper demonstrates
+atomic no-replacement lock+marker staging inside the root-directory flock,
+but is not a live installation or authority approval endpoint.
+
+A crash after creating the lock but **before** its marker is durable leaves
+an incomplete bootstrap. The helper and the subsequent staging operation
+refuse to infer an intended original inode or recreate the lock. A
+separately authenticated recovery decision is required.
+
+Every later stage/inspect obtains an exclusive `flock` on the **root
+directory inode first**, opens the original lock `O_NOFOLLOW` without
+`O_CREAT`, confirms its owner/mode/one-link identity against the persistent
+marker, and then flocks that original lock. The guard re-verifies the
+directory, marker and original lock pathname at each staged file `fsync`,
+hard-link publication and final receipt readback, as well as after all
+materials are published. A lock deletion or replacement is a hard HOLD;
+a second conforming writer cannot enter while the original directory
+flock is held, and cannot adopt a newly created lock later.
+
+Source regressions cover missing/deleted/recreated/symlinked/hardlinked
+lock paths, concurrent interrupted writers, crash between initial lock
+and marker, pathname substitution between staged file publication steps,
+same-byte resumption with the intact original lock, and real root-owned
+ephemeral `stage_offline`/`inspect_offline` entrypoints. A post-crash
+partial bundle retains its inert bytes; no conflicting receipt is
+published or accepted automatically.
+
+**Native limits:** the separately administered owner must prove the
+directory and lock identity, and prevent privileged replacement of
+the root directory or its marker; synthetic `flock` tests cannot
+exclude a compromised root principal, filesystem rollback, or a
+foreign already-running writer that ignores the protected protocol.
+No actual Command-Center signing authority, `/opt/station-trust`
+state, canonical STATE, key, station database, or credential was
+installed by these source changes.
