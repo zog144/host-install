@@ -87,6 +87,18 @@ jobs:
             tests/test_certificate_execution_commit_interop.py
           sudo -E env PYTHONPATH="$PWD/src:$PWD/companions/root-control/src:$PWD/companions/box-control/box-control/src:$PWD/companions/host-deploy/src:$PWD/.ci-deps:$PWD/tests" \
             "$(command -v python)" -m pytest -q -rs tests/test_certificate_execution_epoch_integration.py tests/test_certificate_execution_provenance.py tests/test_certificate_recovery_revocation.py
+      - name: Verify corrected selected lock identity and cross-owner failures
+        run: |
+          # The root-control PR #27 focused source tests are exercised against
+          # this candidate host-install selection, never production STATE.
+          export PYTHONPATH="$PWD/src:$PWD/companions/root-control/src:$PWD/companions/box-control/box-control/src:$PWD/companions/box-control/box-control/tests:$PWD/companions/host-deploy/src:$PWD/.ci-deps:$PWD/tests"
+          python -m pytest -q -rs             companions/root-control/tests/test_issuer_execution_fence.py             companions/root-control/tests/test_issuer_execution_reconcile.py             companions/root-control/tests/test_issuer_systemd_fence.py
+          sudo -E env PYTHONPATH="$PYTHONPATH" "$(command -v python)" -m pytest -q -rs             companions/root-control/tests/test_issuer_exact_combined_security.py             -k 'not exact_pinned_owner_components_are_not_silently_replaced'
+          python - <<'PY'
+          from zog.host_install import certificate_selected_broker_install as installer
+          assert installer.ROOT_CONTROL_EXECUTION_REVIEWED_COMMIT == "38fca3ff67d9a7697d3a42c307bd13b1a4735982"
+          assert installer.BOX_CONTROL_REVIEWED_COMMIT == "baca7f815974dbf685950c0c7e78f693dd0a96e2"
+          PY
       - name: Native authorization remains withheld
         if: always()
         run: |
