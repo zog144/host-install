@@ -24,10 +24,10 @@ jobs:
         run: python -m pip install 'pytest>=8,<10' 'cryptography>=44,<49'
       - name: Exercise unprivileged protected lock identity and interruption tests
         run: |
-          PYTHONPATH="$PWD/src" python -m pytest -q -rs tests/test_command_center_authority.py -k 'writer_first_bootstrap or interrupted_first_lock_provisioning or vanished_or_substituted_protected_lock or competing_writers'
+          PYTHONPATH="$PWD/src" python -m pytest -q -rs tests/test_command_center_authority.py -k 'writer_first_bootstrap or interrupted_first_lock_provisioning or vanished_or_substituted_protected_lock or competing_writers or renamed_protected_root or durable_marker_entry or missing_marker_after'
       - name: Exercise actual root-owned offline stage and receipt inspection in ephemeral directories
         run: |
-          sudo -E env PYTHONPATH="$PWD/src" "$(command -v python)" -m pytest -q -rs tests/test_command_center_authority.py
+          sudo -E env PYTHONPATH="$PWD/src" "$(command -v python)" -m pytest -q -rs tests/test_command_center_authority.py tests/test_command_center_authority_readback_regression.py
       - name: No native authority installation
         if: always()
         run: |
