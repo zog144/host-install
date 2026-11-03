@@ -103,7 +103,7 @@ def test_ambiguous_success_reconciled_without_second_install(tmp_path, monkeypat
     assert consumer.inspect(params["scope"])["status"] == "installed"
     secret_path = next((root / "provider-credentials").glob("*.secret"))
     inode = secret_path.stat().st_ino
-    assert _load_owner(receiver)["phase"] == "delivered"
+    assert _load_owner(receiver)["phase"] == "installing"
     monkeypatch.setattr(receiver, "_persist", original_persist)
     def forbidden(*args, **kwargs):
         pytest.fail("recovery must not call install_verified again")
@@ -128,10 +128,10 @@ def test_uncertain_or_false_byte_witness_holds_without_redelivery(tmp_path, monk
     with pytest.raises(ReceiverHold, match="installed-byte witness denied"):
         complete_offline(receiver, **blocked, permit_first_install=True)
     assert consumer.inspect(params["scope"])["status"] == "installed"
-    assert _load_owner(receiver)["phase"] == "delivered"
+    assert _load_owner(receiver)["phase"] == "installing"
     with pytest.raises(ReceiverHold, match="installed-byte witness denied"):
         complete_offline(receiver, **blocked, permit_first_install=False)
-    assert _load_owner(receiver)["phase"] == "delivered"
+    assert _load_owner(receiver)["phase"] == "installing"
 
 
 def test_pending_or_wrong_purpose_denies_before_consumer_install(tmp_path, monkeypatch):
@@ -187,3 +187,22 @@ def test_actual_signed_revocation_and_interruption_preserve_objects(tmp_path, mo
     assert (pins / "pin-evidence").read_bytes() == b"retained-pin"
     assert revoke_offline(receiver, **call)["status"] == (
         "application-revocation-observed-no-native-ack")
+
+
+def test_failed_initial_attempt_never_redelivers_even_when_consumer_unavailable(
+    tmp_path, monkeypatch
+):
+    owner, root, receiver, params, *_ = ready(tmp_path, monkeypatch)
+    count = []
+    def failed_install(*args, **kwargs):
+        count.append(1)
+        raise OSError("synthetic crash before application publication")
+    monkeypatch.setattr(consumer, "install_verified", failed_install)
+    with pytest.raises(OSError, match="synthetic crash"):
+        complete_offline(receiver, **params, permit_first_install=True)
+    assert count == [1]
+    assert _load_owner(receiver)["phase"] == "installing"
+    assert consumer.inspect(params["scope"])["status"] == "unavailable"
+    with pytest.raises(ReceiverHold, match="ambiguous archive installation"):
+        complete_offline(receiver, **params, permit_first_install=True)
+    assert count == [1]
