@@ -31,13 +31,16 @@ jobs:
           git merge-base --is-ancestor 5f7d690933a6354087eebde60d3d79212ef979bf HEAD
           git merge-base --is-ancestor 19ad364313dca2dee79e39ad247dd9a784b3dc23 HEAD
           git cat-file -e e6341e37cd8209998986bf89effc97f865f1d266^{commit}
+          echo 'Verified base and superseded source objects are present'
           if git merge-base --is-ancestor e6341e37cd8209998986bf89effc97f865f1d266 HEAD; then
             echo 'ERROR: superseded PR19 has become the selected ancestor' >&2
             exit 1
           fi
           git diff --exit-code 19ad364313dca2dee79e39ad247dd9a784b3dc23 HEAD -- src/zog/host_install/state_io.py pyproject.toml
           grep -q 'single proposed combined descendant' docs/host-install/COMMAND-CENTER-WRITER-INTEGRATED-2026-11-03.md || grep -q 'only proposed combined descendant' docs/host-install/COMMAND-CENTER-WRITER-INTEGRATED-2026-11-03.md
-          grep -q 'not an alternative acceptable standalone final head' docs/host-install/COMMAND-CENTER-WRITER-INTEGRATED-2026-11-03.md
+          grep -q 'alternative acceptable standalone final head' docs/host-install/COMMAND-CENTER-WRITER-INTEGRATED-2026-11-03.md
+          grep -q 'superseded' docs/host-install/COMMAND-CENTER-WRITER-INTEGRATED-2026-11-03.md
+          echo 'Verified PR20-only integrated handoff, not superseded PR19'
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
           python-version: ${{ matrix.python }}
