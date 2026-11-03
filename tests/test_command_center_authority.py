@@ -1250,3 +1250,66 @@ def test_staged_child_mode_cannot_relax_during_inspection(tmp_path, monkeypatch)
         if child.exists():
             child.chmod(0o700)
         os.close(fd)
+
+
+@pytest.mark.skipif(os.geteuid() != 0, reason="actual protected synthetic stage/inspect requires root")
+@pytest.mark.parametrize("material", ("root-grant.json", authority.RECEIPT_NAME))
+@pytest.mark.parametrize("moment", ("staged", "linked", "published"))
+def test_integrated_staging_crash_retry_and_inspection_retain_original_inodes(
+        tmp_path, monkeypatch, material, moment):
+    """Real stage/inspect entrypoints, not an unguarded publish helper only."""
+    value = fixture()
+    receipt = verify(value)
+    folder, root, uid, gid = _writer_root(tmp_path)
+    authority.prepare_offline_writer_lock_source(root, uid=uid, gid=gid)
+    os.close(root)
+    lock = folder / authority.LOCK_NAME
+    marker = folder / authority.LOCK_IDENTITY_NAME
+    original_lock_inode = lock.stat().st_ino
+    original_marker_inode = marker.stat().st_ino
+    monkeypatch.setattr(authority, "_offline_root", lambda _:
+                        os.open(folder, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW))
+    monkeypatch.setattr(authority, "_read_inputs",
+                        lambda paths, reader_gid: value["materials"])
+    monkeypatch.setattr(authority, "_observe_database",
+                        lambda _: value["observed"])
+    monkeypatch.setattr(authority, "RETAINED_CERTIFICATE_SIGNER_SHA256",
+                        value["certificate_sha"])
+    args = dict(
+        offline_directory=str(folder), paths={}, reader_gid=21001,
+        expected_operator_pin_sha256=value["operator_sha"],
+        expected_instance_id=authority.COMMAND_CENTER_INSTANCE_ID,
+        expected_station_source_commit=authority.STATION_ACCESS_COMMIT,
+        expected_authorization_issuer=value["issuer"], now=NOW)
+    original_publish = authority.publish
+    crash_at = f"{moment}:{material}"
+    observed = []
+    def interrupting_publish(fd, name, data, *, mode, uid, gid, checkpoint=lambda _: None):
+        def checkpoint_and_crash(event):
+            checkpoint(event)
+            if event == crash_at and not observed:
+                observed.append(event)
+                raise SimulatedPublicationInterruption(event)
+        return original_publish(fd, name, data, mode=mode, uid=uid,
+                                gid=gid, checkpoint=checkpoint_and_crash)
+    with monkeypatch.context() as patcher:
+        patcher.setattr(authority, "publish", interrupting_publish)
+        with pytest.raises(SimulatedPublicationInterruption, match=material):
+            authority.stage_offline(**args)
+    assert observed == [crash_at]
+    child = folder / authority.DIRECTORY_NAME
+    prior_inodes = {name: (child / name).stat().st_ino
+                    for name in authority.FILES if (child / name).exists()}
+    # The first process had already exited after a real fsync or link. The
+    # retry must run original verification, acquire the original lock again,
+    # reconcile pending links, and then inspect the actual durable receipt.
+    assert authority.stage_offline(**args)["status"] == receipt["status"]
+    assert authority.inspect_offline(**{
+        k: v for k, v in args.items() if k != "paths"
+    })["status"] == "protected-offline-authority-materials-retained"
+    assert lock.stat().st_ino == original_lock_inode
+    assert marker.stat().st_ino == original_marker_inode
+    assert set(os.listdir(child)) == set(authority.FILES)
+    assert (child / authority.RECEIPT_NAME).read_bytes() == canonical(receipt)
+    for name, ino in prior_inodes.items():
+        assert (child / name).stat().st_ino == ino, name
