@@ -532,3 +532,214 @@ def test_partial_receipt_bytes_fail_closed_with_no_replacement(
             assert (folder / name).stat().st_ino == inode
     finally:
         os.close(root)
+
+
+
+# Command-Center writer-lock source regression. All paths below are synthetic.
+# The protected production owner must independently bootstrap the original
+# lock and its inode anchor before stage_offline can run.
+def _writer_root(tmp_path):
+    folder = tmp_path / "synthetic-offline-root"
+    folder.mkdir(mode=0o700)
+    folder.chmod(0o700)
+    fd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    return folder, fd, os.getuid(), os.getgid()
+
+
+def test_writer_first_bootstrap_and_same_inode_resume(tmp_path):
+    folder, fd, uid, gid = _writer_root(tmp_path)
+    try:
+        authority.prepare_offline_writer_lock_source(fd, uid=uid, gid=gid)
+        lock_inode = (folder / authority.LOCK_NAME).stat().st_ino
+        anchor_bytes = (folder / authority.LOCK_IDENTITY_NAME).read_bytes()
+        authority.prepare_offline_writer_lock_source(fd, uid=uid, gid=gid)
+        assert (folder / authority.LOCK_NAME).stat().st_ino == lock_inode
+        assert (folder / authority.LOCK_IDENTITY_NAME).read_bytes() == anchor_bytes
+        with authority._offline_writer_lock(fd, uid=uid, gid=gid) as guard:
+            guard()
+    finally:
+        os.close(fd)
+
+
+def test_interrupted_first_lock_provisioning_requires_explicit_reconciliation(tmp_path):
+    folder, fd, uid, gid = _writer_root(tmp_path)
+    try:
+        def crash(event):
+            if event == "writer-created":
+                raise RuntimeError("simulated crash before durable marker")
+        with pytest.raises(RuntimeError, match="simulated crash"):
+            authority.prepare_offline_writer_lock_source(
+                fd, uid=uid, gid=gid, checkpoint=crash)
+        assert (folder / authority.LOCK_NAME).exists()
+        assert not (folder / authority.LOCK_IDENTITY_NAME).exists()
+        with pytest.raises(StateError, match="partial first writer bootstrap"):
+            authority.prepare_offline_writer_lock_source(fd, uid=uid, gid=gid)
+        with pytest.raises(StateError, match="durable lock identity"):
+            with authority._offline_writer_lock(fd, uid=uid, gid=gid):
+                pytest.fail("cannot adopt a partial writer bootstrap")
+    finally:
+        os.close(fd)
+
+
+@pytest.mark.parametrize("change", ("deleted", "replaced", "symlink", "hardlink"))
+def test_vanished_or_substituted_protected_lock_is_never_adopted(tmp_path, change):
+    folder, fd, uid, gid = _writer_root(tmp_path)
+    try:
+        authority.prepare_offline_writer_lock_source(fd, uid=uid, gid=gid)
+        anchor = (folder / authority.LOCK_IDENTITY_NAME).read_bytes()
+        original = folder / authority.LOCK_NAME
+        if change == "hardlink":
+            os.link(original, folder / "foreign-lock-link")
+        else:
+            original.rename(folder / "retained-original-lock")
+            if change == "replaced":
+                original.write_bytes(b"")
+                original.chmod(0o600)
+            elif change == "symlink":
+                original.symlink_to(folder / "retained-original-lock")
+        with pytest.raises((StateError, OSError)):
+            with authority._offline_writer_lock(fd, uid=uid, gid=gid):
+                pytest.fail("changed writer identity must never be accepted")
+        assert (folder / authority.LOCK_IDENTITY_NAME).read_bytes() == anchor
+        assert not (folder / authority.DIRECTORY_NAME).exists()
+    finally:
+        os.close(fd)
+
+
+def test_competing_writers_cannot_split_on_deleted_or_replaced_lock(tmp_path):
+    import threading
+    folder, fd, uid, gid = _writer_root(tmp_path)
+    second_fd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    blocked = threading.Event()
+    started = threading.Event()
+    done = threading.Event()
+    errors = []
+    try:
+        authority.prepare_offline_writer_lock_source(fd, uid=uid, gid=gid)
+        original_inode = (folder / authority.LOCK_NAME).stat().st_ino
+        def second_writer():
+            started.set()
+            try:
+                with authority._offline_writer_lock(second_fd, uid=uid, gid=gid):
+                    errors.append("unexpected second writer")
+            except StateError:
+                blocked.set()
+            finally:
+                done.set()
+        with pytest.raises(StateError, match="writer lock pathname was replaced"):
+            with authority._offline_writer_lock(fd, uid=uid, gid=gid) as guard:
+                worker = threading.Thread(target=second_writer)
+                worker.start()
+                assert started.wait(3)
+                assert not done.wait(.05)  # blocked on directory identity
+                (folder / authority.LOCK_NAME).rename(folder / "old-lock")
+                (folder / authority.LOCK_NAME).write_bytes(b"")
+                (folder / authority.LOCK_NAME).chmod(0o600)
+                guard()
+        worker.join(3)
+        assert not worker.is_alive() and done.is_set() and blocked.is_set()
+        assert errors == []
+        assert (folder / authority.LOCK_NAME).stat().st_ino != original_inode
+        assert not (folder / authority.RECEIPT_NAME).exists()
+    finally:
+        os.close(second_fd)
+        os.close(fd)
+
+
+def test_path_substitution_mid_publication_refuses_final_receipt(tmp_path):
+    value = fixture()
+    receipt = verify(value)
+    folder, fd, uid, gid = _writer_root(tmp_path)
+    try:
+        authority.prepare_offline_writer_lock_source(fd, uid=uid, gid=gid)
+        touched = []
+        with pytest.raises(StateError, match="writer lock pathname was replaced"):
+            with authority._offline_writer_lock(fd, uid=uid, gid=gid) as guard:
+                def adversarial_guard(event=None):
+                    if event == "staged:root-grant.json" and not touched:
+                        touched.append(event)
+                        (folder / authority.LOCK_NAME).rename(folder / "old-lock")
+                        (folder / authority.LOCK_NAME).write_bytes(b"")
+                        (folder / authority.LOCK_NAME).chmod(0o600)
+                    guard()
+                authority._publish_bundle(
+                    fd, value["materials"], receipt, os.getgid(),
+                    verify_writer=adversarial_guard)
+        assert touched
+        staged = folder / authority.DIRECTORY_NAME
+        assert staged.is_dir()
+        assert not (staged / authority.RECEIPT_NAME).exists()
+        with pytest.raises(StateError):
+            with authority._offline_writer_lock(fd, uid=uid, gid=gid):
+                pytest.fail("replacement lock cannot resume the receipt")
+    finally:
+        os.close(fd)
+
+
+def test_intact_writer_allows_interrupted_same_byte_resume(tmp_path):
+    value = fixture()
+    receipt = verify(value)
+    folder, fd, uid, gid = _writer_root(tmp_path)
+    try:
+        authority.prepare_offline_writer_lock_source(fd, uid=uid, gid=gid)
+        attempt = []
+        with pytest.raises(RuntimeError, match="synthetic fsync interruption"):
+            with authority._offline_writer_lock(fd, uid=uid, gid=gid) as guard:
+                def interrupt(event=None):
+                    guard()
+                    if event == "linked:root-grant.json" and not attempt:
+                        attempt.append(event)
+                        raise RuntimeError("synthetic fsync interruption")
+                authority._publish_bundle(fd,value["materials"],receipt,os.getgid(),
+                                          verify_writer=interrupt)
+        staged = folder / authority.DIRECTORY_NAME
+        inode = (staged / "root-grant.json").stat().st_ino
+        with authority._offline_writer_lock(fd, uid=uid, gid=gid) as guard:
+            authority._publish_bundle(fd,value["materials"],receipt,os.getgid(),
+                                      verify_writer=guard)
+        assert (staged / "root-grant.json").stat().st_ino == inode
+        assert (staged / authority.RECEIPT_NAME).read_bytes() == canonical(receipt)
+        assert set(os.listdir(staged)) == set(authority.FILES)
+    finally:
+        os.close(fd)
+
+
+@pytest.mark.skipif(os.geteuid()!=0,
+                    reason="ephemeral original root-owned stage/inspect required")
+def test_actual_stage_and_inspect_do_not_adopt_recreated_lock(tmp_path,monkeypatch):
+    value = fixture()
+    receipt = verify(value)
+    folder, fd, uid, gid = _writer_root(tmp_path)
+    try:
+        authority.prepare_offline_writer_lock_source(fd, uid=uid, gid=gid)
+        monkeypatch.setattr(authority,"_offline_root",
+                            lambda _path:os.open(folder,os.O_RDONLY|os.O_DIRECTORY|
+                                                  os.O_NOFOLLOW))
+        monkeypatch.setattr(authority,"_read_inputs",
+                            lambda paths,reader_gid:value["materials"])
+        monkeypatch.setattr(authority,"_observe_database",
+                            lambda path:value["observed"])
+        monkeypatch.setattr(authority,"RETAINED_CERTIFICATE_SIGNER_SHA256",
+                            value["certificate_sha"])
+        args=dict(offline_directory="/opt/station-trust/synthetic-offline",
+                  paths={},reader_gid=21001,
+                  expected_operator_pin_sha256=value["operator_sha"],
+                  expected_instance_id=authority.COMMAND_CENTER_INSTANCE_ID,
+                  expected_station_source_commit=authority.STATION_ACCESS_COMMIT,
+                  expected_authorization_issuer=value["issuer"],now=NOW)
+        result=authority.stage_offline(**args)
+        assert result["status"] == receipt["status"]
+        assert authority.inspect_offline(**{k:v for k,v in args.items()
+                if k!="paths"})["status"]=="protected-offline-authority-materials-retained"
+        (folder / authority.LOCK_NAME).rename(folder / "retained-lock")
+        (folder / authority.LOCK_NAME).write_bytes(b"")
+        (folder / authority.LOCK_NAME).chmod(0o600)
+        with pytest.raises(StateError):
+            authority.stage_offline(**args)
+        with pytest.raises(StateError):
+            authority.inspect_offline(**{k:v for k,v in args.items()
+                if k!="paths"})
+        assert (folder / authority.DIRECTORY_NAME /
+                authority.RECEIPT_NAME).read_bytes() == canonical(receipt)
+    finally:
+        os.close(fd)
