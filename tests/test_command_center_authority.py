@@ -869,3 +869,83 @@ def test_inspect_refuses_detached_original_root_after_path_replacement(tmp_path,
                 authority.RECEIPT_NAME).read_bytes() == canonical(receipt)
     finally:
         os.close(fd)
+
+
+# Additional stage-entry checks independently authored for PR #19; run
+# against the final PR #18 original lock, marker and directory fences.
+
+
+def test_staged_child_entry_substitution_fails_before_receipt(tmp_path):
+    value = fixture()
+    receipt = verify(value)
+    folder, fd, uid, gid = _writer_root(tmp_path)
+    try:
+        authority.prepare_offline_writer_lock_source(fd, uid=uid, gid=gid)
+        touched = []
+        with pytest.raises(StateError, match="authority subdirectory pathname was replaced"):
+            with authority._offline_writer_lock(fd, uid=uid, gid=gid) as check:
+                def replace_child(event=None):
+                    # Let the original fsync/checkpoint finish; then displace
+                    # the public name while the writer keeps its child fd.
+                    if event == "linked:root-grant.json" and not touched:
+                        touched.append(event)
+                        child = folder / authority.DIRECTORY_NAME
+                        child.rename(folder / "retained-offline-bundle")
+                        child.mkdir(mode=0o700)
+                        child.chmod(0o700)
+                    check()
+                authority._publish_bundle(
+                    fd, value["materials"], receipt, os.getgid(),
+                    verify_writer=replace_child)
+        assert touched
+        assert not (folder / authority.DIRECTORY_NAME /
+                    authority.RECEIPT_NAME).exists()
+        assert not (folder / "retained-offline-bundle" /
+                    authority.RECEIPT_NAME).exists()
+    finally:
+        os.close(fd)
+
+
+def test_staged_child_entry_disappearance_fails_closed(tmp_path):
+    value = fixture()
+    receipt = verify(value)
+    folder, fd, uid, gid = _writer_root(tmp_path)
+    try:
+        authority.prepare_offline_writer_lock_source(fd, uid=uid, gid=gid)
+        with pytest.raises(StateError, match="authority subdirectory pathname missing"):
+            with authority._offline_writer_lock(fd, uid=uid, gid=gid) as check:
+                def unlink_child(event=None):
+                    if event == "staged:root-grant.json":
+                        (folder / authority.DIRECTORY_NAME).rename(
+                            folder / "renamed-no-name")
+                    check()
+                authority._publish_bundle(
+                    fd, value["materials"], receipt, os.getgid(),
+                    verify_writer=unlink_child)
+        assert not (folder / "renamed-no-name" /
+                    authority.RECEIPT_NAME).exists()
+    finally:
+        os.close(fd)
+
+
+def test_intact_original_child_entry_preserves_same_byte_retry(tmp_path):
+    value = fixture()
+    receipt = verify(value)
+    folder, fd, uid, gid = _writer_root(tmp_path)
+    try:
+        authority.prepare_offline_writer_lock_source(fd, uid=uid, gid=gid)
+        child = folder / authority.DIRECTORY_NAME
+        with authority._offline_writer_lock(fd, uid=uid, gid=gid) as check:
+            authority._publish_bundle(fd, value["materials"], receipt,
+                                      os.getgid(), verify_writer=check)
+        before = child.stat().st_ino
+        initial_inodes = {name:(child / name).stat().st_ino
+                          for name in authority.FILES}
+        with authority._offline_writer_lock(fd, uid=uid, gid=gid) as check:
+            authority._publish_bundle(fd, value["materials"], receipt,
+                                      os.getgid(), verify_writer=check)
+        assert child.stat().st_ino == before
+        assert initial_inodes == {name:(child / name).stat().st_ino
+                                  for name in authority.FILES}
+    finally:
+        os.close(fd)
