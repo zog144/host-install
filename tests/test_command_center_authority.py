@@ -949,3 +949,48 @@ def test_intact_original_child_entry_preserves_same_byte_retry(tmp_path):
                                   for name in authority.FILES}
     finally:
         os.close(fd)
+
+
+@pytest.mark.skipif(os.geteuid() != 0, reason="root-owned ephemeral inspection")
+def test_inspection_readback_rejects_child_replacement_during_material_read(tmp_path, monkeypatch):
+    """An inspection cannot approve bytes from a detached staged child fd."""
+    value = fixture()
+    receipt = verify(value)
+    folder, root, uid, gid = _writer_root(tmp_path)
+    try:
+        authority.prepare_offline_writer_lock_source(root, uid=uid, gid=gid)
+        with authority._offline_writer_lock(root, uid=uid, gid=gid,
+                                            path=str(folder)) as check:
+            authority._publish_bundle(root, value["materials"], receipt,
+                                      21001, verify_writer=check)
+        named = folder / authority.DIRECTORY_NAME
+        original = folder / "inert-staging-moved"
+        monkeypatch.setattr(authority, "_offline_root",
+                            lambda _: os.open(folder, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW))
+        monkeypatch.setattr(authority, "_observe_database",
+                            lambda _: value["observed"])
+        monkeypatch.setattr(authority, "RETAINED_CERTIFICATE_SIGNER_SHA256",
+                            value["certificate_sha"])
+        actual_raw = authority.raw
+        changed = []
+        def adversarial_raw(fd, name, **kwargs):
+            response = actual_raw(fd, name, **kwargs)
+            if name == "operator-ed25519.pub" and not changed:
+                changed.append(name)
+                named.rename(original)
+                named.mkdir(mode=0o700)
+            return response
+        with monkeypatch.context() as patcher:
+            patcher.setattr(authority, "raw", adversarial_raw)
+            with pytest.raises(StateError, match="authority subdirectory pathname was replaced"):
+                authority.inspect_offline(
+                    offline_directory=str(folder), reader_gid=21001,
+                    expected_operator_pin_sha256=value["operator_sha"],
+                    expected_instance_id=authority.COMMAND_CENTER_INSTANCE_ID,
+                    expected_station_source_commit=authority.STATION_ACCESS_COMMIT,
+                    expected_authorization_issuer=value["issuer"], now=NOW)
+        assert changed == ["operator-ed25519.pub"]
+        assert not (named / authority.RECEIPT_NAME).exists()
+        assert (original / authority.RECEIPT_NAME).read_bytes() == canonical(receipt)
+    finally:
+        os.close(root)
