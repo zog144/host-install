@@ -26,7 +26,7 @@ import time
 import uuid
 
 from .state_contract import StateError, canonical, require
-from .state_io import ensure_directory, lock, publish, raw
+from .state_io import ensure_directory, publish, raw
 
 SCHEMA = "zog-host-install-command-center-authority-offline-v1"
 IDENTITY_SCHEMA = "zog-command-center-offline-installation-identity-v1"
@@ -951,68 +951,70 @@ def inspect_offline(*, offline_directory, reader_gid,
     root_fd = _offline_root(offline_directory)
     child = None
     try:
-        child = os.open(
-            DIRECTORY_NAME, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
-            dir_fd=root_fd,
-        )
-        info = os.fstat(child)
-        require(info.st_uid == 0 and info.st_gid == 0
-                and stat.S_IMODE(info.st_mode) == 0o700
-                and info.st_dev == os.fstat(root_fd).st_dev
-                and set(os.listdir(child)) == set(FILES),
-                "command-center-authority-publication",
-                "unsafe staged directory")
-
-        def get(name):
-            mode, role = FILES[name]
-            data = raw(
-                child, name, uid=0,
-                gid=reader_gid if role == "reader" else 0,
-                mode=mode,
+        with _offline_writer_lock(root_fd) as verify_writer:
+            child = os.open(
+                DIRECTORY_NAME, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                dir_fd=root_fd,
             )
-            require(data is not None,
-                    "command-center-authority-publication", name)
-            return data
+            info = os.fstat(child)
+            require(info.st_uid == 0 and info.st_gid == 0
+                    and stat.S_IMODE(info.st_mode) == 0o700
+                    and info.st_dev == os.fstat(root_fd).st_dev
+                    and set(os.listdir(child)) == set(FILES),
+                    "command-center-authority-publication",
+                    "unsafe staged directory")
 
-        materials = {
-            "operator_pin": get("operator-ed25519.pub"),
-            "identity": get("command-center-offline-identity.json"),
-            "aws_evidence": get("aws-iid-evidence.json"),
-            "certificate_pin":
-                get("certificate-assignment-signer-ed25519.pub"),
-            "grant": get("root-grant.json"),
-            "grant_approval": get("root-grant-operator-approval.json"),
-            "projection": get("issuer-reader-projection.json"),
-            "authority_private_key":
-                get("credential-v1-authority-key.pem"),
-            "authority_pin": get("credential-v1-authority-ed25519.pub"),
-            "authorization": get("credential-v1-authorization.json"),
-            "authority_approval":
-                get("credential-v1-authority-approval.json"),
-        }
-        identity_value = _json(
-            materials["identity"], IDENTITY_FIELDS, IDENTITY_SCHEMA
-        )
-        observed = _observe_database(identity_value["database_path"])
-        receipt = verify_materials(
-            materials,
-            expected_operator_pin_sha256=expected_operator_pin_sha256,
-            expected_certificate_signer_sha256=
-                RETAINED_CERTIFICATE_SIGNER_SHA256,
-            expected_instance_id=expected_instance_id,
-            expected_station_source_commit=expected_station_source_commit,
-            expected_authorization_issuer=expected_authorization_issuer,
-            observed_database=observed, now=now,
-        )
-        require(get(RECEIPT_NAME) == canonical(receipt),
-                "command-center-authority-publication",
-                "receipt/content mismatch")
-        return {
-            **receipt,
-            "status": "protected-offline-authority-materials-retained",
-            "offline_directory": offline_directory + "/" + DIRECTORY_NAME,
-            "same_byte_resume_supported": True,
-        }
+            def get(name):
+                mode, role = FILES[name]
+                data = raw(
+                    child, name, uid=0,
+                    gid=reader_gid if role == "reader" else 0,
+                    mode=mode,
+                )
+                require(data is not None,
+                        "command-center-authority-publication", name)
+                return data
+
+            materials = {
+                "operator_pin": get("operator-ed25519.pub"),
+                "identity": get("command-center-offline-identity.json"),
+                "aws_evidence": get("aws-iid-evidence.json"),
+                "certificate_pin":
+                    get("certificate-assignment-signer-ed25519.pub"),
+                "grant": get("root-grant.json"),
+                "grant_approval": get("root-grant-operator-approval.json"),
+                "projection": get("issuer-reader-projection.json"),
+                "authority_private_key":
+                    get("credential-v1-authority-key.pem"),
+                "authority_pin": get("credential-v1-authority-ed25519.pub"),
+                "authorization": get("credential-v1-authorization.json"),
+                "authority_approval":
+                    get("credential-v1-authority-approval.json"),
+            }
+            identity_value = _json(
+                materials["identity"], IDENTITY_FIELDS, IDENTITY_SCHEMA
+            )
+            observed = _observe_database(identity_value["database_path"])
+            receipt = verify_materials(
+                materials,
+                expected_operator_pin_sha256=expected_operator_pin_sha256,
+                expected_certificate_signer_sha256=
+                    RETAINED_CERTIFICATE_SIGNER_SHA256,
+                expected_instance_id=expected_instance_id,
+                expected_station_source_commit=expected_station_source_commit,
+                expected_authorization_issuer=expected_authorization_issuer,
+                observed_database=observed, now=now,
+            )
+            require(get(RECEIPT_NAME) == canonical(receipt),
+                    "command-center-authority-publication",
+                    "receipt/content mismatch")
+            verify_writer()
+            return {
+                **receipt,
+                "status": "protected-offline-authority-materials-retained",
+                "offline_directory": offline_directory + "/" + DIRECTORY_NAME,
+                "same_byte_resume_supported": True,
+            }
     finally:
         if child is not None:
             os.close(child)
