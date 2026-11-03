@@ -31,19 +31,19 @@ _SHA = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _H64 = re.compile(r"[0-9a-f]{64}\Z")
 _FIELDS = frozenset({
     "schema", "consumer", "purpose", "host_id", "installation_id",
-    "state_volume_id", "registry_id", "scope_id", "authority_revision",
+    "state_volume_id", "registry_id", "scope_id", "credential_revision", "authority_revision",
     "app_uid", "app_gid", "app_pid", "app_source_sha256",
     "boot_id", "invocation_id"
 })
 _TRANSFER_FIELDS = frozenset({
     "schema", "host_id", "registry_id", "scope_id", "request_id", "delivery_id",
     "installation_id", "state_volume_id", "boot_id", "invocation_id",
-    "authority_revision", "action", "purpose", "consumer"
+    "credential_revision", "authority_revision", "action", "purpose", "consumer"
 })
 _ACK_FIELDS = frozenset({
     "schema", "kind", "host_id", "registry_id", "scope_id", "request_id", "delivery_id",
     "installation_id", "state_volume_id", "boot_id", "invocation_id",
-    "authority_revision", "app_source_sha256", "sequence",
+    "credential_revision", "authority_revision", "app_source_sha256", "sequence",
     "fresh_nonce", "witness", "signature_ed25519",
 })
 
@@ -79,6 +79,8 @@ def validate_policy(policy):
             or not policy["registry_id"]
             or not isinstance(policy["scope_id"], str)
             or not _H64.fullmatch(policy["scope_id"])  # protected scope fingerprint
+            or type(policy["credential_revision"]) is not int
+            or policy["credential_revision"] < 1
             or type(policy["authority_revision"]) is not int
             or policy["authority_revision"] < 1
             or type(policy["app_uid"]) is not int or policy["app_uid"] < 1
@@ -100,7 +102,7 @@ def validate_transfer(transfer, policy, *, handoff_state):
             not _uuid(transfer["delivery_id"])):
         _hold()
     for key in ("host_id", "registry_id", "scope_id", "installation_id", "state_volume_id",
-                "boot_id", "invocation_id", "authority_revision"):
+                "boot_id", "invocation_id", "credential_revision", "authority_revision"):
         if transfer[key] != policy[key]:
             _hold()
     # Receipt comes from protected receiving owner's durable pre-install fence;
@@ -247,7 +249,7 @@ def verify_native_signed_ack(ack, *, policy, transfer, expected_kind,
             transfer.get("purpose") != PURPOSE or
             any(transfer.get(key) != policy[key] for key in
                 ("host_id","registry_id","scope_id","installation_id",
-                 "state_volume_id","boot_id","invocation_id","authority_revision"))):
+                 "state_volume_id","boot_id","invocation_id","credential_revision","authority_revision"))):
         _hold()
     for key in ("request_id", "delivery_id"):
         if ack[key]!=transfer[key]:
@@ -264,3 +266,34 @@ def verify_native_signed_ack(ack, *, policy, transfer, expected_kind,
         _hold()
     return {"status":"verified-"+expected_kind+"-observation-no-redelivery",
             "sequence":ack["sequence"]}
+
+
+def verify_disabled_source_policy_compatibility(source_policy, ipc_policy):
+    """Original PR22 disabled v1 admission policy is mandatory and authoritative.
+
+    This stricter source-level peer/FD/signed-ack extension cannot replace it.
+    Neither predicate grants native installation, permission or actual delivery.
+    """
+    from . import archive_provider_ipc_contract as original
+    selected=original.validate_policy(source_policy)
+    extension=validate_policy(ipc_policy)
+    matches={
+        "host_id": "host_id",
+        "installation_id": "installation_id",
+        "state_volume_id": "state_volume_id",
+        "scope_id": "scope_id",
+        "credential_revision": "credential_revision",
+        "authorization_revision": "authority_revision",
+        "application_uid": "app_uid",
+        "application_gid": "app_gid",
+    }
+    if (any(selected[k] != extension[v] for k,v in matches.items()) or
+            selected["consumer_source_sha256"] !=
+                extension["app_source_sha256"].removeprefix("sha256:") or
+            selected["consumer"] != extension["consumer"] or
+            selected["purpose"] != extension["purpose"] or
+            selected["enabled"] is not False or
+            selected["native_accepted"] is not False):
+        _hold()
+    return {"status": "disabled-v1-and-signed-ack-extension-consistent",
+            "native_accepted": False}
