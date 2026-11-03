@@ -1,0 +1,59 @@
+name: Archive provider actual consumer handoff (offline source-only)
+on:
+  push:
+    branches: [review/archive-provider-consumer-handoff-20261103]
+  pull_request:
+    paths:
+      - src/zog/host_install/archive_provider_handoff.py
+      - src/zog/host_install/archive_provider_receiver.py
+      - tests/test_archive_provider_consumer_handoff.py
+      - tests/test_archive_provider_ipc_contract.py
+      - src/zog/host_install/archive_provider_ipc_contract.py
+      - .github/workflows/archive-provider-consumer-handoff.yml
+permissions:
+  contents: read
+jobs:
+  archive-consumer-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.12','3.13']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: zog144/host-identify
+          ref: 59dbc181f54c6ac29ee5eb1f83b6f322fb73c037
+          path: companion-host-identify
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: zog144/archive-mirror
+          ref: 9df811cf9315efec4312e6a16738a23149d286a2
+          path: companion-archive-mirror
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install synthetic test dependencies only
+        run: python -m pip install 'pytest>=8,<10' 'cryptography>=43,<47' 'Django>=5.2,<5.3' requests 'http-message-signatures==2.0.1' 'typing_extensions>=4.12'
+      - name: Prove exact pinned owner and consumer source
+        run: |
+          test "$(git -C companion-host-identify rev-parse HEAD)" = 59dbc181f54c6ac29ee5eb1f83b6f322fb73c037
+          test "$(git -C companion-archive-mirror rev-parse HEAD)" = 9df811cf9315efec4312e6a16738a23149d286a2
+      - name: Offline actual archive app install/revoke and owner crash/receipt regressions
+        env:
+          PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}/companion-host-identify/src:${{ github.workspace }}/companion-archive-mirror/src
+        run: |
+          python -m pytest -q -rs \
+            tests/test_archive_provider_receiver_contract.py \
+            tests/test_archive_provider_receiver_owner.py \
+            tests/test_archive_provider_consumer_handoff.py \
+            tests/test_archive_provider_ipc_contract.py
+      - name: No live provider or installation
+        if: always()
+        run: echo 'Actual Python consumer source with synthetic token, disposable directories and no native credential/HTTPS/STATE.' >> "$GITHUB_STEP_SUMMARY"

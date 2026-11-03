@@ -248,6 +248,10 @@ def test_receipt_requires_independent_witness_and_terminal_request_cannot_reopen
         "outcome": "installed",
         "installed_at": args["now"],
     }
+    # Installation handoff must commit DURABLY before any consumer mutation;
+    # the source-only receipt test simulates that committed transition.
+    assert receiver.begin_install_handoff(
+        request=req, delivery=delivered)["status"] == "installation-uncertain"
     rargs = dict(receipt=receipt, request=req,
                  delivery=delivered, now=args["now"])
     with pytest.raises(ReceiverHold, match="missing independent"):
