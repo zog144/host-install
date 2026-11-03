@@ -23,13 +23,19 @@ jobs:
           ref: 59dbc181f54c6ac29ee5eb1f83b6f322fb73c037
           path: companion-host-identify
           persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: zog144/archive-mirror
+          ref: 9df811cf9315efec4312e6a16738a23149d286a2
+          path: companion-archive-mirror
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - run: python -m pip install 'pytest>=8,<10' cryptography requests 'http-message-signatures==2.0.1' 'typing_extensions>=4.12'
+      - run: python -m pip install 'pytest>=8,<10' cryptography requests 'http-message-signatures==2.0.1' 'typing_extensions>=4.12' 'Django>=5.2,<5.3' 'PyJWT>=2.10,<3'
       - name: Verify disabled contract and offline cryptographic/ledger source
         run: |
-          PYTHONPATH="$PWD/src:$PWD/companion-host-identify/src" python -m pytest -q tests/test_archive_provider_receiver_contract.py tests/test_archive_provider_receiver_owner.py
+          PYTHONPATH="$PWD/src:$PWD/companion-host-identify/src:$PWD/companion-archive-mirror/src" python -m pytest -q tests/test_archive_provider_receiver_contract.py tests/test_archive_provider_receiver_owner.py tests/test_archive_provider_consumer_bridge.py
       - name: No native credential receiver
         if: always()
         run: echo 'Offline source only. No HTTPS listener, real credentials, archive installation, STATE, service enablement or native acceptance.' >> "$GITHUB_STEP_SUMMARY"
