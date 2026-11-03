@@ -1,0 +1,83 @@
+{
+  "schema": "zog-archive-provider-protected-receiver-contract-v1",
+  "status": "SOURCE_INTERFACE_DISABLED_NO_NATIVE_ADMISSION",
+  "enabled_by_default": false,
+  "production_activation_authorized": false,
+  "native_https_accepted": false,
+  "canonical_protocol": "zog-https-credential-delivery-v1",
+  "consumer": "archive-mirror",
+  "purpose": "archive-mirror-upstream-fetch",
+  "provider_role": "archive-mirror-provider",
+  "operations": [
+    "fetch"
+  ],
+  "source_references": {
+    "archive-mirror": "9df811cf9315efec4312e6a16738a23149d286a2",
+    "host-identify": "59dbc181f54c6ac29ee5eb1f83b6f322fb73c037",
+    "host-install-issuer-example": "17e3e0e6b9405a3a81dc25575ba2dadcf6bfa588"
+  },
+  "destination_fields": [
+    "host_id",
+    "host_fingerprint",
+    "installation_id",
+    "state_volume_id",
+    "registry_id",
+    "provider_id",
+    "provider_origin",
+    "provider_role",
+    "role_revision",
+    "collections",
+    "operations",
+    "provider_credential_id",
+    "credential_revision"
+  ],
+  "authorization_fields": [
+    "authorization_id",
+    "revision",
+    "credential_revision",
+    "expires_at"
+  ],
+  "request_fields": [
+    "request_id",
+    "action",
+    "previous_delivery_id",
+    "created_at",
+    "expires_at"
+  ],
+  "protected_owner_requirements": [
+    "exact authority verification key and independent station-origin pin",
+    "verified signed current authorization and delivery",
+    "authenticated HTTPS request signature and nonce",
+    "durable common request-and-delivery replay ledger",
+    "verified STATE before any credential write",
+    "dedicated archive application UID/GID and private storage identity",
+    "revocation verification with independently pinned authority key"
+  ],
+  "delivery_order": [
+    "verify_identity_and_authority",
+    "persist_request_claim",
+    "persist_delivery_claim",
+    "install_verified",
+    "persist_verified_secret_free_receipt",
+    "acknowledge"
+  ],
+  "revocation_order": [
+    "verify_signed_revocation",
+    "persist_common_revocation_tombstone",
+    "apply_signed_revocation",
+    "persist_secret_free_revocation_receipt",
+    "acknowledge"
+  ],
+  "recovery_policy": "no acknowledgement before durable selected receipt; incomplete or conflicting claims hold; identical retry requires verified same bytes and current authorization; revocation tombstone always wins",
+  "excluded_operations": [
+    "cloudflare-dns-01",
+    "certify-manage-issuer",
+    "archive-download-jwt",
+    "token-issuer-private-key",
+    "archive-catalogue-delete",
+    "archive-object-delete",
+    "archive-pin-delete",
+    "unapproved-credential-rotation"
+  ],
+  "native_acceptance": null
+}
