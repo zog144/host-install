@@ -120,7 +120,7 @@ def peer_from_kernel(sock, policy):
     """Kernel SO_PEERCRED only, not a caller-written claimed UID/GID."""
     policy=validate_policy(policy)
     if (sock.family != socket.AF_UNIX
-            or sock.type & 0xf not in (socket.SOCK_STREAM, socket.SOCK_SEQPACKET)):
+            or (sock.type & 0xf) != socket.SOCK_SEQPACKET):
         _hold()
     try:
         packed=sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED,
