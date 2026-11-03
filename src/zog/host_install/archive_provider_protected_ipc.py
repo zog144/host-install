@@ -36,12 +36,12 @@ _FIELDS = frozenset({
     "boot_id", "invocation_id"
 })
 _TRANSFER_FIELDS = frozenset({
-    "schema", "scope_id", "request_id", "delivery_id",
+    "schema", "host_id", "registry_id", "scope_id", "request_id", "delivery_id",
     "installation_id", "state_volume_id", "boot_id", "invocation_id",
     "authority_revision", "action", "purpose", "consumer"
 })
 _ACK_FIELDS = frozenset({
-    "schema", "kind", "scope_id", "request_id", "delivery_id",
+    "schema", "kind", "host_id", "registry_id", "scope_id", "request_id", "delivery_id",
     "installation_id", "state_volume_id", "boot_id", "invocation_id",
     "authority_revision", "app_source_sha256", "sequence",
     "fresh_nonce", "witness", "signature_ed25519",
@@ -99,7 +99,7 @@ def validate_transfer(transfer, policy, *, handoff_state):
             or not _uuid(transfer["request_id"]) or
             not _uuid(transfer["delivery_id"])):
         _hold()
-    for key in ("scope_id", "installation_id", "state_volume_id",
+    for key in ("host_id", "registry_id", "scope_id", "installation_id", "state_volume_id",
                 "boot_id", "invocation_id", "authority_revision"):
         if transfer[key] != policy[key]:
             _hold()
@@ -240,6 +240,15 @@ def verify_native_signed_ack(ack, *, policy, transfer, expected_kind,
                 "app_source_sha256"):
         if ack[key]!=policy[key]:
             _hold()
+    if (type(transfer) is not dict or set(transfer) != _TRANSFER_FIELDS or
+            transfer.get("schema") != TRANSFER_SCHEMA or
+            transfer.get("action") != "deliver" or
+            transfer.get("consumer") != CONSUMER or
+            transfer.get("purpose") != PURPOSE or
+            any(transfer.get(key) != policy[key] for key in
+                ("host_id","registry_id","scope_id","installation_id",
+                 "state_volume_id","boot_id","invocation_id","authority_revision"))):
+        _hold()
     for key in ("request_id", "delivery_id"):
         if ack[key]!=transfer[key]:
             _hold()
