@@ -79,6 +79,20 @@ jobs:
             tests/test_certificate_selected_broker_install.py \
             tests/test_certificate_selected_broker_interop.py \
             tests/test_certificate_execution_commit_interop.py
+      - name: Recheck exact original owner module locations
+        run: |
+          PYTHONPATH="$PWD/src:$PWD/companions/root-control/src:$PWD/companions/box-control/box-control/src:$PWD/companions/host-deploy/src:$PWD/.ci-deps" python - <<'PY'
+          from pathlib import Path
+          import zog.host_install.certificate_selected_broker_install as host
+          import zog.root_control.issuer_execution_fence as root
+          import zog.box_control.issuer_broker_authority as box
+          home=Path.cwd()
+          assert Path(host.__file__).resolve().is_relative_to(home/"src")
+          assert Path(root.__file__).resolve().is_relative_to(home/"companions/root-control/src")
+          assert Path(box.__file__).resolve().is_relative_to(home/"companions/box-control/box-control/src")
+          assert host.ROOT_CONTROL_EXECUTION_REVIEWED_COMMIT=="38fca3ff67d9a7697d3a42c307bd13b1a4735982"
+          assert host.BOX_CONTROL_REVIEWED_COMMIT=="baca7f815974dbf685950c0c7e78f693dd0a96e2"
+          PY
       - name: Test root-owned concurrent selected admission and revocation
         run: |
           python -m pip install 'pytest>=8,<10' 'dbus-next==0.2.3' 'cryptography>=42,<47'
@@ -86,7 +100,7 @@ jobs:
             python -m compileall -q src companions/root-control/src/zog/root_control/issuer_execution_fence.py tests/test_certificate_execution_epoch_integration.py \
             tests/test_certificate_execution_commit_interop.py
           sudo -E env PYTHONPATH="$PWD/src:$PWD/companions/root-control/src:$PWD/companions/box-control/box-control/src:$PWD/companions/host-deploy/src:$PWD/.ci-deps:$PWD/tests" \
-            "$(command -v python)" -m pytest -q -rs tests/test_certificate_execution_epoch_integration.py tests/test_certificate_execution_provenance.py tests/test_certificate_recovery_revocation.py
+            "$(command -v python)" -m pytest -q -rs tests/test_certificate_execution_epoch_integration.py tests/test_certificate_execution_provenance.py tests/test_certificate_recovery_revocation.py companions/root-control/tests/test_issuer_execution_fence.py companions/root-control/tests/test_issuer_execution_reconcile.py companions/root-control/tests/test_issuer_systemd_fence.py
       - name: Native authorization remains withheld
         if: always()
         run: |
