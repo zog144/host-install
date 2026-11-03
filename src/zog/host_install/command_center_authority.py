@@ -813,6 +813,32 @@ def _writer_root_path_identity(root_fd, path):
             "original offline directory pathname was replaced")
 
 
+def _writer_ancestor_identities(path):
+    """Bind each original protected ancestor, not just the final leaf inode.
+
+    A renamed parent replaced with a symlink pointing at the same opened
+    offline root would pass a final-leaf st_dev/st_ino comparison. Preserve
+    the namespace identity of each original ancestor throughout stage
+    and inspect. _offline_root independently validates their owner and DAC.
+    """
+    try:
+        entries = []
+        for parent in reversed(Path(path).parents):
+            info = parent.lstat()
+            require(stat.S_ISDIR(info.st_mode),
+                    "command-center-authority-writer-root",
+                    "original offline ancestor is not a directory")
+            # Preserve the originally protected ancestor owner and DAC as
+            # well as inode. A mode-relaxation of the same directory inode
+            # could otherwise let a second process rename its children.
+            entries.append((str(parent), info.st_dev, info.st_ino,
+                            info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode)))
+        return tuple(entries)
+    except OSError as exc:
+        raise StateError("command-center-authority-writer-root",
+                         "original offline ancestor pathname disappeared") from exc
+
+
 def _writer_marker_inode(root_fd, marker_fd, uid, gid):
     held = os.fstat(marker_fd)
     try:
@@ -842,9 +868,11 @@ def _offline_writer_lock(root_fd, *, uid=0, gid=0, path=None):
     fcntl.flock(root_fd, fcntl.LOCK_EX)
     handle = None
     marker_fd = None
+    original_ancestors = None
     try:
         if path is not None:
             _writer_root_path_identity(root_fd, path)
+            original_ancestors = _writer_ancestor_identities(path)
         try:
             handle = os.open(LOCK_NAME, os.O_RDWR | os.O_NOFOLLOW |
                              os.O_CLOEXEC, dir_fd=root_fd)
@@ -859,6 +887,9 @@ def _offline_writer_lock(root_fd, *, uid=0, gid=0, path=None):
         def check(*_):
             if path is not None:
                 _writer_root_path_identity(root_fd, path)
+                require(_writer_ancestor_identities(path) == original_ancestors,
+                        "command-center-authority-writer-root",
+                        "original offline ancestor identity or permissions changed")
             _writer_marker_inode(root_fd, marker_fd, uid, gid)
             require(_writer_identity(root_fd, handle, uid, gid) == original,
                     "command-center-authority-writer-lock",
@@ -873,13 +904,40 @@ def _offline_writer_lock(root_fd, *, uid=0, gid=0, path=None):
             os.close(handle)
         fcntl.flock(root_fd, fcntl.LOCK_UN)
 
+def _assert_original_child(root_fd, child_fd):
+    """The public offline subdirectory name must retain the opened inode."""
+    child = os.fstat(child_fd)
+    try:
+        named = os.stat(DIRECTORY_NAME, dir_fd=root_fd,
+                        follow_symlinks=False)
+    except OSError as exc:
+        raise StateError("command-center-authority-publication",
+                         "authority subdirectory pathname missing") from exc
+    require(stat.S_ISDIR(child.st_mode) and
+            (child.st_dev, child.st_ino) == (named.st_dev, named.st_ino),
+            "command-center-authority-publication",
+            "authority subdirectory pathname was replaced")
+    # Publication and inspection readback require the same root-only
+    # 0700 namespace protection for the *entire* operation. Checking mode
+    # only at opening would allow mid-operation permission relaxation.
+    require((child.st_uid, child.st_gid, stat.S_IMODE(child.st_mode))
+                == (0, 0, 0o700)
+            and child.st_dev == os.fstat(root_fd).st_dev,
+            "command-center-authority-publication",
+            "protected authority subdirectory ownership or mode changed")
+
+
 def _publish_bundle(root_fd, materials, receipt, reader_gid, *,
                     verify_writer=lambda *_: None):
     verify_writer()
     child = ensure_directory(root_fd, DIRECTORY_NAME, 0, 0, 0o700,
                              checkpoint=verify_writer)
     verify_writer()
+    def check_child(*event):
+        verify_writer(*event)
+        _assert_original_child(root_fd, child)
     try:
+        check_child()
         allowed = set(FILES) | {".pending." + name for name in FILES}
         present = set(os.listdir(child))
         require(present <= allowed,
@@ -913,26 +971,26 @@ def _publish_bundle(root_fd, materials, receipt, reader_gid, *,
                 materials["authority_approval"],
         }
         for name, data in rows.items():
-            verify_writer()
+            check_child()
             mode, role = FILES[name]
             publish(
                 child, name, data, mode=mode, uid=0,
                 gid=reader_gid if role == "reader" else 0,
-                checkpoint=verify_writer,
+                checkpoint=check_child,
             )
-            verify_writer()
-        verify_writer()
+            check_child()
+        check_child()
         publish(
             child, RECEIPT_NAME, canonical(receipt),
             mode=0o600, uid=0, gid=0,
-            checkpoint=verify_writer,
+            checkpoint=check_child,
         )
-        verify_writer()
+        check_child()
         require(set(os.listdir(child)) == set(FILES),
                 "command-center-authority-publication",
                 "incomplete protected authority publication")
         os.fsync(child)
-        verify_writer()
+        check_child()
     finally:
         os.close(child)
 
@@ -1003,6 +1061,7 @@ def inspect_offline(*, offline_directory, reader_gid,
                 DIRECTORY_NAME, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
                 dir_fd=root_fd,
             )
+            _assert_original_child(root_fd, child)
             info = os.fstat(child)
             require(info.st_uid == 0 and info.st_gid == 0
                     and stat.S_IMODE(info.st_mode) == 0o700
@@ -1012,12 +1071,19 @@ def inspect_offline(*, offline_directory, reader_gid,
                     "unsafe staged directory")
 
             def get(name):
+                # Inspect the original selected child, never a detached
+                # directory whose no-replacement receipt is no longer at the
+                # publicly configured name. Check before AND after each read.
+                verify_writer()
+                _assert_original_child(root_fd, child)
                 mode, role = FILES[name]
                 data = raw(
                     child, name, uid=0,
                     gid=reader_gid if role == "reader" else 0,
                     mode=mode,
                 )
+                verify_writer()
+                _assert_original_child(root_fd, child)
                 require(data is not None,
                         "command-center-authority-publication", name)
                 return data
@@ -1056,6 +1122,7 @@ def inspect_offline(*, offline_directory, reader_gid,
                     "command-center-authority-publication",
                     "receipt/content mismatch")
             verify_writer()
+            _assert_original_child(root_fd, child)
             return {
                 **receipt,
                 "status": "protected-offline-authority-materials-retained",
