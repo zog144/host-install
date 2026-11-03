@@ -114,7 +114,7 @@ def _load(fd):
             len(value["nonces"]) > cd.MAX_REQUESTS or
             len(set(value["nonces"])) != len(value["nonces"]) or
             not all(type(n) is str and n for n in value["nonces"]) or
-            value["phase"] not in ("idle", "claimed", "delivered", "installed", "revoked") or
+            value["phase"] not in ("idle", "claimed", "delivered", "installing", "installed", "revoked") or
             type(value["revoked"]) is not bool):
         _hold("invalid receiver state")
     for key in ("request_id", "delivery_id", "receipt_id"):
