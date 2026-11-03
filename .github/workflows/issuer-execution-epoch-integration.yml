@@ -1,7 +1,7 @@
 name: Selected issuer shared execution epoch source integration
 on:
   push:
-    branches: [regular/issuer-execution-epoch-integration-20261101]
+    branches: [regular/issuer-execution-epoch-integration-20261101, review/certificate-selected-fence-38fca-20261103]
   workflow_dispatch:
 permissions:
   contents: read
