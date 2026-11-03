@@ -994,3 +994,69 @@ def test_inspection_readback_rejects_child_replacement_during_material_read(tmp_
         assert (original / authority.RECEIPT_NAME).read_bytes() == canonical(receipt)
     finally:
         os.close(root)
+
+
+def test_renamed_ancestor_of_writer_root_does_not_preserve_path_authority(tmp_path):
+    """Renaming a parent directory is distinct from renaming the leaf itself."""
+    folder, fd, uid, gid = _writer_root(tmp_path)
+    original_path = str(folder)
+    moved = tmp_path.with_name(tmp_path.name + "-renamed-parent")
+    try:
+        authority.prepare_offline_writer_lock_source(fd, uid=uid, gid=gid)
+        with pytest.raises(StateError, match="original offline directory pathname was replaced"):
+            with authority._offline_writer_lock(
+                    fd, uid=uid, gid=gid, path=original_path) as check:
+                tmp_path.rename(moved)
+                tmp_path.mkdir(mode=0o700)
+                (tmp_path / folder.name).mkdir(mode=0o700)
+                check()
+        assert not (tmp_path / folder.name / authority.DIRECTORY_NAME).exists()
+        assert (moved / folder.name / authority.LOCK_IDENTITY_NAME).is_file()
+    finally:
+        os.close(fd)
+
+
+@pytest.mark.skipif(os.geteuid() != 0, reason="ephemeral protected inspection requires root")
+def test_inspection_rejects_same_byte_marker_replacement_during_read(tmp_path, monkeypatch):
+    """Pinned marker inode is a readback invariant, not just a stage invariant."""
+    value=fixture()
+    receipt=verify(value)
+    folder,fd,uid,gid=_writer_root(tmp_path)
+    try:
+        authority.prepare_offline_writer_lock_source(fd,uid=uid,gid=gid)
+        with authority._offline_writer_lock(fd,uid=uid,gid=gid,
+                                            path=str(folder)) as check:
+            authority._publish_bundle(fd,value["materials"],receipt,21001,
+                                      verify_writer=check)
+        marker=folder/authority.LOCK_IDENTITY_NAME
+        original=marker.read_bytes()
+        monkeypatch.setattr(authority,"_offline_root",
+                            lambda _:os.open(folder,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW))
+        monkeypatch.setattr(authority,"_observe_database",
+                            lambda _:value["observed"])
+        monkeypatch.setattr(authority,"RETAINED_CERTIFICATE_SIGNER_SHA256",
+                            value["certificate_sha"])
+        actual_raw=authority.raw
+        touched=[]
+        def substituted(fd,name,**kwargs):
+            result=actual_raw(fd,name,**kwargs)
+            if name=="operator-ed25519.pub" and not touched:
+                touched.append(name)
+                marker.rename(folder/"retained-original-marker")
+                marker.write_bytes(original)
+                marker.chmod(0o600)
+            return result
+        with monkeypatch.context() as patched:
+            patched.setattr(authority,"raw",substituted)
+            with pytest.raises(StateError,match="durable writer marker inode was replaced"):
+                authority.inspect_offline(
+                    offline_directory=str(folder),reader_gid=21001,
+                    expected_operator_pin_sha256=value["operator_sha"],
+                    expected_instance_id=authority.COMMAND_CENTER_INSTANCE_ID,
+                    expected_station_source_commit=authority.STATION_ACCESS_COMMIT,
+                    expected_authorization_issuer=value["issuer"],now=NOW)
+        assert touched==["operator-ed25519.pub"]
+        assert marker.read_bytes()==original
+        assert (folder/authority.DIRECTORY_NAME/authority.RECEIPT_NAME).read_bytes()==canonical(receipt)
+    finally:
+        os.close(fd)
