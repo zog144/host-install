@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: zog144/root-control
-          ref: 38fca3ff67d9a7697d3a42c307bd13b1a4735982
+          ref: a2dc35d4370ad508c8ea1434e86035e3885436ad
           path: companions/root-control
           persist-credentials: false
       - uses: actions/checkout@v4
@@ -46,7 +46,7 @@ jobs:
           python-version: ${{ matrix.python }}
       - name: Enforce candidate exact heads
         run: |
-          test "$(git -C companions/root-control rev-parse HEAD)" = "38fca3ff67d9a7697d3a42c307bd13b1a4735982"
+          test "$(git -C companions/root-control rev-parse HEAD)" = "a2dc35d4370ad508c8ea1434e86035e3885436ad"
           test "$(git -C companions/box-control rev-parse HEAD)" = "baca7f815974dbf685950c0c7e78f693dd0a96e2"
           test "$(git -C companions/host-deploy rev-parse HEAD)" = "e1e0ec43b3aa3b56d4627ff8ed8d24eb2495871a"
           test "$(git -C historical-zog rev-parse HEAD)" = "d47d86b363824c718d9c165124cb55bbed12e0f9"
@@ -54,7 +54,7 @@ jobs:
           from pathlib import Path
           text=Path('src/zog/host_install/certificate_selected_broker_install.py').read_text()
           assert 'BOX_CONTROL_REVIEWED_COMMIT = "baca7f815974dbf685950c0c7e78f693dd0a96e2"' in text
-          assert 'ROOT_CONTROL_EXECUTION_REVIEWED_COMMIT = "38fca3ff67d9a7697d3a42c307bd13b1a4735982"' in text
+          assert 'ROOT_CONTROL_EXECUTION_REVIEWED_COMMIT = "a2dc35d4370ad508c8ea1434e86035e3885436ad"' in text
           PY
       - name: Overlay only unrelated historical support into namespace
         run: |
@@ -96,7 +96,7 @@ jobs:
           sudo -E env PYTHONPATH="$PYTHONPATH" "$(command -v python)" -m pytest -q -rs             companions/root-control/tests/test_issuer_exact_combined_security.py             -k 'not exact_pinned_owner_components_are_not_silently_replaced'
           python - <<'PY'
           from zog.host_install import certificate_selected_broker_install as installer
-          assert installer.ROOT_CONTROL_EXECUTION_REVIEWED_COMMIT == "38fca3ff67d9a7697d3a42c307bd13b1a4735982"
+          assert installer.ROOT_CONTROL_EXECUTION_REVIEWED_COMMIT == "a2dc35d4370ad508c8ea1434e86035e3885436ad"
           assert installer.BOX_CONTROL_REVIEWED_COMMIT == "baca7f815974dbf685950c0c7e78f693dd0a96e2"
           PY
       - name: Native authorization remains withheld
