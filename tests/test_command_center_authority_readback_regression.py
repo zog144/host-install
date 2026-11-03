@@ -25,6 +25,7 @@ def test_accepted_receipt_requires_complete_exact_readback(tmp_path, monkeypatch
 
     root = os.open(tmp_path, os.O_RDONLY | os.O_DIRECTORY)
     try:
+        authority.prepare_offline_writer_lock_source(root, uid=0, gid=0)
         authority._publish_bundle(root, value["materials"], accepted, reader_gid)
     finally:
         os.close(root)
@@ -95,6 +96,14 @@ def test_station_database_identity_rotated_during_offline_authority_staging(
             return replaced
         return original
 
+    # The reviewed writer now requires a separately durable inode marker.
+    # Synthetic readback tests must provision it explicitly, not rely on the
+    # stage call to create or silently repair a lost identity.
+    root = os.open(tmp_path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        authority.prepare_offline_writer_lock_source(root, uid=0, gid=0)
+    finally:
+        os.close(root)
     monkeypatch.setattr(authority, "_read_inputs", lambda paths, reader_gid: value["materials"])
     monkeypatch.setattr(authority, "_observe_database", observe)
     monkeypatch.setattr(authority, "_offline_root", lambda path:
