@@ -11,7 +11,7 @@ from pathlib import Path
 
 SCHEMA = "zog-graphical-native-owner-install-contract-v1"
 ROOT_SOURCE = "zog144/root-control"
-SELECTED_ROOT_SHA = "4a84cc347e7a82b08d21398a62689aff91be9e30"
+SELECTED_ROOT_SHA = "6cf1e3064f77a6aefe17bf75f50c4b8d83a15762"
 ROOT_MODULES = (
     "zog.root_control.graphical_native_owner",
     "zog.root_control.graphical_owner_checkpoint",
