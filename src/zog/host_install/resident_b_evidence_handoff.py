@@ -226,3 +226,42 @@ def verify(handoff,protected_pins):
             "native_generation_accepted":None,"resident_b_boot_authorized":False,
             "root_control_service_enabled":False,"rights_approved":False}
 
+
+
+def inspect_protected_host_generation_context(context, protected_pins):
+    """Native-only reconciliation of actual host-install VerifiedState.
+
+    Requires a live verified STATE fd and an independently determined live root
+    PARTUUID, not an object reconstructed from an evidence receipt. This does
+    not itself authenticate protected_pins or accept an installed generation.
+    """
+    from .state_inspect import VerifiedState, host_generation_report
+    if type(context) is not VerifiedState:
+        reject("real host-install VerifiedState context required, never caller JSON")
+    context.recheck()
+    bundle=context.bundle
+    if bundle["installation"]["schema"] not in (1,2):
+        reject("unselected installation record")
+    report=host_generation_report(context)
+    if (report["schema"]!=1 or
+        report["source"]!="verified-host-install-state-v1" or
+        report["installation"]["installation_id"]!=protected_pins["installation_id"] or
+        report["selected_slot"]!=protected_pins["selected_slot"] or
+        report["booted_slot"]!=protected_pins["selected_slot"] or
+        report["slots"][protected_pins["selected_slot"]]!={"generation":protected_pins["generation_id"],
+           "root_partuuid":protected_pins["root_partuuid"]}):
+        reject("actual live selected HOST PARTUUID/generation differs")
+    marker=bundle["marker"]
+    if (marker["installation_id"]!=protected_pins["installation_id"] or
+        marker["state_volume_id"]!=protected_pins["state_volume_id"] or
+        marker["partition_partuuid"]!=protected_pins["state_partuuid"] or
+        marker["filesystem_uuid"]!=protected_pins["state_filesystem_uuid"] or
+        context.mount["target"]!="/state" or
+        context.mount["device"]!=protected_pins["state_devid"] or
+        "rw" not in context.mount["options"]):
+        reject("actual verified persistent STATE partition differs")
+    context.recheck()
+    return {"native_root_partuuid":"HOST_INSTALL_VERIFIED",
+            "state_context":"HOST_INSTALL_VERIFIED",
+            "applications_mount":"REQUIRES_SEPARATE_PROTECTED_OBSERVATION",
+            "generation_accepted":None,"service_authorized":False}
