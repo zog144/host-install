@@ -3,7 +3,7 @@ Description=Protected Zog graphical operation owner private IPC socket
 Documentation=man:systemd.socket(5)
 
 [Socket]
-ListenSequentialPacket=/run/zog/graphical-owner.sock
+ListenStream=/run/zog/graphical-operation-owner.sock
 SocketUser=root
 SocketGroup=zog-graphical-client
 SocketMode=0660
