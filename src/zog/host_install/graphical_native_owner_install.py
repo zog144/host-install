@@ -11,6 +11,7 @@ from pathlib import Path
 
 SCHEMA = "zog-graphical-native-owner-install-contract-v1"
 ROOT_SOURCE = "zog144/root-control"
+SELECTED_ROOT_SHA = "4a84cc347e7a82b08d21398a62689aff91be9e30"
 ROOT_MODULES = (
     "zog.root_control.graphical_native_owner",
     "zog.root_control.graphical_owner_checkpoint",
@@ -53,6 +54,7 @@ def validate_install_contract(row):
             row["schema"] != SCHEMA or
             type(row["root_source_revision"]) is not str or
             not HEX40.fullmatch(row["root_source_revision"]) or
+            row["root_source_revision"] != SELECTED_ROOT_SHA or
             row["root_modules"] != list(ROOT_MODULES) or
             any(type(row[k]) is not str or not HEX64.fullmatch(row[k])
                 for k in ("host_id", "installation_id","state_volume_id")) or
@@ -160,8 +162,8 @@ def inspect_installed_evidence(*, manifest, installed_root_sha256, units,
             aws_identity["gateway_principal"] == aws_identity["owner_principal"]):
         hold()
     verify_unit_sources(units[SERVICE], units[SOCKET_UNIT])
-    if aws_identity["gateway_send_denied"] is not False or
-            aws_identity["owner_only_session"] is not False:
+    if (aws_identity["gateway_send_denied"] is not False or
+            aws_identity["owner_only_session"] is not False):
         # A synthetic inspector must not mint authority from supplied booleans.
         hold()
     return {"status": "native-owner-installation-evidence-source-only",
