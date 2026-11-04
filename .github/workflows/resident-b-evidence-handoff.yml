@@ -1,0 +1,47 @@
+name: Resident B host-install protected evidence handoff (synthetic only)
+on:
+  push:
+    branches: [review/resident-b-protected-evidence-handoff-20261104]
+  pull_request:
+    paths:
+      - 'src/zog/host_install/resident_b_evidence_handoff.py'
+      - 'tests/test_resident_b_evidence_handoff.py'
+      - 'tests/test_resident_b_evidence_interop.py'
+      - '.github/workflows/resident-b-evidence-handoff.yml'
+permissions:
+  contents: read
+jobs:
+  signed-source-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.12','3.13']
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: zog144/image-build
+          ref: 0f90f125e79214e17b6dd2384b5f1c669a1e3cc0
+          path: dependencies/image-build-pr16
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install synthetic test-only libraries
+        run: python -m pip install 'pytest==8.4.2' 'cryptography==46.0.3'
+      - name: Source-only signed receipt and protected mount reconciliation
+        env:
+          PYTHONPATH: src
+          ZOG_REVIEW_IMAGE_BUILD_PR16: dependencies/image-build-pr16
+        run: |
+          python -m compileall -q src/zog/host_install/resident_b_evidence_handoff.py tests/test_resident_b_evidence_handoff.py
+          python -m pytest -q tests/test_resident_b_evidence_handoff.py tests/test_resident_b_evidence_interop.py tests/test_bootable_image_contract.py
+      - name: No production authority
+        if: always()
+        run: |
+          echo 'All test keys and native mount claims are synthetic, not trusted Host or STATE facts.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'This verifier cannot authenticate external pin provisioning or accept any generation, service or worker authority.' >> "$GITHUB_STEP_SUMMARY"

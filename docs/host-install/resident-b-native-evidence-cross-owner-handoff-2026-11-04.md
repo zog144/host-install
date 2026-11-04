@@ -1,0 +1,34 @@
+# Resident B cross-owner native-evidence handoff — 2026-11-04
+
+**Source-only** preparation tied to host-install [issue #4](https://github.com/zog144/host-install/issues/4) and image-build [PR #16](https://github.com/zog144/image-build/pull/16), immutable selected source `0f90f125e79214e17b6dd2384b5f1c669a1e3cc0`. No native rootfs is admitted, no host-install authority is replaced, and neither branch starts a Work environment, submits AWS work, creates protected keys or modifies STATE.
+
+## Owner separation / exact input chain
+
+| Owner | Future authenticated input | How it is consumed |
+| --- | --- | --- |
+| **host-install protected installation owner** | Exact installation UUID and Host identity, selected HOST-A/B slot + root PARTUUID, rootfs generation ID + immutable manifest digest, independent protected signing keys, source-generation receipt digest; live STATE partition PARTUUID, filesystem UUID and STATE-volume ID; separate APPLICATIONS PARTUUID | These pins originate in the root-protected installation/STATE authority. Caller-supplied JSON is not sufficient. The source verifier cannot issue or provision them. |
+| **independent generation owner** | `zog-resident-b-selected-input-generation-v1`, detached Ed25519 signature and explicit `accepted-as-input` selection bound to exact generation and source receipt | Selection authority must be distinct from worker and protected mount observer. “Accepted as input” is not boot acceptance, and service/boot permissions are false. |
+| **image-build native installed-byte worker** | `zog-resident-b-installed-generation-evidence-v1` (exact image-build PR #16 schema) for the same generation and STATE; installed path SHA-256/size/mode/ELF; Python 3.12.16 interpreter, `_ssl`, `_sqlite3`, `_hashlib`; controller executable and wheel `METADATA`, `WHEEL`, `RECORD`; original disabled service unit | The independently authenticated worker signature binds byte observations. **image-build's actual `verify_resident_b_installed_evidence.py` must recompute installed file hashes, read `RECORD`, inspect ELF, and match mounted paths**. This host-install handoff only checks signed claims across owners, not those file bytes. |
+| **host-install physical mount observer** | `zog-host-install-resident-b-protected-live-mount-v1` separately signed snapshot of live root PARTUUID, `HOST-A/B`, rootfs generation, source/manifest hash, root read-only, STATE + APPLICATIONS partition device identities, root-control unit byte digest/permissions and disabled service | Native observer must independently collect kernel `mountinfo`/partition evidence; receipt text alone does not authenticate a mount. It must recheck protected STATE before and after the inspection. |
+
+The bridge `src/zog/host_install/resident_b_evidence_handoff.py` implements exact-v1 source reconciliation and detached, domain-separated Ed25519 verification across the three distinct externally pinned public keys. All selected identities and SHA-256 hashes are compared across the three signed roles. It explicitly rejects the rejected Boot A generation `5af34ec67cbfdcd1e7936bf70e3cf2f5c6945c7e3de5f95993918325f6e29c44`, substituted root/STATE/APPLICATIONS block-device identities and PARTUUIDs, missing installed outputs, mismatched service-unit digest, wrong extension SOABI, forged native/boot/rights acceptance and duplicate signer authority.
+
+The separate `inspect_protected_host_generation_context` is a **native-only adapter**: it accepts only the real `state_inspect.VerifiedState` instance, calls `state_inspect.host_generation_report`, compares its actually booted root PARTUUID and selected slot/generation to protected selection, matches root-protected STATE marker/partition/filesystem identifiers and device, and rechecks the live context. Arbitrary JSON pretending to be a VerifiedState is rejected. It does not independently inspect APPLICATIONS; that remains a separate protected physical-observation obligation.
+
+## Exact filesystem-mode distinction
+
+The existing host-install `state_inspect._inspect_live` checks **mounted `/state` root:root mode 0755**. The image-build PR #16 native root-mount checker has now been reconciled to that fact. The separately signed image-build worker field `state_permissions.state_mode=0700` means a *private application state directory*, **not the mount root**. The root-controlled private directory's actual path, UID/GID, no-follow confinement, and mode require a separate protected native inspection. Host-discover's own private directories use the established host-install ownership policy; no single 0700 root should be fabricated.
+
+The rootfs source has empty root-owned `/state` and `/applications` placeholders, mode 0000; the actual mounted partitions replace them. HOST-A/B must remain read-only, and the protected service `zog-root-control.service` must be the exact reviewed installed bytes with `Type=exec`, UID/GID root and no activation. The socket group and any future activation remain a **separate protected authorization**, not a consequence of image publication.
+
+## Signed consistency is not rootfs acceptance
+
+Source verification returns `EXACT_SOURCE_EVIDENCE_CROSS_OWNER_CONSISTENT` with `native_generation_accepted=null`, `resident_b_boot_authorized=false`, `root_control_service_enabled=false`. No generated keys, operator policy, authentic installation, native origin/Revocation, rights, service or execution are inferred from source CI.
+
+Native Work must combine: protected Host/installation pins; canonical image-build generation and full inventory verification; physical live PARTUUID, separate STATE/APPLICATIONS mounts and read-only HOST; actual image-build installed wheel/RECORD and ELF dependency closure; Python SSL/SQLite and CA trust import checks; exact root-control service/socket owner, independent generation signature, protected worker witness; Boot A successful boot evidence; and independent rights/notice decision. The receipt and any source-only consistency verdict must be checked against this complete evidence before protected host-install makes a separate, explicit native acceptance decision.
+
+## Source tests / negative gates
+
+The synthetic review exercises mismatched generation/source receipts and expired/forged authority fields; substituted root PARTUUID, root/STATE/APPLICATIONS major:minor, STATE marker/UUID; wrong installed file or unit SHA-256; missing Python extensions, wheel RECORD, executable or service files; signing-key substitution; service activation; incorrect mounted `/state` 0700 vs actual 0755 and separately protected private 0700; and fabricated VerifiedState. Tests bind the **exact** image-build PR #16 module constants, selected output manifests and original rights holds, while leaving all synthetic keys and fake mount observations disposable.
+
+**Status: source handoff only; native evidence/acceptance and protected installation NO-GO.**
