@@ -1,0 +1,36 @@
+[Unit]
+Description=Protected Zog graphical operation claim and selected SSM sender
+Documentation=man:systemd.service(5)
+RequiresMountsFor=/var/lib/zog-graphical-owner-ledger /var/lib/zog-graphical-owner-checkpoint
+After=local-fs.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=root
+Group=root
+Sockets=zog-graphical-owner.socket
+ExecStart=/usr/bin/python3 -I -m zog.root_control.graphical_owner_service
+LoadCredential=aws-session.json:/var/lib/zog-graphical-owner-credential-source/aws-session.json
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateIPC=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+UMask=0077
+ReadWritePaths=/var/lib/zog-graphical-owner-ledger /var/lib/zog-graphical-owner-checkpoint
+CapabilityBoundingSet=
+AmbientCapabilities=
+# Source-only unit: disabled; no Install section. Strict mounted state/UID
+# and external nonrollbackable witness must be independently attested first.
