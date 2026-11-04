@@ -195,3 +195,11 @@ def test_tampered_signed_installed_claim_denied_before_cross_owner_comparison():
     obj,pins,_,_=fixture()
     obj["installed"]["claim"]["status"]="accepted"
     with pytest.raises(h.HandoffDenied,match="signature"):h.verify(obj,pins)
+
+
+def test_live_verified_host_install_context_cannot_be_fabricated_from_json():
+    _,pins,_,_=fixture()
+    with pytest.raises(h.HandoffDenied,match="VerifiedState"):
+        h.inspect_protected_host_generation_context({"mount":"looks-authentic"},pins)
+    with pytest.raises(h.HandoffDenied,match="VerifiedState"):
+        h.inspect_protected_host_generation_context(object(),pins)
