@@ -179,8 +179,21 @@ def verify(handoff,protected_pins):
     unit=outputs["usr/lib/systemd/system/zog-root-control.service"]
     if unit["mode"]!=0o644 or type(unit["sha256"]) is not str:
         reject("unexpected privileged root-control unit mode/hash")
-    if installed["service_permissions"].get("service_enabled") is not False:
-        reject("native observation tries to activate root-control")
+    if installed["service_permissions"]!={"unit_mode":0o644,"socket_mode":0o660,
+         "socket_uid":0,"socket_gid_provisioned":True,"service_enabled":False}:
+        reject("root-control unit/socket ownership or activation evidence incomplete")
+    if type(installed["wheels"]) is not dict or set(installed["wheels"])!={"box_control-0.1.0","root_control-0.1.0"}:
+        reject("missing installed wheel RECORD evidence")
+    for name, wheel in installed["wheels"].items():
+        exact(wheel,("record_sha256","record_members"),"installed wheel")
+        sha(wheel["record_sha256"])
+        base=name+".dist-info/"
+        must={base+"METADATA",base+"WHEEL",base+"entry_points.txt",
+              base+"RECORD","../../../bin/"+name.split("-0.1.0")[0].replace("_","-")}
+        members=wheel["record_members"]
+        if (type(members) is not list or
+            len(members)!=len(set(members)) or not must.issubset(set(members))):
+            reject("incomplete wheel RECORD member inventory")
     mounted=verify_signed(handoff["mount"],protected_pins["mount_key"],
         "mount",MOUNT_SCHEMA,(
             "host_id","installation_id","operation_id","selected_slot","generation_id",
