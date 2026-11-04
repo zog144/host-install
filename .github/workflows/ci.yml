@@ -45,6 +45,13 @@ jobs:
           repository: zog144/image-build
           ref: 53ad8c2166e6b73dffbc722c2e47ccf3593612ec
           path: companions/image-build
+      - name: Check out exact image-build Resident B evidence interface (source review only)
+        uses: actions/checkout@v4
+        with:
+          repository: zog144/image-build
+          ref: 0f90f125e79214e17b6dd2384b5f1c669a1e3cc0
+          path: companions/image-build-resident-b
+          persist-credentials: false
       - name: Check out reviewed host-welcome consumer
         uses: actions/checkout@v4
         with:
@@ -91,6 +98,7 @@ jobs:
           test "$(git -C companions/host-discover rev-parse HEAD)" = "9e741d9a86bb2fd466ac46b252be0b78528eeff7"
           test "$(git -C companions/box-control rev-parse HEAD)" = "8249715708c6ef8a1fd30a3fb529b4034ffffe25"
           test "$(git -C companions/image-build rev-parse HEAD)" = "53ad8c2166e6b73dffbc722c2e47ccf3593612ec"
+          test "$(git -C companions/image-build-resident-b rev-parse HEAD)" = "0f90f125e79214e17b6dd2384b5f1c669a1e3cc0"
           test "$(git -C companions/host-welcome rev-parse HEAD)" = "a1d554bb78de27e9f365f4254db25c77cc49ec27"
           test "$(git -C companions/box-control-certificate rev-parse HEAD)" = "73d64fb8b643e27667ac719080a37913c008b5dd"
           test "$(git -C companions/root-control rev-parse HEAD)" = "8bb9a5638622b3c443e59351cfdf06583cea8e80"
@@ -112,6 +120,7 @@ jobs:
           HOST_DISCOVER_SOURCE: companions/host-discover
           BOX_CONTROL_SOURCE: companions/box-control
           IMAGE_BUILD_SOURCE: companions/image-build
+          ZOG_REVIEW_IMAGE_BUILD_PR16: companions/image-build-resident-b
           CERTIFICATE_BOX_CONTROL_SOURCE: companions/box-control-certificate
           ROOT_CONTROL_SOURCE: companions/root-control
           CERTIFY_MANAGE_SOURCE: companions/certify-manage
@@ -119,7 +128,7 @@ jobs:
         run: |
           # STATE coordination tests require real root ownership; no mocked UID.
           # The GitHub-hosted runner is disposable, not an enrolled Zog host.
-          sudo --preserve-env=HOST_IDENTIFY_SOURCE,HOST_DISCOVER_SOURCE,BOX_CONTROL_SOURCE,IMAGE_BUILD_SOURCE,CERTIFICATE_BOX_CONTROL_SOURCE,ROOT_CONTROL_SOURCE,CERTIFY_MANAGE_SOURCE,HOST_DEPLOY_SOURCE "$(command -v python)" -m pytest -q tests
+          sudo --preserve-env=HOST_IDENTIFY_SOURCE,HOST_DISCOVER_SOURCE,BOX_CONTROL_SOURCE,IMAGE_BUILD_SOURCE,ZOG_REVIEW_IMAGE_BUILD_PR16,CERTIFICATE_BOX_CONTROL_SOURCE,ROOT_CONTROL_SOURCE,CERTIFY_MANAGE_SOURCE,HOST_DEPLOY_SOURCE "$(command -v python)" -m pytest -q tests
       - name: Confirm CLI and namespace
         run: |
           host-install --help >/dev/null
