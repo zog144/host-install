@@ -92,7 +92,7 @@ def evidence(**overrides):
 
 
 def test_disabled_exact_source_manifest_only():
-    assert c.SELECTED_ROOT_SHA == "26c96e94a31240b038f7c69afd067065229213cc"
+    assert c.SELECTED_ROOT_SHA == "5ad7d5ed72d1b72edc767a658de28506791a74d4"
     assert c.validate_install_contract(row())["status"] == "NOT_ACTIVATED"
     status = evidence()
     assert status["enabled"] is False
