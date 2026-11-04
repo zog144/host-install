@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: zog144/host-deploy
-          ref: c3e597f09965680587c97dbe6f7b5ee18d52e9a9
+          ref: c46c6b5819b1f4496de1b860aa2785812244493e
           path: companions/host-deploy
           persist-credentials: false
       - uses: actions/setup-python@v5
@@ -42,7 +42,7 @@ jobs:
       - name: Exact immutable source and Task C socket schema selection
         run: |
           test "$(git -C companions/root-control rev-parse HEAD)" = 3caa4d1c6fcfb5f52a81ed701f8e0ad609406599
-          test "$(git -C companions/host-deploy rev-parse HEAD)" = c3e597f09965680587c97dbe6f7b5ee18d52e9a9
+          test "$(git -C companions/host-deploy rev-parse HEAD)" = c46c6b5819b1f4496de1b860aa2785812244493e
           python - <<'PY'
           from pathlib import Path
           r=Path('companions/root-control/src/zog/root_control/graphical_task_c_service.py').read_text()
@@ -54,6 +54,9 @@ jobs:
           assert 'graphical-operation-owner.sock' in g
           for p in (r,h):
               assert '/run/zog/graphical-operation-owner.sock' in p
+          pipeline=Path('companions/host-deploy/src/zog/host_deploy/gateway/generic_pipeline.py').read_text()
+          assert '_load_provenance_state_under_owner_lock' in pipeline
+          assert '_protected_original_identifiers(root, binding, step)' in pipeline
           assert 'NATIVE_TASK_C_SEND_ADMISSION_IMPLEMENTED = False' in r
           assert 'ListenStream=/run/zog/graphical-operation-owner.sock' in Path('src/zog/host_install/systemd/zog-graphical-owner.socket').read_text()
           PY
