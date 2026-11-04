@@ -206,10 +206,14 @@ def verify(handoff,protected_pins):
         mounted["root_control_uid"]!=0 or mounted["root_control_gid"]!=0 or
         mounted["root_control_enabled"] is not False or
         mounted["state_uid"]!=0 or mounted["state_gid"]!=0 or
-        mounted["state_mode"] not in (0o700,0o750)):
+        mounted["state_mode"]!=0o755):
         reject("unverified physical root/STATE/APPLICATIONS or privileged service")
-    if installed["state_permissions"].get("state_authenticated") is not True:
-        reject("native worker did not observe protected STATE")
+    # The mounted /state root is mode 0755 in host-install; the *separate*
+    # private root-controlled directory carried by the worker claim stays 0700.
+    # This field is not evidence that /state itself has mode 0700.
+    if installed["state_permissions"]!={"state_mode":0o700,
+                                        "private_uid":0,"state_authenticated":True}:
+        reject("native worker did not observe protected private STATE")
     exact(handoff["authority"],("generation_accepted","boot_authorized",
                                "root_control_activation_allowed","worker_submission_allowed",
                                "rights_approved"),"handoff authority denial")
