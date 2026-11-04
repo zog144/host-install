@@ -2,7 +2,7 @@
 
 Copyright (c) 2026 Alex Black. BSD-3-Clause OR GPL-3.0-only.
 
-**Selected source, not native acceptance:** root-control draft PR #39 exact `26c96e94a31240b038f7c69afd067065229213cc`, stacked on PR #38 S3 checkpoint and PR #36 no-SDK-retry; companion host-deploy PR #26 exact `c46c6b5819b1f4496de1b860aa2785812244493e`. The latter remains a **v1 gateway**, which cannot accept the root's signed-v2 result. Its fail-closed denial is retained and explicitly tested; no silent protocol activation.
+**Selected source, not native acceptance:** root-control draft PR #39 exact `5ad7d5ed72d1b72edc767a658de28506791a74d4`, stacked on PR #38 S3 checkpoint and PR #36 no-SDK-retry; companion host-deploy PR #26 exact `c46c6b5819b1f4496de1b860aa2785812244493e`. The latter remains a **v1 gateway**, which cannot accept the root's signed-v2 result. Its fail-closed denial is retained and explicitly tested; no silent protocol activation.
 
 Root-control now selects operator-signed original GitHub operation mapping plus **separately issuer-signed original-event evidence**; distinct preflight and stage irrecoverable claims, external S3 genesis and append-only history, a fixed single-attempt SSM sender with read-only original GetCommandInvocation result checks, and nonce/current-identity-bound v2 signed replies. Neither an SSM claim nor `stage-succeeded` means immutable compilation output is accepted.
 
