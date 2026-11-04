@@ -143,6 +143,23 @@ def validate_handoff(evidence, *, expected_host, expected_installation,
     raw_keys=[k.public_bytes(Encoding.Raw,PublicFormat.Raw) for k in keys]
     if len(set(raw_keys))!=4:
         _hold("native observer and authority keys must remain independently pinned")
+    # Verify both independently signed image-build envelopes; merely checking
+    # their fields would permit a forged generation/byte acceptance claim.
+    for envelope, key, prefix, name in (
+        (source_selection, trusted_generation_key,
+         b"zog-resident-b-selected-input-generation-v1\0", "selection"),
+        (byte_observation, trusted_installed_byte_key,
+         b"zog-resident-b-installed-evidence-v1\0", "claim"),
+    ):
+        if set(envelope)!={"schema",name,"signature"}:
+            _hold("incomplete image-build signed observation")
+        try:
+            raw=base64.b64decode(envelope["signature"],validate=True)
+            if len(raw)!=64 or base64.b64encode(raw).decode()!=envelope["signature"]:
+                _hold("invalid image-build signature encoding")
+            key.verify(raw,prefix+canonical(envelope[name]))
+        except (InvalidSignature,ValueError,TypeError,AttributeError):
+            _hold("unverified source generation or installed-byte witness")
     # A source-level matching signed physical observation is NOT a kernel mount
     # inspection. Protected device/ownership attestation still awaits Work.
     return {"status":"CROSS_OWNER_SIGNED_CLAIMS_MATCH_UNACCEPTED",
