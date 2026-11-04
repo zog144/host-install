@@ -11,7 +11,7 @@ import re
 
 SCHEMA = "zog-graphical-native-owner-install-contract-v2"
 ROOT_SOURCE = "zog144/root-control"
-SELECTED_ROOT_SHA = "b5ac7bddc8e2320901dd93897d43cb03441d2027"
+SELECTED_ROOT_SHA = "26c96e94a31240b038f7c69afd067065229213cc"
 ROOT_MODULES = (
     "zog.root_control.graphical_operation_owner_source",
     "zog.root_control.graphical_native_owner",
