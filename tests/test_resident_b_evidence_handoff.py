@@ -60,8 +60,12 @@ def fixture():
         "state_permissions":{"state_mode":0o700,"private_uid":0,"state_authenticated":True},
         "service_permissions":{"unit_mode":0o644,"socket_mode":0o660,
                 "socket_uid":0,"socket_gid_provisioned":True,"service_enabled":False},
-        "wheels":{"box_control-0.1.0":{"record_sha256":"f"*64,"record_members":[]},
-                  "root_control-0.1.0":{"record_sha256":"f"*64,"record_members":[]}},
+        "wheels":{
+          name:{"record_sha256":"f"*64,
+                "record_members":[name+".dist-info/"+a for a in
+                    ("METADATA","WHEEL","entry_points.txt","RECORD")]+
+                    ["../../../bin/"+name.split("-0.1.0")[0].replace("_","-")]}
+          for name in ("box_control-0.1.0","root_control-0.1.0")},
         "native_observation":{"rootfs_slot":"HOST-B","rootfs_readonly":True,
             "state_mount_id":STATE,"source_generation_receipt_sha256":SOURCE,
             "observed_by":"synthetic-native-worker","observation_id":"synthetic-invocation-01"},
@@ -203,3 +207,17 @@ def test_live_verified_host_install_context_cannot_be_fabricated_from_json():
         h.inspect_protected_host_generation_context({"mount":"looks-authentic"},pins)
     with pytest.raises(h.HandoffDenied,match="VerifiedState"):
         h.inspect_protected_host_generation_context(object(),pins)
+
+
+def test_signed_missing_socket_group_or_wheel_record_is_denied():
+    obj,pins,_,sign=fixture()
+    claim=copy.deepcopy(obj["installed"]["claim"])
+    claim["service_permissions"]["socket_gid_provisioned"]=False
+    obj["installed"]=sign("installed",claim)
+    with pytest.raises(h.HandoffDenied,match="socket ownership"):h.verify(obj,pins)
+    obj,pins,_,sign=fixture()
+    claim=copy.deepcopy(obj["installed"]["claim"])
+    claim["wheels"]["root_control-0.1.0"]["record_members"].remove(
+        "root_control-0.1.0.dist-info/WHEEL")
+    obj["installed"]=sign("installed",claim)
+    with pytest.raises(h.HandoffDenied,match="incomplete wheel"):h.verify(obj,pins)
