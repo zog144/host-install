@@ -41,4 +41,5 @@ jobs:
         run: python -m pytest -q -rs tests/test_resident_b_acceptance_handoff.py
       - name: No native Host authority
         if: always()
-        run: echo 'Cross-owner signed-claim source validation only: no real rootfs, STATE mount, accepted generation, native group, service or boot.' >> "$GITHUB_STEP_SUMMARY"
+        run: |
+          echo 'Cross-owner signed-claim source validation only: no real rootfs, STATE mount, accepted generation, native group, service or boot.' >> "$GITHUB_STEP_SUMMARY"
