@@ -1,0 +1,46 @@
+name: Protected graphical native owner installation and IAM source review
+on:
+  push:
+    branches: [regular/graphical-native-owner-installation-20261104]
+  pull_request:
+    paths:
+      - src/zog/host_install/graphical_native_owner_install.py
+      - src/zog/host_install/systemd/zog-graphical-owner.service
+      - src/zog/host_install/systemd/zog-graphical-owner.socket
+      - tests/test_graphical_native_owner_install.py
+      - .github/workflows/graphical-native-owner-install.yml
+permissions:
+  contents: read
+jobs:
+  disabled-native-install:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.12','3.13']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: zog144/root-control
+          ref: 6cf1e3064f77a6aefe17bf75f50c4b8d83a15762
+          path: companions/root-control
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install 'pytest>=8,<10'
+      - name: Verify immutable root-control protected owner source selection
+        run: |
+          test "$(git -C companions/root-control rev-parse HEAD)" = 6cf1e3064f77a6aefe17bf75f50c4b8d83a15762
+          for module in graphical_native_owner graphical_owner_checkpoint graphical_owner_service; do
+            test -f "companions/root-control/src/zog/root_control/${module}.py"
+          done
+      - name: Validate no authority enabled; exact units and IAM negative cases
+        env:
+          PYTHONPATH: ${{ github.workspace }}/src
+        run: python -m pytest -q tests/test_graphical_native_owner_install.py
+      - if: always()
+        run: echo 'Root-only installed service and real distinct IAM/IMDS/protected mounts remain native Work-only. All source artifacts disabled.' >> "$GITHUB_STEP_SUMMARY"
