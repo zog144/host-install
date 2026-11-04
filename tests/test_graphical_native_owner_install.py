@@ -117,7 +117,7 @@ def test_disabled_exact_source_manifest_only():
     ("credential_source", "/home/gateway/.aws"),
     ("checkpoint_credential_source", "/state/owner-credential.json"),
     ("checkpoint_credential_target", "/tmp/owner-credential.json"),
-    ("operator_public_sha256", "sha256:"+"0"*64),
+    ("operator_public_sha256", "sha256:malformed"),
     ("gateway_cgroup", "/user.slice/untrusted.service"),
     ("status", "READY"), ("socket_enabled", True),
     ("service_enabled", True), ("ssm_admitted", True),
