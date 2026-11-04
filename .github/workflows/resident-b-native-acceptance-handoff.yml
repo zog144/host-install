@@ -1,0 +1,45 @@
+name: Resident B cross-owner native acceptance handoff (source-only)
+on:
+  push:
+    branches: [review/resident-b-native-handoff-20261104]
+  pull_request:
+    paths:
+      - src/zog/host_install/resident_b_acceptance_handoff.py
+      - tests/test_resident_b_acceptance_handoff.py
+      - docs/host-install/resident-b-native-acceptance-handoff-2026-11-04.md
+      - .github/workflows/resident-b-native-acceptance-handoff.yml
+permissions:
+  contents: read
+jobs:
+  source-handoff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.12','3.13']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: zog144/image-build
+          ref: 06e2714ff032dc8ca985d056a1e8800515847f65
+          path: companion-image-build
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Exact independent evidence source pin
+        run: |
+          test "$(git -C companion-image-build rev-parse HEAD)" = 06e2714ff032dc8ca985d056a1e8800515847f65
+          python -m pip install 'cryptography>=44,<47' 'pytest>=8,<10'
+      - name: Signed native input/source consistency and fake mount/bytes denial
+        env:
+          PYTHONPATH: ${{ github.workspace }}/src
+        run: python -m pytest -q -rs tests/test_resident_b_acceptance_handoff.py
+      - name: No native Host authority
+        if: always()
+        run: |
+          echo 'Cross-owner signed-claim source validation only: no real rootfs, STATE mount, accepted generation, native group, service or boot.' >> "$GITHUB_STEP_SUMMARY"
