@@ -26,7 +26,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: zog144/root-control
-          ref: 3b16621e5ac56e6052c722d86ab8fc61e2e8320f
+          ref: 3caa4d1c6fcfb5f52a81ed701f8e0ad609406599
           path: companions/root-control
           persist-credentials: false
       - uses: actions/checkout@v4
@@ -41,7 +41,7 @@ jobs:
       - run: python -m pip install 'pytest>=8,<10' 'cryptography>=44,<49'
       - name: Exact immutable source and Task C socket schema selection
         run: |
-          test "$(git -C companions/root-control rev-parse HEAD)" = 3b16621e5ac56e6052c722d86ab8fc61e2e8320f
+          test "$(git -C companions/root-control rev-parse HEAD)" = 3caa4d1c6fcfb5f52a81ed701f8e0ad609406599
           test "$(git -C companions/host-deploy rev-parse HEAD)" = c3e597f09965680587c97dbe6f7b5ee18d52e9a9
           python - <<'PY'
           from pathlib import Path
