@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: zog144/root-control
-          ref: 6cf1e3064f77a6aefe17bf75f50c4b8d83a15762
+          ref: 3caa4d1c6fcfb5f52a81ed701f8e0ad609406599
           path: companions/root-control
           persist-credentials: false
       - uses: actions/setup-python@v5
@@ -34,7 +34,7 @@ jobs:
       - run: python -m pip install 'pytest>=8,<10'
       - name: Verify immutable root-control protected owner source selection
         run: |
-          test "$(git -C companions/root-control rev-parse HEAD)" = 6cf1e3064f77a6aefe17bf75f50c4b8d83a15762
+          test "$(git -C companions/root-control rev-parse HEAD)" = 3caa4d1c6fcfb5f52a81ed701f8e0ad609406599
           for module in graphical_native_owner graphical_owner_checkpoint graphical_owner_service; do
             test -f "companions/root-control/src/zog/root_control/${module}.py"
           done

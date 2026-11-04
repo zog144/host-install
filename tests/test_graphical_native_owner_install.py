@@ -9,7 +9,7 @@ ROOT=Path(__file__).resolve().parents[1]
 def row():
     return {
         "schema":contract.SCHEMA,
-        "root_source_revision":"6cf1e3064f77a6aefe17bf75f50c4b8d83a15762",
+        "root_source_revision":"3caa4d1c6fcfb5f52a81ed701f8e0ad609406599",
         "root_modules":list(contract.ROOT_MODULES),
         "host_id":"a"*64,"installation_id":"b"*64,"state_volume_id":"c"*64,
         "boot_id":"boot-test-not-native",
@@ -125,3 +125,51 @@ def test_same_disk_both_owner_domains_not_accepted():
                           "owner_principal":"protected-owner",
                           "gateway_send_denied":False,
                           "owner_only_session":False})
+
+
+def test_only_task_c_stream_unix_endpoint_is_selected():
+    units=unit_texts()
+    service=units[contract.SERVICE]
+    socket=units[contract.SOCKET_UNIT]
+    assert contract.SOCKET=="/run/zog/graphical-operation-owner.sock"
+    assert "ListenStream="+contract.SOCKET in socket
+    assert "Accept=no" in socket
+    assert "ListenSequentialPacket=" not in socket
+    assert "zog.root_control.graphical_task_c_service" in service
+    assert "zog.root_control.graphical_owner_service" not in service
+    assert "WantedBy=" not in service+socket
+    assert contract.verify_unit_sources(service,socket).endswith("not-enabled")
+
+
+@pytest.mark.parametrize("legacy",(
+    "ListenSequentialPacket=/run/zog/graphical-owner.sock",
+    "ListenStream=/run/zog/graphical-owner.sock",
+    "ListenSequentialPacket=/run/zog/graphical-operation-owner.sock",
+))
+def test_previous_unreviewed_owner_socket_is_rejected(legacy):
+    units=unit_texts()
+    socket=units[contract.SOCKET_UNIT]
+    fixed="ListenStream="+contract.SOCKET
+    with pytest.raises(contract.InstallationHold):
+        contract.verify_unit_sources(
+            units[contract.SERVICE],socket.replace(fixed,legacy))
+
+
+def test_single_task_c_installed_service_cannot_select_legacy_seqpacket_sender():
+    units=unit_texts()
+    with pytest.raises(contract.InstallationHold):
+        contract.verify_unit_sources(
+            units[contract.SERVICE].replace(
+                "zog.root_control.graphical_task_c_service",
+                "zog.root_control.graphical_owner_service"),
+            units[contract.SOCKET_UNIT])
+
+
+def test_task_c_source_contract_requires_original_identity_and_owner_signed_mapping():
+    # This tests installed source *selection*, not authentic Work evidence.
+    assert "zog.root_control.graphical_task_c_owner" in contract.ROOT_MODULES
+    assert "zog.root_control.graphical_task_c_service" in contract.ROOT_MODULES
+    selection=contract.validate_install_contract(row())
+    assert not selection["service_enabled"] and not selection["ssm_admitted"]
+    assert not selection["source_record_verified"]
+    assert not selection["nonrollbackable_highwater_verified"]

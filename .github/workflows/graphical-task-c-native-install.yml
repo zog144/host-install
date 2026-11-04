@@ -1,0 +1,71 @@
+name: Task C native owner service installation source review
+on:
+  push:
+    branches: [regular/graphical-task-c-native-service-selection-20261104]
+  pull_request:
+    paths:
+      - src/zog/host_install/graphical_native_owner_install.py
+      - src/zog/host_install/systemd/zog-graphical-owner.service
+      - src/zog/host_install/systemd/zog-graphical-owner.socket
+      - tests/test_graphical_native_owner_install.py
+      - .github/workflows/graphical-task-c-native-install.yml
+permissions:
+  contents: read
+jobs:
+  exact-three-owner-compatibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.12','3.13']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: zog144/root-control
+          ref: 3caa4d1c6fcfb5f52a81ed701f8e0ad609406599
+          path: companions/root-control
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: zog144/host-deploy
+          ref: c46c6b5819b1f4496de1b860aa2785812244493e
+          path: companions/host-deploy
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install 'pytest>=8,<10' 'cryptography>=44,<49'
+      - name: Exact immutable source and Task C socket schema selection
+        run: |
+          test "$(git -C companions/root-control rev-parse HEAD)" = 3caa4d1c6fcfb5f52a81ed701f8e0ad609406599
+          test "$(git -C companions/host-deploy rev-parse HEAD)" = c46c6b5819b1f4496de1b860aa2785812244493e
+          python - <<'PY'
+          from pathlib import Path
+          r=Path('companions/root-control/src/zog/root_control/graphical_task_c_service.py').read_text()
+          c=Path('companions/root-control/src/zog/root_control/graphical_task_c_owner.py').read_text()
+          g=Path('companions/host-deploy/src/zog/host_deploy/gateway/graphics_owner_ipc.py').read_text()
+          h=Path('src/zog/host_install/graphical_native_owner_install.py').read_text()
+          assert 'zog-graphical-owner-ipc-v1' in c and 'zog-graphical-owner-ipc-v1' in g
+          assert 'SOCKET_DIR = "/run/zog"' in g
+          assert 'graphical-operation-owner.sock' in g
+          for p in (r,h):
+              assert '/run/zog/graphical-operation-owner.sock' in p
+          pipeline=Path('companions/host-deploy/src/zog/host_deploy/gateway/generic_pipeline.py').read_text()
+          assert '_load_provenance_state_under_owner_lock' in pipeline
+          assert '_protected_original_identifiers(root, binding, step)' in pipeline
+          assert 'NATIVE_TASK_C_SEND_ADMISSION_IMPLEMENTED = False' in r
+          assert 'ListenStream=/run/zog/graphical-operation-owner.sock' in Path('src/zog/host_install/systemd/zog-graphical-owner.socket').read_text()
+          PY
+      - name: Disabled installation and native Task C mapping/lock source tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}/companions/root-control/src
+        run: |
+          python -m pytest -q -rs \
+            tests/test_graphical_native_owner_install.py \
+            companions/root-control/tests/test_graphical_task_c_owner.py
+      - if: always()
+        run: echo 'Source-only. Owner sender startup intentionally denied. Gateway v1 positive response is unsigned and preflight denies; no native GO.' >> "$GITHUB_STEP_SUMMARY"
