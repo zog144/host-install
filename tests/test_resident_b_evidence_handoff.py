@@ -78,7 +78,7 @@ def fixture():
         "applications_devid":"253:7","applications_mount_verified":True,
         "root_control_unit_sha256":UNIT,"root_control_unit_mode":0o644,
         "root_control_uid":0,"root_control_gid":0,"root_control_enabled":False,
-        "state_uid":0,"state_gid":0,"state_mode":0o700,
+        "state_uid":0,"state_gid":0,"state_mode":0o755,
         "physical_inspection_status":"PROTECTED_KERNEL_MOUNT_OBSERVED"
     }
     def envelope(kind,obj):
@@ -124,6 +124,7 @@ def test_cross_owner_synthetically_consistent_but_never_accepts_generation():
     ("mount","applications_mount_verified",False),
     ("mount","root_control_enabled",True),
     ("mount","root_control_unit_sha256","1"*64),
+    ("mount","state_mode",0o700),
     ("mount","state_mode",0o777)
 ])
 def test_mismatched_generation_mount_rights_and_service_denied_with_valid_synthetic_signers(role,field,value):
@@ -153,6 +154,15 @@ def test_installed_unit_byte_substitution_cross_checks_independent_mount_observe
     next(row for row in claim["files"] if row["path"].endswith("zog-root-control.service"))["sha256"]="0"*64
     obj["installed"]=sign("installed",claim)
     with pytest.raises(h.HandoffDenied,match="unverified physical"):h.verify(obj,pins)
+
+def test_private_state_permissions_are_separate_from_mount_root():
+    obj,pins,_,sign=fixture()
+    assert obj["mount"]["claim"]["state_mode"]==0o755
+    assert obj["installed"]["claim"]["state_permissions"]["state_mode"]==0o700
+    witness=copy.deepcopy(obj["installed"]["claim"])
+    witness["state_permissions"]["state_mode"]=0o755
+    obj["installed"]=sign("installed",witness)
+    with pytest.raises(h.HandoffDenied,match="private STATE"):h.verify(obj,pins)
 
 def test_untrusted_ed25519_pins_or_transplant_are_denied():
     obj,pins,_,_=fixture()
