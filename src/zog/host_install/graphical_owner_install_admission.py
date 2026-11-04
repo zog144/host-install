@@ -58,7 +58,7 @@ def validate_disabled_install_manifest(item):
                  "owner_wheel_record_sha256","independent_ledger_storage_id",
                  "external_highwater_pin_sha256","operator_public_pin_sha256",
                  "original_operation_map_sha256"):
-        if type(item[name]) is not str or not HEX64.fullmatch(item[name]):
+        if type(item[name]) is not str or not HEX64.fullmatch(item[name]) or item[name]=="0"*64:
             deny("missing exact installed identity/pin: "+name)
     if (type(item["gateway_aws_principal"]) is not str
             or not AWS_ROLE.fullmatch(item["gateway_aws_principal"])
