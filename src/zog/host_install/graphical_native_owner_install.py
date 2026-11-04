@@ -11,13 +11,15 @@ from pathlib import Path
 
 SCHEMA = "zog-graphical-native-owner-install-contract-v1"
 ROOT_SOURCE = "zog144/root-control"
-SELECTED_ROOT_SHA = "6cf1e3064f77a6aefe17bf75f50c4b8d83a15762"
+SELECTED_ROOT_SHA = "3b16621e5ac56e6052c722d86ab8fc61e2e8320f"
 ROOT_MODULES = (
     "zog.root_control.graphical_native_owner",
     "zog.root_control.graphical_owner_checkpoint",
     "zog.root_control.graphical_owner_service",
+    "zog.root_control.graphical_task_c_owner",
+    "zog.root_control.graphical_task_c_service",
 )
-SOCKET = "/run/zog/graphical-owner.sock"
+SOCKET = "/run/zog/graphical-operation-owner.sock"
 OWNER_CONFIG = "/etc/zog/graphical-owner/installation.json"
 LEDGER = "/var/lib/zog-graphical-owner-ledger"
 CHECKPOINT = "/var/lib/zog-graphical-owner-checkpoint"
@@ -99,7 +101,7 @@ def verify_unit_sources(service, socket_unit):
     """Fail closed on a unit that silently enables service or broad SSM auth."""
     required_service=(
         "User=root", "Group=root",
-        "ExecStart=/usr/bin/python3 -I -m zog.root_control.graphical_owner_service",
+        "ExecStart=/usr/bin/python3 -I -m zog.root_control.graphical_task_c_service",
         "LoadCredential=aws-session.json:"+CREDS,
         "RequiresMountsFor="+LEDGER+" "+CHECKPOINT,
         "NoNewPrivileges=yes", "ProtectSystem=strict",
@@ -107,9 +109,9 @@ def verify_unit_sources(service, socket_unit):
         "CapabilityBoundingSet=", "Sockets="+SOCKET_UNIT,
     )
     required_socket=(
-        "ListenSequentialPacket="+SOCKET,
+        "ListenStream="+SOCKET,
         "SocketUser=root", "SocketGroup=zog-graphical-client",
-        "SocketMode=0660", "Service="+SERVICE,
+        "SocketMode=0660", "Service="+SERVICE, "Accept=no",
     )
     if (type(service) is not str or type(socket_unit) is not str or
             any(x not in service.splitlines() for x in required_service) or
@@ -117,7 +119,10 @@ def verify_unit_sources(service, socket_unit):
             "EnvironmentFile=" in service or "AWS_PROFILE=" in service or
             "ExecStartPost=" in service or "WantedBy=" in service or
             "WantedBy=" in socket_unit or
-            "Accept=yes" in socket_unit):
+            "Accept=yes" in socket_unit or
+            "ListenSequentialPacket=" in socket_unit or
+            "/run/zog/graphical-owner.sock" in socket_unit or
+            "zog.root_control.graphical_owner_service" in service):
         hold()
     return "protected-source-units-reviewed-not-enabled"
 
