@@ -50,7 +50,9 @@ jobs:
           g=Path('companions/host-deploy/src/zog/host_deploy/gateway/graphics_owner_ipc.py').read_text()
           h=Path('src/zog/host_install/graphical_native_owner_install.py').read_text()
           assert 'zog-graphical-owner-ipc-v1' in c and 'zog-graphical-owner-ipc-v1' in g
-          for p in (r,g,h):
+          assert 'SOCKET_DIR = "/run/zog"' in g
+          assert 'graphical-operation-owner.sock' in g
+          for p in (r,h):
               assert '/run/zog/graphical-operation-owner.sock' in p
           assert 'NATIVE_TASK_C_SEND_ADMISSION_IMPLEMENTED = False' in r
           assert 'ListenStream=/run/zog/graphical-operation-owner.sock' in Path('src/zog/host_install/systemd/zog-graphical-owner.socket').read_text()
