@@ -9,7 +9,7 @@ ROOT=Path(__file__).resolve().parents[1]
 def row():
     return {
         "schema":contract.SCHEMA,
-        "root_source_revision":"4a84cc347e7a82b08d21398a62689aff91be9e30",
+        "root_source_revision":"6cf1e3064f77a6aefe17bf75f50c4b8d83a15762",
         "root_modules":list(contract.ROOT_MODULES),
         "host_id":"a"*64,"installation_id":"b"*64,"state_volume_id":"c"*64,
         "boot_id":"boot-test-not-native",
