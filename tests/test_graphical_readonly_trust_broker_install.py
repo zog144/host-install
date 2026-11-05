@@ -168,3 +168,32 @@ def test_exact_three_owner_constructor_revision_set():
     assert b.OWNER_SOURCE == "5ad7d5ed72d1b72edc767a658de28506791a74d4"
     assert b.ROOT_PROVIDER_SOURCE != "b0aea19bd265bbf1bdcf0b90eec18269e3276458"
     assert b.BROKER_SOURCE != "76416b9d7ef64aac17b75b6ce06b98244fd487e0"
+
+def test_new_root40_constructor_is_exact_only_in_synthetic_source_seam(monkeypatch):
+    from zog.root_control import graphical_task_c_trust_authority as provider
+    from zog.host_deploy.gateway import graphics_owner_trust_daemon as daemon
+    from zog.host_deploy.gateway import graphics_owner_trust_history as history
+
+    assert provider.BROKER_SOURCE == b.BROKER_SOURCE
+    assert provider.OWNER_SOURCE == b.OWNER_SOURCE
+    assert daemon.NATIVE_TRUST_BROKER_ADMISSION_IMPLEMENTED is False
+    assert history.APPROVED_PIN_SHA256 is None
+
+    with pytest.raises(history.TrustUnavailable):
+        daemon.installed_runtime()
+
+    chosen = daemon.InstalledReadOnlyAuthority(
+        registry=object(), issuer_evidence={}, issuer_public_key=b"a"*32,
+        observation_public_key=b"b"*32, checkpoint=object(), signed_pin={},
+        broker_signer=object(), installed_source_sha256="c"*64,
+        original_checkpoint={}, gateway_uid=15310, gateway_gid=15311,
+        gateway_executable_sha256="sha256:"+"d"*64,
+        gateway_cgroup="/system.slice/zog-graphical-gateway.service")
+    calls=[]
+    monkeypatch.setattr(provider, "installed_readonly_authority",
+                        lambda: calls.append("exact-root40") or chosen)
+    # This explicit monkeypatch verifies the code seam, not native activation.
+    monkeypatch.setattr(daemon, "NATIVE_TRUST_BROKER_ADMISSION_IMPLEMENTED", True)
+    assert daemon.installed_runtime() is chosen
+    assert calls == ["exact-root40"]
+    assert history.APPROVED_PIN_SHA256 is None
