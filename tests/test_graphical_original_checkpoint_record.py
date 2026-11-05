@@ -164,3 +164,23 @@ def test_external_anchor_missing_or_substituted_blocks_continuation(tmp_path):
     finally:os.close(afd)
     with pytest.raises(owner.InstallationHold):
         resume(root,manifest)
+
+def test_retained_installer_entrypoint_requires_original_record_and_anchor(tmp_path):
+    root,manifest=fresh(tmp_path)
+    with pytest.raises(owner.InstallationHold):
+        owner.verify_retained_original_checkpoint(
+            manifest,original_ledger_directory=root,
+            independent_anchor_directory=anchor(root),
+            independently_selected_scope_sha256=SCOPE)
+    first(root,manifest)
+    result=owner.verify_retained_original_checkpoint(
+        manifest,original_ledger_directory=root,
+        independent_anchor_directory=anchor(root),
+        independently_selected_scope_sha256=SCOPE)
+    assert result["status"]=="ORIGINAL_CHECKPOINT_CONTINUATION_MATCH_UNACCEPTED"
+    (root/record.RECORD).unlink()
+    with pytest.raises(owner.InstallationHold):
+        owner.verify_retained_original_checkpoint(
+            manifest,original_ledger_directory=root,
+            independent_anchor_directory=anchor(root),
+            independently_selected_scope_sha256=SCOPE)
