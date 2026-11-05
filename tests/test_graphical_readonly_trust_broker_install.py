@@ -248,11 +248,11 @@ def test_exact_host_deploy_constructor_delegates_only_to_pinned_root_authority(m
 def test_mount_readiness_dependencies_are_effective_systemd_unit_properties():
     service = _unit(b.SERVICE)
     assert service.count(b"RequiresMountsFor=") == 2
-    unit, service_section = service.split(b"[Service]\\n", 1)
-    assert b"[Unit]\\n" in unit
+    unit, service_section = service.split(b"[Service]\n", 1)
+    assert b"[Unit]\n" in unit
     for mount in (b.ORIGINAL_LEDGER.encode(), b.ROOT_AUTHORITY.encode()):
         directive = b"RequiresMountsFor=" + mount
-        assert unit.count(directive + b"\\n") == 1
+        assert unit.count(directive + b"\n") == 1
         assert directive not in service_section
     selected = fixture()
     assert selected[0]["broker_service_sha256"] == b.sha(service)
@@ -268,17 +268,17 @@ def test_mount_readiness_dependencies_are_effective_systemd_unit_properties():
 def test_mount_readiness_never_admits_ignored_or_unreviewed_dependencies(mutation):
     selected = list(fixture())
     selection, root, modules, unit, sock, original, gateway = selected
-    ledger = b"RequiresMountsFor=" + b.ORIGINAL_LEDGER.encode() + b"\\n"
-    authority = b"RequiresMountsFor=" + b.ROOT_AUTHORITY.encode() + b"\\n"
+    ledger = b"RequiresMountsFor=" + b.ORIGINAL_LEDGER.encode() + b"\n"
+    authority = b"RequiresMountsFor=" + b.ROOT_AUTHORITY.encode() + b"\n"
     if mutation == "both_in_service":
         unit = unit.replace(ledger, b"").replace(authority, b"")
-        unit = unit.replace(b"[Service]\\n", b"[Service]\\n" + ledger + authority)
+        unit = unit.replace(b"[Service]\n", b"[Service]\n" + ledger + authority)
     elif mutation == "ledger_in_service":
-        unit = unit.replace(ledger, b"").replace(b"[Service]\\n", b"[Service]\\n" + ledger)
+        unit = unit.replace(ledger, b"").replace(b"[Service]\n", b"[Service]\n" + ledger)
     elif mutation == "authority_in_service":
-        unit = unit.replace(authority, b"").replace(b"[Service]\\n", b"[Service]\\n" + authority)
+        unit = unit.replace(authority, b"").replace(b"[Service]\n", b"[Service]\n" + authority)
     elif mutation == "duplicate_in_service":
-        unit = unit.replace(b"[Service]\\n", b"[Service]\\n" + ledger)
+        unit = unit.replace(b"[Service]\n", b"[Service]\n" + ledger)
     elif mutation == "duplicate_in_unit":
         unit = unit.replace(ledger, ledger + ledger)
     elif mutation == "missing_ledger":
@@ -286,11 +286,11 @@ def test_mount_readiness_never_admits_ignored_or_unreviewed_dependencies(mutatio
     elif mutation == "missing_authority":
         unit = unit.replace(authority, b"")
     elif mutation == "wrong_section":
-        unit = unit.replace(b"[Unit]\\n", b"[Service]\\n", 1)
+        unit = unit.replace(b"[Unit]\n", b"[Service]\n", 1)
     elif mutation == "old_unit_manifest_hash":
         # Even equal-value, wrong-section old bytes must not be accepted.
         old = unit.replace(ledger, b"").replace(authority, b"")
-        old = old.replace(b"[Service]\\n", b"[Service]\\n" + ledger + authority)
+        old = old.replace(b"[Service]\n", b"[Service]\n" + ledger + authority)
         selection["broker_service_sha256"] = b.sha(old)
         gateway["service_sha256"] = b.sha(old)
     if mutation != "old_unit_manifest_hash":
