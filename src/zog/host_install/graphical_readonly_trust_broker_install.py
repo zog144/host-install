@@ -71,6 +71,25 @@ def _validate_service(service, socket_unit):
         slines = socket_unit.decode("utf-8").splitlines()
     except UnicodeError:
         hold()
+    # Section-aware validation: systemd ignores RequiresMountsFor in [Service].
+    # Enforce both directives exactly once in [Unit], and nowhere else.
+    section = None
+    mount_sections = []
+    for entry in lines:
+        item = entry.strip()
+        if item.startswith("[") and item.endswith("]"):
+            section = item
+        elif item.startswith("RequiresMountsFor="):
+            mount_sections.append((section, item))
+    selected_mounts = {
+        "RequiresMountsFor=" + ORIGINAL_LEDGER,
+        "RequiresMountsFor=" + ROOT_AUTHORITY,
+    }
+    if (len(mount_sections) != 2
+            or set(mount_sections) != {("[Unit]", item) for item in selected_mounts}
+            or lines.count("[Unit]") != 1
+            or lines.count("[Service]") != 1):
+        hold()
     requirements = (
         "Type=exec", "User=root", "Group=root",
         "ExecStart=" + BROKER_PYTHON +
