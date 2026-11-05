@@ -233,3 +233,22 @@ def test_selected_gateway_policy_must_deny_direct_ssm_and_escalation():
     policy["Statement"][0]["Effect"] = "Allow"
     with pytest.raises(c.InstallationHold):
         c.verify_gateway_denial_policy(policy)
+
+
+@pytest.mark.parametrize("replacement", (
+    "/usr/bin/python3", "/usr/bin/python3.11", "/home/gateway/venv/bin/python3",
+))
+def test_owner_cannot_select_ambient_or_gateway_interpreter(replacement):
+    unit = units()
+    assert c.OWNER_PYTHON == "/opt/zog/graphical-owner/venv/bin/python3"
+    with pytest.raises(c.InstallationHold):
+        c.verify_unit_sources(unit[c.SERVICE].replace(c.OWNER_PYTHON, replacement),
+                              unit[c.SOCKET_UNIT])
+
+
+def test_extra_execstart_cannot_override_protected_interpreter():
+    unit = units()
+    with pytest.raises(c.InstallationHold):
+        c.verify_unit_sources(unit[c.SERVICE] +
+            "\nExecStart=\nExecStart=/usr/bin/python3 -m attacker\n",
+            unit[c.SOCKET_UNIT])
