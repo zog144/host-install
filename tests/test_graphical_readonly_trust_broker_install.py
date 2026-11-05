@@ -197,3 +197,49 @@ def test_new_root40_constructor_is_exact_only_in_synthetic_source_seam(monkeypat
     assert daemon.installed_runtime() is chosen
     assert calls == ["exact-root40"]
     assert history.APPROVED_PIN_SHA256 is None
+
+
+def test_exact_host_deploy_constructor_delegates_only_to_pinned_root_authority(monkeypatch):
+    """Interop against the actual selected PR26 daemon and PR40 provider.
+
+    A synthetic source seam proves the delegation and strict returned type;
+    it does not bypass native gating or establish genuine AWS authority.
+    """
+    from zog.host_deploy.gateway import graphics_owner_trust_daemon as daemon
+    from zog.host_deploy.gateway import graphics_owner_trust_history as history
+    from zog.root_control import graphical_task_c_trust_authority as root
+
+    assert root.BROKER_SOURCE == b.BROKER_SOURCE
+    assert root.OWNER_SOURCE == b.OWNER_SOURCE
+    assert daemon.NATIVE_TRUST_BROKER_ADMISSION_IMPLEMENTED is False
+    assert history.APPROVED_PIN_SHA256 is None
+
+    events = []
+    monkeypatch.setattr(
+        root, "installed_readonly_authority",
+        lambda: events.append("protected-provider") or pytest.fail(
+            "hard-disabled broker invoked protected authority"))
+    with pytest.raises(history.TrustUnavailable):
+        daemon.installed_runtime()
+    assert events == []
+
+    selected = daemon.InstalledReadOnlyAuthority(
+        registry=object(), issuer_evidence={},
+        issuer_public_key=b"a" * 32,
+        observation_public_key=b"b" * 32,
+        checkpoint=object(), signed_pin={}, broker_signer=object(),
+        installed_source_sha256="sha256:" + "c" * 64,
+        original_checkpoint={}, gateway_uid=15310, gateway_gid=15311,
+        gateway_executable_sha256="sha256:" + "d" * 64,
+        gateway_cgroup="/system.slice/zog-graphical-gateway.service",
+    )
+    monkeypatch.setattr(root, "installed_readonly_authority",
+                        lambda: events.append("protected-provider") or selected)
+    monkeypatch.setattr(daemon, "NATIVE_TRUST_BROKER_ADMISSION_IMPLEMENTED", True)
+    assert daemon.installed_runtime() is selected
+    assert events == ["protected-provider"]
+
+    monkeypatch.setattr(root, "installed_readonly_authority", lambda: {})
+    with pytest.raises(history.TrustUnavailable):
+        daemon.installed_runtime()
+    assert history.APPROVED_PIN_SHA256 is None
