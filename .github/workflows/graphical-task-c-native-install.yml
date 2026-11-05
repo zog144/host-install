@@ -65,6 +65,14 @@ jobs:
           assert 'CHECKPOINT_SESSION' in native and 'SSM_SESSION' in native
           assert 'S3AppendOnlyCheckpoint' in native
           assert 'IfNoneMatch="*"' in s3
+          origin=Path('src/zog/host_install/graphical_original_checkpoint_record.py').read_text()
+          for required in ('checkpoint_account_id', 'checkpoint_region', 'checkpoint_bucket',
+                           'checkpoint_prefix', 'checkpoint_scope_sha256',
+                           'checkpoint_genesis_sha256', 'checkpoint_role_arn'):
+              assert required in origin
+          for root_parameter in ('bucket', 'prefix', 'account_id', 'scope_digest', 'genesis_sha256'):
+              assert root_parameter in s3
+          assert 'verify_retained_original_checkpoint' in h
           assert 'graphical_task_c_origin' in h
           assert 'zog-graphical-task-c-owner-observation-v2' in Path(
               'companions/root-control/src/zog/root_control/graphical_task_c_runtime.py').read_text()
