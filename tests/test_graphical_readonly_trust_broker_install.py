@@ -160,3 +160,11 @@ def test_source_substitution_original_replacement_and_role_alias_denied(case):
         gate["gateway_source_revision"] = "0"*40
     with pytest.raises(b.BrokerInstallHeld):
         verify(rows)
+
+
+def test_exact_three_owner_constructor_revision_set():
+    assert b.ROOT_PROVIDER_SOURCE == "cb3d19febad0dbd0fa86094182b6c6f6e2a67cea"
+    assert b.BROKER_SOURCE == "0ea6d583fa441527f45dabbbf542731560644a72"
+    assert b.OWNER_SOURCE == "5ad7d5ed72d1b72edc767a658de28506791a74d4"
+    assert b.ROOT_PROVIDER_SOURCE != "b0aea19bd265bbf1bdcf0b90eec18269e3276458"
+    assert b.BROKER_SOURCE != "76416b9d7ef64aac17b75b6ce06b98244fd487e0"
