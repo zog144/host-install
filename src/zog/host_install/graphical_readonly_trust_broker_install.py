@@ -144,6 +144,7 @@ def review_disabled_source(selection, *, root_module, broker_modules,
             or type(broker_manifest) is not dict
             or broker_manifest.get("root_source_revision") != OWNER_SOURCE
             or broker_manifest.get("gateway_source_revision") != BROKER_SOURCE
+            or broker_manifest.get("runtime_python") != BROKER_PYTHON
             or broker_manifest.get("original_checkpoint_sha256") !=
                 selection["original_checkpoint_sha256"]
             or broker_manifest.get("source_modules_sha256") !=
