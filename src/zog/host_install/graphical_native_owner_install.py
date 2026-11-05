@@ -245,3 +245,20 @@ def inspect_installed_evidence(*, manifest, installed_root_sha256, units,
     return {"status": "native-owner-installation-evidence-source-only",
             "enabled": False, "installed_source_accepted": False,
             "external_highwater_accepted": False, "aws_send_admitted": False}
+
+
+def verify_retained_original_checkpoint(manifest, *, original_ledger_directory,
+                                       independent_anchor_directory,
+                                       independently_selected_scope_sha256):
+    """Mandatory read-only retained-installation checkpoint identity preflight.
+
+    The protected Work installer must call this before considering native
+    owner installation continuation. This function will NOT bootstrap, recover,
+    overwrite, repin or activate an absent original checkpoint record.
+    """
+    from .graphical_original_checkpoint_record import continue_original_checkpoint
+    return continue_original_checkpoint(
+        original_ledger_directory, manifest,
+        independent_anchor_directory=independent_anchor_directory,
+        independently_selected_scope_sha256=independently_selected_scope_sha256,
+    )
