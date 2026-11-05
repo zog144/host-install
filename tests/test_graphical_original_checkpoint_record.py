@@ -17,14 +17,21 @@ SCOPE = "sha256:" + "7"*64
 def fresh(tmp_path):
     root = tmp_path / "protected-owner-ledger"
     root.mkdir(mode=0o700)
+    anchor = tmp_path / "separate-checkpoint-origin-anchor"
+    anchor.mkdir(mode=0o700)
     return root, row()
+
+def anchor(root):
+    return root.parent / "separate-checkpoint-origin-anchor"
 
 def first(root, manifest, scope=SCOPE):
     return record.reserve_original_checkpoint(root, manifest,
+        independent_anchor_directory=anchor(root),
         independently_selected_scope_sha256=scope, explicit_first_install=True)
 
 def resume(root, manifest, scope=SCOPE):
     return record.continue_original_checkpoint(root, manifest,
+        independent_anchor_directory=anchor(root),
         independently_selected_scope_sha256=scope)
 
 def test_first_install_durable_exact_continuation_without_record_rewrite(tmp_path):
@@ -88,12 +95,10 @@ def test_missing_original_record_never_initializes_on_continuation(tmp_path,miss
         (root/record.RESERVATION).unlink()
     with pytest.raises(owner.InstallationHold):
         resume(root,manifest)
-    if missing != "both":
-        with pytest.raises(owner.InstallationHold):
-            first(root,manifest)
-    # If BOTH original native files are removed by a privileged administrator,
-    # a local first-install API cannot prove historical existence. Work must
-    # bind the retained Host installation to an independent immutable witness.
+    # The separate first-install anchor prevents even full local deletion
+    # of the two ledger records from reopening the original installation.
+    with pytest.raises(owner.InstallationHold):
+        first(root,manifest)
 
 def test_interrupted_reservation_blocks_retry_and_resume(tmp_path):
     root, manifest=fresh(tmp_path)
@@ -137,7 +142,25 @@ def test_no_auto_initialization_or_missing_directory(tmp_path):
         resume(root,manifest)
     with pytest.raises(owner.InstallationHold):
         record.reserve_original_checkpoint(root,manifest,
+            independent_anchor_directory=anchor(root),
             independently_selected_scope_sha256=SCOPE)
     root.rmdir()
     with pytest.raises(owner.InstallationHold):
         first(root,manifest)
+
+def test_external_anchor_missing_or_substituted_blocks_continuation(tmp_path):
+    root,manifest=fresh(tmp_path)
+    first(root,manifest)
+    external=anchor(root)/record.ANCHOR
+    external.unlink()
+    with pytest.raises(owner.InstallationHold):
+        resume(root,manifest)
+    # A missing anchor cannot be recreated by ordinary continuation.
+    # Native must separately protect the anchor's historical existence.
+    afd=record._directory(anchor(root))
+    try:
+        record._write_exclusive(afd,record.ANCHOR,{
+            "schema":record.RESERVATION_SCHEMA,"identity_sha256":"sha256:"+"0"*64})
+    finally:os.close(afd)
+    with pytest.raises(owner.InstallationHold):
+        resume(root,manifest)
