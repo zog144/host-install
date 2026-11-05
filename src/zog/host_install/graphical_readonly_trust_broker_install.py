@@ -11,8 +11,8 @@ from pathlib import Path
 import re
 
 OWNER_SOURCE = "5ad7d5ed72d1b72edc767a658de28506791a74d4"
-ROOT_PROVIDER_SOURCE = "b0aea19bd265bbf1bdcf0b90eec18269e3276458"
-BROKER_SOURCE = "76416b9d7ef64aac17b75b6ce06b98244fd487e0"
+ROOT_PROVIDER_SOURCE = "cb3d19febad0dbd0fa86094182b6c6f6e2a67cea"
+BROKER_SOURCE = "0ea6d583fa441527f45dabbbf542731560644a72"
 SCHEMA = "zog-task-c-readonly-broker-disabled-selection-v1"
 ROOT_MODULE = "zog.root_control.graphical_task_c_trust_authority"
 ROOT_AUTHORITY = "/var/lib/zog-graphical-owner-authority"
