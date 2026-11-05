@@ -24,6 +24,7 @@ ROOT_MODULES = (
     "zog.root_control.graphical_task_c_service",
 )
 SOCKET = "/run/zog/graphical-operation-owner.sock"
+OWNER_PYTHON = "/opt/zog/graphical-owner/venv/bin/python3"
 OWNER_CONFIG = "/etc/zog/graphical-owner/task-c-runtime.json"
 OPERATOR_PIN = "/etc/zog/graphical-owner/operator-public.key"
 ORIGIN_ISSUER_PIN = "/etc/zog/graphical-owner/origin-issuer-public.key"
@@ -165,7 +166,7 @@ def verify_unit_sources(service, socket_unit):
     """Require single disabled stream owner and two separate private sessions."""
     required_service = (
         "User=root", "Group=root",
-        "ExecStart=/usr/bin/python3 -I -m zog.root_control.graphical_task_c_service",
+        "ExecStart=" + OWNER_PYTHON + " -I -m zog.root_control.graphical_task_c_service",
         "LoadCredential=aws-session.json:" + CREDS,
         "LoadCredential=checkpoint-session.json:" + CHECKPOINT_CREDS,
         "RequiresMountsFor=" + LEDGER,
@@ -181,6 +182,8 @@ def verify_unit_sources(service, socket_unit):
     if (type(service) is not str or type(socket_unit) is not str
             or any(v not in service.splitlines() for v in required_service)
             or any(v not in socket_unit.splitlines() for v in required_socket)
+            or [x.strip() for x in service.splitlines()
+                if x.strip().startswith("ExecStart=")] != [required_service[2]]
             or {x for x in service.splitlines() if x.startswith("LoadCredential=")}
                != {required_service[3], required_service[4]}
             or "EnvironmentFile=" in service or "AWS_PROFILE=" in service

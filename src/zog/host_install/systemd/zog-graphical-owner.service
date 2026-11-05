@@ -10,7 +10,7 @@ Type=exec
 User=root
 Group=root
 Sockets=zog-graphical-owner.socket
-ExecStart=/usr/bin/python3 -I -m zog.root_control.graphical_task_c_service
+ExecStart=/opt/zog/graphical-owner/venv/bin/python3 -I -m zog.root_control.graphical_task_c_service
 LoadCredential=aws-session.json:/var/lib/zog-graphical-owner-credential-source/aws-session.json
 LoadCredential=checkpoint-session.json:/var/lib/zog-graphical-owner-credential-source/checkpoint-session.json
 NoNewPrivileges=yes
@@ -36,3 +36,5 @@ AmbientCapabilities=
 # Source-only unit: disabled; no Install section. Two *different* explicit
 # checkpoint-S3 and SSM-role sessions must be attested. S3 is external,
 # never a writable local fake highwater mount. Source/STATE/authority not accepted.
+# The dedicated root-owned environment must use reviewed Python >=3.11 and
+# attested wheel/RECORD bytes; the host's /usr/bin/python3 may still be 3.9.
