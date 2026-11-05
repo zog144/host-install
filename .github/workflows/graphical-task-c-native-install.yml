@@ -5,9 +5,11 @@ on:
   pull_request:
     paths:
       - src/zog/host_install/graphical_native_owner_install.py
+      - src/zog/host_install/graphical_original_checkpoint_record.py
       - src/zog/host_install/systemd/zog-graphical-owner.service
       - src/zog/host_install/systemd/zog-graphical-owner.socket
       - tests/test_graphical_native_owner_install.py
+      - tests/test_graphical_original_checkpoint_record.py
       - .github/workflows/graphical-task-c-native-install.yml
 permissions:
   contents: read
@@ -76,6 +78,7 @@ jobs:
         run: |
           python -m pytest -q -rs \
             tests/test_graphical_native_owner_install.py \
+            tests/test_graphical_original_checkpoint_record.py \
             companions/root-control/tests/test_graphical_task_c_owner.py \
             companions/root-control/tests/test_graphical_task_c_origin.py \
             companions/root-control/tests/test_graphical_task_c_runtime.py \
