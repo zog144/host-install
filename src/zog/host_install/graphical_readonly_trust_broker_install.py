@@ -11,7 +11,7 @@ from pathlib import Path
 import re
 
 OWNER_SOURCE = "5ad7d5ed72d1b72edc767a658de28506791a74d4"
-ROOT_PROVIDER_SOURCE = "e34757e719181a203637b57d7064094ada7569b6"
+ROOT_PROVIDER_SOURCE = "ad98868c8338ef2665cb64eff60ea719e7f93b0e"
 BROKER_SOURCE = "76416b9d7ef64aac17b75b6ce06b98244fd487e0"
 SCHEMA = "zog-task-c-readonly-broker-disabled-selection-v1"
 ROOT_MODULE = "zog.root_control.graphical_task_c_trust_authority"
