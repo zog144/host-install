@@ -26,13 +26,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: zog144/root-control
-          ref: b0aea19bd265bbf1bdcf0b90eec18269e3276458
+          ref: cb3d19febad0dbd0fa86094182b6c6f6e2a67cea
           path: companions/root-control
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: zog144/host-deploy
-          ref: 76416b9d7ef64aac17b75b6ce06b98244fd487e0
+          ref: 0ea6d583fa441527f45dabbbf542731560644a72
           path: companions/host-deploy
           persist-credentials: false
       - uses: actions/setup-python@v5
@@ -43,12 +43,13 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}/companions/root-control/src:${{ github.workspace }}/companions/root-control/tests:${{ github.workspace }}/companions/host-deploy/src:${{ github.workspace }}/companions/host-deploy/tests
         run: |
-          test "$(git -C companions/root-control rev-parse HEAD)" = b0aea19bd265bbf1bdcf0b90eec18269e3276458
-          test "$(git -C companions/host-deploy rev-parse HEAD)" = 76416b9d7ef64aac17b75b6ce06b98244fd487e0
+          test "$(git -C companions/root-control rev-parse HEAD)" = cb3d19febad0dbd0fa86094182b6c6f6e2a67cea
+          test "$(git -C companions/host-deploy rev-parse HEAD)" = 0ea6d583fa441527f45dabbbf542731560644a72
           python -m pytest -q -rs \
             tests/test_graphical_readonly_trust_broker_install.py \
             tests/test_graphical_original_checkpoint_record.py \
             companions/root-control/tests/test_graphical_task_c_trust_authority.py \
-            companions/host-deploy/tests/test_graphics_owner_trust_install.py
+            companions/host-deploy/tests/test_graphics_owner_trust_install.py \
+            companions/host-deploy/tests/test_graphics_owner_trust_constructor_pr40.py
       - if: always()
         run: echo 'Disabled source review only. No actual installation, original approvals, independent pin, IAM isolation or SSM execution proved.' >> "$GITHUB_STEP_SUMMARY"
