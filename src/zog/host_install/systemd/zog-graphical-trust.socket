@@ -1,0 +1,14 @@
+# Disabled Task C read-only trust/history broker. No installation/activation target.
+[Unit]
+Description=Protected Zog graphical original trust/history broker socket
+
+[Socket]
+ListenStream=/run/zog/graphical-owner-trust.sock
+SocketUser=root
+SocketGroup=zog-graphical-client
+SocketMode=0660
+DirectoryMode=0755
+Accept=no
+Service=zog-graphical-trust.service
+FileDescriptorName=trust-history
+RemoveOnStop=yes
