@@ -13,6 +13,8 @@ import re
 OWNER_SOURCE = "5ad7d5ed72d1b72edc767a658de28506791a74d4"
 ROOT_PROVIDER_SOURCE = "c603eee47e8e43ed0e1b46052337a35ce9836e7c"
 BROKER_SOURCE = "0ea6d583fa441527f45dabbbf542731560644a72"
+# Reviewed exact corrected [Unit] RequiresMountsFor bytes; not a live receipt.
+BROKER_SERVICE_SHA256 = "sha256:217e4213166a2f0268b3b0d7128a03ec59d56a74f1870cacc6203efbc4184c31"
 SCHEMA = "zog-task-c-readonly-broker-disabled-selection-v1"
 ROOT_MODULE = "zog.root_control.graphical_task_c_trust_authority"
 ROOT_AUTHORITY = "/var/lib/zog-graphical-owner-authority"
@@ -158,6 +160,8 @@ def review_disabled_source(selection, *, root_module, broker_modules,
                        "broker_service_sha256", "broker_socket_sha256",
                        "broker_wheel_record_sha256", "root_wheel_record_sha256"))
             or sha(root_module) != selection["root_provider_module_sha256"]
+            or sha(service) != BROKER_SERVICE_SHA256
+            or selection["broker_service_sha256"] != BROKER_SERVICE_SHA256
             or sha(service) != selection["broker_service_sha256"]
             or sha(socket_unit) != selection["broker_socket_sha256"]
             or type(broker_manifest) is not dict
