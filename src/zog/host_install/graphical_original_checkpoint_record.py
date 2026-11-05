@@ -20,6 +20,7 @@ SCHEMA = "zog-task-c-original-checkpoint-installation-v1"
 RESERVATION_SCHEMA = "zog-task-c-original-checkpoint-reservation-v1"
 RECORD = "original-checkpoint-installation.json"
 RESERVATION = "original-checkpoint-installation.reserved"
+ANCHOR = "original-checkpoint-installation.external-anchor"
 FIELDS = frozenset({
     "schema", "host_id", "installation_id", "state_volume_id",
     "checkpoint_account_id", "checkpoint_region", "checkpoint_bucket",
@@ -135,6 +136,7 @@ def _write_exclusive(dfd, name, value):
     os.fsync(dfd)
 
 def reserve_original_checkpoint(directory, manifest, *,
+                                independent_anchor_directory,
                                 independently_selected_scope_sha256,
                                 explicit_first_install=False):
     """One-time, explicitly selected install. Never called on continuation.
@@ -149,40 +151,59 @@ def reserve_original_checkpoint(directory, manifest, *,
     original = _selected(manifest,
                          original_scope_sha256=independently_selected_scope_sha256)
     dfd = _directory(directory)
+    afd = None
     try:
-        # The first durable reservation precedes any record publication.
-        # Once either entry exists, no "first install" can be repeated.
-        _write_exclusive(dfd, RESERVATION, {
+        afd = _directory(independent_anchor_directory)
+        if os.fstat(dfd).st_ino == os.fstat(afd).st_ino and os.fstat(dfd).st_dev == os.fstat(afd).st_dev:
+            _hold()
+        identity = {
             "schema": RESERVATION_SCHEMA,
             "identity_sha256": "sha256:" + hashlib.sha256(
                 _canonical(original)).hexdigest(),
-        })
+        }
+        # The independently retained reservation is created FIRST.
+        # If any later operation fails, neither an ordinary retry nor
+        # continuation may silently create a new checkpoint origin.
+        _write_exclusive(afd, ANCHOR, identity)
+        _write_exclusive(dfd, RESERVATION, identity)
         _write_exclusive(dfd, RECORD, original)
-        if _read(dfd, RECORD) != original:
+        if _read(dfd, RECORD) != original or _read(afd, ANCHOR) != identity:
             _hold()
     finally:
         os.close(dfd)
+        if afd is not None:
+            os.close(afd)
     return {"status": "ORIGINAL_CHECKPOINT_RECORDED_NOT_NATIVE_ACCEPTED",
             "install_authorized": False, "ssm_authorized": False}
 
 def continue_original_checkpoint(directory, manifest, *,
+                                 independent_anchor_directory,
                                  independently_selected_scope_sha256):
     """Read-only continuation; absence or changed origin is irrevocable HOLD."""
     expected = _selected(manifest,
                          original_scope_sha256=independently_selected_scope_sha256)
     dfd = _directory(directory)
+    afd = None
     try:
+        afd = _directory(independent_anchor_directory)
+        if (os.fstat(dfd).st_ino, os.fstat(dfd).st_dev) == (
+                os.fstat(afd).st_ino, os.fstat(afd).st_dev):
+            _hold()
         record = _read(dfd, RECORD)
         reservation = _read(dfd, RESERVATION)
+        anchor = _read(afd, ANCHOR)
+        identity = {
+            "schema": RESERVATION_SCHEMA,
+            "identity_sha256": "sha256:" + hashlib.sha256(
+                _canonical(record)).hexdigest(),
+        }
         if (set(record) != FIELDS or record != expected
-                or reservation != {
-                    "schema": RESERVATION_SCHEMA,
-                    "identity_sha256": "sha256:" + hashlib.sha256(
-                        _canonical(record)).hexdigest(),
-                }):
+                or reservation != identity or anchor != identity):
             _hold()
     finally:
         os.close(dfd)
+        if afd is not None:
+            os.close(afd)
     return {"status": "ORIGINAL_CHECKPOINT_CONTINUATION_MATCH_UNACCEPTED",
             "identity_sha256": "sha256:" + hashlib.sha256(
                 _canonical(expected)).hexdigest(),
