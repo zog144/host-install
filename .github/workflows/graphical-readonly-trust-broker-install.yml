@@ -1,0 +1,60 @@
+name: Disabled Task C read-only trust broker source compatibility
+on:
+  push:
+    branches: [regular/task-c-readonly-trust-broker-install-20261105]
+  pull_request:
+    paths:
+      - src/zog/host_install/graphical_readonly_trust_broker_install.py
+      - src/zog/host_install/graphical_protected_storage_admission.py
+      - src/zog/host_install/systemd/zog-graphical-trust.service
+      - src/zog/host_install/systemd/zog-graphical-trust.socket
+      - tests/test_graphical_readonly_trust_broker_install.py
+      - tests/test_graphical_protected_storage_admission.py
+      - .github/workflows/graphical-readonly-trust-broker-install.yml
+permissions:
+  contents: read
+jobs:
+  exact-three-owner:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: zog144/root-control
+          ref: 16b0be55c24231b103fded8ce52dab0b356ecc3b
+          path: companions/root-control
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: zog144/host-deploy
+          ref: 0ea6d583fa441527f45dabbbf542731560644a72
+          path: companions/host-deploy
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install 'pytest>=8,<10' 'cryptography>=44,<49' 'boto3>=1.34,<2'
+      - name: Exact source and immutable original-identity compatibility
+        env:
+          PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}/companions/root-control/src:${{ github.workspace }}/companions/root-control/tests:${{ github.workspace }}/companions/host-deploy/src:${{ github.workspace }}/companions/host-deploy/tests
+        run: |
+          test "$(git -C companions/root-control rev-parse HEAD)" = 16b0be55c24231b103fded8ce52dab0b356ecc3b
+          test "$(git -C companions/host-deploy rev-parse HEAD)" = 0ea6d583fa441527f45dabbbf542731560644a72
+          python -m pytest -q -rs \
+            tests/test_graphical_readonly_trust_broker_install.py \
+            tests/test_graphical_protected_storage_admission.py \
+            companions/root-control/tests/test_graphical_checkpoint_storage_origin.py \
+            tests/test_graphical_original_checkpoint_record.py \
+            companions/root-control/tests/test_graphical_task_c_trust_authority.py \
+            companions/host-deploy/tests/test_graphics_owner_trust_install.py \
+            companions/host-deploy/tests/test_graphics_owner_trust_constructor_pr40.py::test_native_default_denies_without_importing_or_choosing_authority \
+            companions/host-deploy/tests/test_graphics_owner_trust_constructor_pr40.py::test_bad_selected_constructor_result_denies
+      - if: always()
+        run: echo 'Disabled source review only. No actual installation, original approvals, independent pin, IAM isolation or SSM execution proved.' >> "$GITHUB_STEP_SUMMARY"
