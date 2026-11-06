@@ -138,17 +138,17 @@ def disabled_mount_unit_candidates(plan):
         path = mount["path"]
         name = path.strip("/").replace("/", "-") + ".mount"
         text = (
-            "# SOURCE CANDIDATE ONLY; native Work must authenticate backing device.\\n"
-            "[Unit]\\n"
-            "Description=Protected Task C dedicated historical authority storage\\n"
-            "Before=zog-graphical-trust.service\\n"
-            "\\n[Mount]\\n"
-            "What=" + mount["expected_source"] + "\\n"
-            "Where=" + path + "\\n"
-            "Type=" + mount["filesystem_type"] + "\\n"
-            "Options=nodev,nosuid\\n"
-            "DirectoryMode=0700\\n"
-            "TimeoutSec=30\\n"
+            "# SOURCE CANDIDATE ONLY; native Work must authenticate backing device.\n"
+            "[Unit]\n"
+            "Description=Protected Task C dedicated historical authority storage\n"
+            "Before=zog-graphical-trust.service\n"
+            "\n[Mount]\n"
+            "What=" + mount["expected_source"] + "\n"
+            "Where=" + path + "\n"
+            "Type=" + mount["filesystem_type"] + "\n"
+            "Options=nodev,nosuid\n"
+            "DirectoryMode=0700\n"
+            "TimeoutSec=30\n"
         )
         files[name] = text
     if len(files) != 2:
