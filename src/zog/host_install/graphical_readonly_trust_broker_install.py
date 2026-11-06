@@ -11,7 +11,7 @@ from pathlib import Path
 import re
 
 OWNER_SOURCE = "5ad7d5ed72d1b72edc767a658de28506791a74d4"
-ROOT_PROVIDER_SOURCE = "6e77d2065e96aa41422d8c63ca81aaf0ffea35dc"
+ROOT_PROVIDER_SOURCE = "16b0be55c24231b103fded8ce52dab0b356ecc3b"
 BROKER_SOURCE = "0ea6d583fa441527f45dabbbf542731560644a72"
 # Reviewed exact corrected [Unit] RequiresMountsFor bytes; not a live receipt.
 BROKER_SERVICE_SHA256 = "sha256:217e4213166a2f0268b3b0d7128a03ec59d56a74f1870cacc6203efbc4184c31"
