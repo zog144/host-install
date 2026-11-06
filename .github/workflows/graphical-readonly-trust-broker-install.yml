@@ -5,9 +5,11 @@ on:
   pull_request:
     paths:
       - src/zog/host_install/graphical_readonly_trust_broker_install.py
+      - src/zog/host_install/graphical_protected_storage_admission.py
       - src/zog/host_install/systemd/zog-graphical-trust.service
       - src/zog/host_install/systemd/zog-graphical-trust.socket
       - tests/test_graphical_readonly_trust_broker_install.py
+      - tests/test_graphical_protected_storage_admission.py
       - .github/workflows/graphical-readonly-trust-broker-install.yml
 permissions:
   contents: read
@@ -26,7 +28,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: zog144/root-control
-          ref: c603eee47e8e43ed0e1b46052337a35ce9836e7c
+          ref: 6e77d2065e96aa41422d8c63ca81aaf0ffea35dc
           path: companions/root-control
           persist-credentials: false
       - uses: actions/checkout@v4
@@ -43,10 +45,12 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}/companions/root-control/src:${{ github.workspace }}/companions/root-control/tests:${{ github.workspace }}/companions/host-deploy/src:${{ github.workspace }}/companions/host-deploy/tests
         run: |
-          test "$(git -C companions/root-control rev-parse HEAD)" = c603eee47e8e43ed0e1b46052337a35ce9836e7c
+          test "$(git -C companions/root-control rev-parse HEAD)" = 6e77d2065e96aa41422d8c63ca81aaf0ffea35dc
           test "$(git -C companions/host-deploy rev-parse HEAD)" = 0ea6d583fa441527f45dabbbf542731560644a72
           python -m pytest -q -rs \
             tests/test_graphical_readonly_trust_broker_install.py \
+            tests/test_graphical_protected_storage_admission.py \
+            companions/root-control/tests/test_graphical_checkpoint_storage_origin.py \
             tests/test_graphical_original_checkpoint_record.py \
             companions/root-control/tests/test_graphical_task_c_trust_authority.py \
             companions/host-deploy/tests/test_graphics_owner_trust_install.py \
