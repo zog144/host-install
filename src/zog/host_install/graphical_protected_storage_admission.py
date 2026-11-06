@@ -60,8 +60,7 @@ def plan_protected_mounts(plan):
                 or type(m["block_partuuid"]) is not str
                 or not UUID.fullmatch(m["block_partuuid"])
                 or type(m["expected_source"]) is not str
-                or not m["expected_source"].startswith("/dev/")
-                or ".." in m["expected_source"].split("/")
+                or m["expected_source"] != "/dev/disk/by-uuid/" + m["filesystem_uuid"]
                 or m["filesystem_type"] not in ("ext4", "xfs")
                 or m["writable"] is not True
                 or m["mount_options"] != ["nodev", "nosuid"]):
@@ -125,3 +124,33 @@ def inspect_actual_mounts(plan):
     if len({state.st_dev,stats[0].st_dev,stats[1].st_dev}) != 3:
         _hold()
     return {**proposal,"status":"MOUNT_NAMESPACE_OBSERVED_NATIVE_IDENTITY_UNACCEPTED"}
+
+def disabled_mount_unit_candidates(plan):
+    """Render reviewer-readable exact mount unit candidate bytes; do not install.
+
+    Work must separately prove exclusive stable block UUID/PARTUUID, inspect
+    existing contents BEFORE mounting (mounts hide files), and authorize
+    adoption versus fresh explicit scope. No generator output is native evidence.
+    """
+    plan_protected_mounts(plan)
+    files = {}
+    for mount in plan["mounts"]:
+        path = mount["path"]
+        name = path.strip("/").replace("/", "-") + ".mount"
+        text = (
+            "# SOURCE CANDIDATE ONLY; native Work must authenticate backing device.\\n"
+            "[Unit]\\n"
+            "Description=Protected Task C dedicated historical authority storage\\n"
+            "Before=zog-graphical-trust.service\\n"
+            "\\n[Mount]\\n"
+            "What=" + mount["expected_source"] + "\\n"
+            "Where=" + path + "\\n"
+            "Type=" + mount["filesystem_type"] + "\\n"
+            "Options=nodev,nosuid\\n"
+            "DirectoryMode=0700\\n"
+            "TimeoutSec=30\\n"
+        )
+        files[name] = text
+    if len(files) != 2:
+        _hold()
+    return files
