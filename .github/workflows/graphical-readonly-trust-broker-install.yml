@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: zog144/root-control
-          ref: 6e77d2065e96aa41422d8c63ca81aaf0ffea35dc
+          ref: 16b0be55c24231b103fded8ce52dab0b356ecc3b
           path: companions/root-control
           persist-credentials: false
       - uses: actions/checkout@v4
@@ -45,7 +45,7 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}/companions/root-control/src:${{ github.workspace }}/companions/root-control/tests:${{ github.workspace }}/companions/host-deploy/src:${{ github.workspace }}/companions/host-deploy/tests
         run: |
-          test "$(git -C companions/root-control rev-parse HEAD)" = 6e77d2065e96aa41422d8c63ca81aaf0ffea35dc
+          test "$(git -C companions/root-control rev-parse HEAD)" = 16b0be55c24231b103fded8ce52dab0b356ecc3b
           test "$(git -C companions/host-deploy rev-parse HEAD)" = 0ea6d583fa441527f45dabbbf542731560644a72
           python -m pytest -q -rs \
             tests/test_graphical_readonly_trust_broker_install.py \
