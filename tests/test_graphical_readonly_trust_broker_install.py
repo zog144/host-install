@@ -163,7 +163,7 @@ def test_source_substitution_original_replacement_and_role_alias_denied(case):
 
 
 def test_exact_three_owner_constructor_revision_set():
-    assert b.ROOT_PROVIDER_SOURCE == "c603eee47e8e43ed0e1b46052337a35ce9836e7c"
+    assert b.ROOT_PROVIDER_SOURCE == "6e77d2065e96aa41422d8c63ca81aaf0ffea35dc"
     assert b.BROKER_SOURCE == "0ea6d583fa441527f45dabbbf542731560644a72"
     assert b.OWNER_SOURCE == "5ad7d5ed72d1b72edc767a658de28506791a74d4"
     assert b.ROOT_PROVIDER_SOURCE != "b0aea19bd265bbf1bdcf0b90eec18269e3276458"
