@@ -83,3 +83,22 @@ def test_new_scope_requires_separate_approval_not_original_claim():
       q=copy.deepcopy(p);q.update(bad)
       with pytest.raises(broker.BrokerInstallHeld):
           s.plan_protected_mounts(q)
+
+def test_rendered_mount_units_bind_distinct_exact_devices_and_remain_disabled():
+    plan=fixture()
+    units=s.disabled_mount_unit_candidates(plan)
+    assert set(units) == {
+        "var-lib-zog-graphical-owner-ledger.mount",
+        "var-lib-zog-graphical-owner-authority.mount",
+    }
+    for row in plan["mounts"]:
+        name=row["path"].strip("/").replace("/","-")+".mount"
+        text=units[name]
+        assert "[Unit]\n" in text and "[Mount]\n" in text
+        assert "What="+row["expected_source"]+"\n" in text
+        assert "Where="+row["path"]+"\n" in text
+        assert "DirectoryMode=0700" in text
+        assert "[Install]" not in text and "WantedBy=" not in text
+    plan["mounts"][0]["expected_source"]="/dev/nvme1n1p1"
+    with pytest.raises(broker.BrokerInstallHeld):
+        s.disabled_mount_unit_candidates(plan)
