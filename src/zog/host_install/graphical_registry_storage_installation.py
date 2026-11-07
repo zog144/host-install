@@ -144,8 +144,11 @@ def review_registry_bound_storage(
     result = mounts.plan_protected_mounts(mount_plan)
     if result["new_scope_authorized"] is not False:
         _hold()
+    # V3 owner reads the signed storage authority and independent anchor
+    # before using the selected S3 session, not only its local claims ledger.
     _requires_mounts_in_unit(
-        owner_unit, [broker.ORIGINAL_LEDGER], owner=True)
+        owner_unit, [broker.ORIGINAL_LEDGER, broker.ROOT_AUTHORITY],
+        owner=True)
     _requires_mounts_in_unit(
         broker_unit, [broker.ORIGINAL_LEDGER, broker.ROOT_AUTHORITY],
         owner=False)
