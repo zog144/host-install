@@ -127,3 +127,106 @@ def test_manifest_or_unit_replacement_fails_closed(tamper):
         selection["broker_unit_sha256"]=i.digest(m[6])
     with pytest.raises(broker.BrokerInstallHeld):
         review(m)
+
+
+
+def signed_install_fixture():
+    """Synthetic retained installation-commit fixture; no native authority."""
+    import base64
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from cryptography.hazmat.primitives import serialization
+    from zog.root_control import graphical_installation_storage_commit as commit
+    from zog.root_control import graphical_operation_owner_source as op
+
+    state = list(fixture())
+    manifest, selected, plan, scope, checkpoint, owner, broker_unit = state
+    signer = Ed25519PrivateKey.generate()
+    body = {
+        "schema": commit.SCHEMA,
+        "registry_sha256": manifest["registry_sha256"],
+        "installation_scope_sha256": manifest["installation_scope_sha256"],
+        "storage_authority_sha256": op.digest(selected["authority"]),
+        "signed_storage_approval_sha256": op.digest(selected["grant"]),
+        "anchor_identity_sha256": selected["anchor"],
+        "ledger_fs_uuid": plan["mounts"][0]["filesystem_uuid"],
+        "authority_fs_uuid": plan["mounts"][1]["filesystem_uuid"],
+        "state_fs_uuid": plan["state_fs_uuid"],
+        "owner_unit_sha256": manifest["owner_unit_sha256"],
+        "broker_unit_sha256": manifest["broker_unit_sha256"],
+        "accepted_at": 410,
+    }
+    receipt = {**body, "signature_ed25519": base64.b64encode(
+        signer.sign(commit.DOMAIN + op.canonical(body))).decode("ascii")}
+    public = signer.public_key().public_bytes(
+        serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+    return (state, receipt, public, op.digest(receipt))
+
+
+def review_commit(items, *, now=100000):
+    state, receipt, public, independent_sha = items
+    manifest, selected, plan, scope, checkpoint, owner, trust = state
+    return i.review_signed_registry_install_commit(
+        manifest,
+        registered_installation=selected["registry"],
+        pinned_registry_public=selected["registrar"],
+        proposed_authority=selected["authority"],
+        storage_approval=selected["grant"],
+        pinned_operator_public=selected["operator"],
+        independently_retained_anchor_sha256=selected["anchor"],
+        mount_plan=plan, root_scope_module=scope,
+        root_checkpoint_module=checkpoint, owner_unit=owner,
+        broker_unit=trust, signed_install_commit=receipt,
+        pinned_installer_public=public,
+        independently_retained_commit_sha256=independent_sha, now=now)
+
+
+def test_genuine_shape_of_signed_install_commit_does_not_claim_native_pass():
+    out = review_commit(signed_install_fixture())
+    assert out["status"] == "SIGNED_INSTALLATION_COMMIT_SOURCE_ONLY"
+    assert out["mounts_observed_native"] is False
+    assert out["genesis_observed_native"] is False
+    assert out["external_anchor_observed_native"] is False
+    assert out["owner_credentials_accepted"] is False
+    assert out["owner_ipc_accepted"] is False
+    assert out["service_placement_accepted"] is False
+
+
+@pytest.mark.parametrize("corruption", (
+    "wrong_ledger_fs", "wrong_authority_fs", "wrong_state_fs",
+    "wrong_unit_digest", "wrong_broker_unit_digest",
+    "wrong_retained_commit", "wrong_installer", "expired_during_commit",
+    "unaccepted_storage", "wrong_storage_authority",
+))
+def test_install_commit_requires_exact_selected_units_devices_and_signed_authority(corruption):
+    import base64
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from cryptography.hazmat.primitives import serialization
+    from zog.root_control import graphical_installation_storage_commit as commit
+    from zog.root_control import graphical_operation_owner_source as op
+
+    items = list(signed_install_fixture())
+    state, receipt, public, independent_sha = items
+    manifest, selected, plan, scope, checkpoint, owner, trust = state
+    if corruption == "wrong_ledger_fs":
+        receipt["ledger_fs_uuid"] = "77777777-7777-4777-8777-777777777777"
+    elif corruption == "wrong_authority_fs":
+        receipt["authority_fs_uuid"] = "88888888-8888-4888-8888-888888888888"
+    elif corruption == "wrong_state_fs":
+        receipt["state_fs_uuid"] = "99999999-9999-4999-8999-999999999999"
+    elif corruption == "wrong_unit_digest":
+        receipt["owner_unit_sha256"] = "sha256:" + "f"*64
+    elif corruption == "wrong_broker_unit_digest":
+        receipt["broker_unit_sha256"] = "sha256:" + "f"*64
+    elif corruption == "wrong_retained_commit":
+        items[3] = "sha256:" + "f"*64
+    elif corruption == "wrong_installer":
+        items[2] = Ed25519PrivateKey.generate().public_key().public_bytes(
+            serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+    elif corruption == "expired_during_commit":
+        receipt["accepted_at"] = 451
+    elif corruption == "unaccepted_storage":
+        manifest["native_storage_accepted"] = True
+    elif corruption == "wrong_storage_authority":
+        selected["authority"]["checkpoint_prefix"] = "another/"
+    with pytest.raises(broker.BrokerInstallHeld):
+        review_commit(items)
