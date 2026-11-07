@@ -158,3 +158,88 @@ def verify_mapping(*, signed_mapping, registered_installation,
             "mapped_installation_scope":False,"native_state_accepted":False,
             "native_registry_accepted":False,"storage_authorized":False,
             "broker_activation_authorized":False,"ssm_authorized":False}
+
+
+def prepare_mapping_for_registrar(*, original_discover_binding,
+                                  registered_installation,
+                                  independently_observed_state,
+                                  pinned_registrar_public,
+                                  pinned_registry_public):
+    """Produce UNSIGNED candidate bytes for a separately enrolled registrar.
+
+    IDs must already be present in the authentic signed registry. This cannot
+    derive a v3 identifier from a UUID/fingerprint, choose a replacement STATE,
+    or sign any mapping. Work must independently read STATE/device provenance.
+    """
+    legacy=original_discover_binding
+    registry=registered_installation
+    observed=independently_observed_state
+    if (type(legacy) is not dict or set(legacy)!={
+            "host_uuid","fingerprint","installation_uuid","state_uuid"}
+            or type(registry) is not dict or type(observed) is not dict
+            or type(pinned_registrar_public) is not bytes
+            or type(pinned_registry_public) is not bytes
+            or len(pinned_registrar_public)!=32 or len(pinned_registry_public)!=32
+            or pinned_registrar_public==pinned_registry_public
+            or any(not valid_uuid(legacy.get(k)) for k in (
+                "host_uuid","installation_uuid","state_uuid"))
+            or type(legacy.get("fingerprint")) is not str
+            or not FINGERPRINT.fullmatch(legacy["fingerprint"])):
+        hold()
+    # Check independently signed registry before preparing a candidate.
+    from zog.root_control.graphical_installation_storage_authority import installation_scope
+    from zog.root_control.graphical_operation_owner_source import OperationDenied
+    try:
+        installation_scope(registry,pinned_registry_public=pinned_registry_public)
+    except OperationDenied:
+        hold()
+    if registry["host_fingerprint"]!="sha256:"+legacy["fingerprint"]:
+        hold()
+    expected_fields={
+        "host_uuid":legacy["host_uuid"],
+        "aws_instance_id":observed.get("aws_instance_id"),
+        "aws_region":observed.get("aws_region"),
+        "volume_id":observed.get("volume_id"),
+        "filesystem_uuid":observed.get("filesystem_uuid"),
+        "partuuid":observed.get("partuuid"),
+        "state_receipt_sha256":observed.get("state_receipt_sha256"),
+        "mountpoint":"/state","mounted":True,
+    }
+    if (set(observed)!=set(expected_fields) or observed!=expected_fields
+            or any(type(observed.get(k)) is not str or not observed[k]
+                   for k in ("volume_id","filesystem_uuid","partuuid",
+                             "state_receipt_sha256"))):
+        hold()
+    candidate={
+        "schema":SCHEMA,
+        "legacy_host_uuid":legacy["host_uuid"],
+        "legacy_fingerprint":legacy["fingerprint"],
+        "legacy_installation_uuid":legacy["installation_uuid"],
+        "legacy_state_uuid":legacy["state_uuid"],
+        "aws_instance_id":observed["aws_instance_id"],
+        "aws_region":observed["aws_region"],
+        "state_volume_aws_id":observed["volume_id"],
+        "state_filesystem_uuid":observed["filesystem_uuid"],
+        "state_partuuid":observed["partuuid"],
+        "state_receipt_sha256":observed["state_receipt_sha256"],
+        "registered_host_id":registry["host_id"],
+        "installation_id":registry["installation_id"],
+        "state_volume_id":registry["state_volume_id"],
+        "registry_id":registry["registry_id"],
+        "controller_id":registry["controller_id"],
+        "registry_public_sha256":sha(pinned_registry_public),
+        "registrar_public_sha256":sha(pinned_registrar_public),
+        "signed_registry_sha256":sha(canonical(registry)),
+    }
+    # Check format before returning bytes, but never issue signature/acceptance.
+    if (set(candidate)!=(MAPPING_FIELDS-{"signature_ed25519"})
+            or any(not HEX64.fullmatch(candidate[k]) for k in HEX_FIELDS)
+            or any(not valid_uuid(candidate[k]) for k in UUID_FIELDS)
+            or not AWS_INSTANCE.fullmatch(candidate["aws_instance_id"])
+            or not AWS_VOLUME.fullmatch(candidate["state_volume_aws_id"])):
+        hold()
+    return {"status":"UNSIGNED_REGISTRAR_CANDIDATE_ONLY",
+            "body":candidate, "domain":DOMAIN,
+            "canonical_bytes":canonical(candidate),
+            "native_accepted":False,
+            "mapping_signed":False,"storage_authorized":False}
