@@ -202,4 +202,22 @@ def prepare_tree(c, initialize_volume=None, checkpoint=lambda _: None, *, servic
 
 def prepare_live(initialize_volume=None):
     with open_volume() as c:
+        require(c.bundle['marker']['kind'] == 'zog-state-volume',
+                'state-backend', 'mounted STATE requires state-prepare')
         return prepare_tree(c, initialize_volume)
+
+
+def prepare_directory_live(initialize_state_id):
+    """Explicit root-only directory STATE preparation; no mount/device creation.
+
+    Existing generic layout publication is reused only after the canonical
+    configuration and root-block backing are verified. A preexisting unmarked
+    populated directory remains an unrecoverable hold, not an adoption path.
+    """
+    with open_volume() as c:
+        require(c.bundle['marker']['kind'] == 'zog-state-directory',
+                'state-backend', 'root-directory backend must be selected explicitly')
+        require(initialize_state_id == c.bundle['bootstrap']['state']['state_volume_id'],
+                'state-identity', 'exact configured STATE ID required')
+        return dict(prepare_tree(c, initialize_state_id),
+                    backend='root-directory', filesystem_independent=False)
