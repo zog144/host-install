@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: zog144/root-control
-          ref: 5557c3b321ea9281888353b75ca4eb7cc6a541be
+          ref: d2bcb8002f04a0fae2b0b4bb3b77a782ec049ce7
           path: companions/root-control
           persist-credentials: false
       - uses: actions/setup-python@v5
@@ -35,7 +35,7 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}/tests:${{ github.workspace }}/companions/root-control/src:${{ github.workspace }}/companions/root-control/tests
         run: |
-          test "$(git -C companions/root-control rev-parse HEAD)" = 5557c3b321ea9281888353b75ca4eb7cc6a541be
+          test "$(git -C companions/root-control rev-parse HEAD)" = d2bcb8002f04a0fae2b0b4bb3b77a782ec049ce7
           python -m pytest -q -rs \
             tests/test_graphical_registry_storage_installation.py \
             tests/test_graphical_protected_storage_admission.py \
