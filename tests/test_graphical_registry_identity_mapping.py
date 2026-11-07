@@ -99,3 +99,27 @@ def test_registry_identity_handoff_refuses_unproven_mapping(change):
     if change=="duplicate_key":signed["unknown"]=True
     with pytest.raises(b.BrokerInstallHeld):
         check(row)
+
+
+def test_unsigned_identity_producer_preserves_authentic_legacy_and_v3_ids():
+    signed,registry,old,registrar,registry_key,evidence=fixture()
+    output=m.prepare_mapping_for_registrar(
+        original_discover_binding=old,registered_installation=registry,
+        independently_observed_state=evidence,
+        pinned_registrar_public=registrar,pinned_registry_public=registry_key)
+    assert output["status"]=="UNSIGNED_REGISTRAR_CANDIDATE_ONLY"
+    assert output["body"]=={k:v for k,v in signed.items() if k!="signature_ed25519"}
+    assert output["domain"]==m.DOMAIN
+    assert output["canonical_bytes"]==m.canonical(output["body"])
+    assert output["mapping_signed"] is False
+    assert output["native_accepted"] is False
+
+def test_unsigned_producer_holds_absent_state_and_false_scope_mapping():
+    signed,registry,old,registrar,registry_key,evidence=fixture()
+    for changed in (None,{"mountpoint":"/state","mounted":False},
+                    {**evidence,"host_uuid":"66666666-6666-4666-8666-666666666666"}):
+        with pytest.raises(b.BrokerInstallHeld):
+            m.prepare_mapping_for_registrar(
+                original_discover_binding=old,registered_installation=registry,
+                independently_observed_state=changed,
+                pinned_registrar_public=registrar,pinned_registry_public=registry_key)
