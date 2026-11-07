@@ -113,6 +113,25 @@ class Disposable:
 
 
 @pytest.mark.skipif(os.geteuid()!=0,reason="must use root-capable runner to validate layout ownership")
+def test_root_capable_mountpoint_creation_is_idempotent_and_no_follow():
+    with tempfile.TemporaryDirectory() as tmp:
+        parent=Path(tmp)
+        rootfd=os.open(parent,os.O_RDONLY|os.O_DIRECTORY)
+        try:
+            state_provision.ensure_directory_mountpoint(rootfd)
+            state_path=parent/"state"
+            assert state_path.is_dir() and not state_path.is_symlink()
+            assert state_path.stat().st_uid==0 and state_path.stat().st_mode & 0o777==0o755
+            state_provision.ensure_directory_mountpoint(rootfd)
+            state_path.rmdir()
+            state_path.symlink_to(parent)
+            with pytest.raises((StateError, OSError)):
+                state_provision.ensure_directory_mountpoint(rootfd)
+        finally:
+            os.close(rootfd)
+
+
+@pytest.mark.skipif(os.geteuid()!=0,reason="must use root-capable runner to validate layout ownership")
 def test_root_capable_directory_preparation_is_idempotent_and_does_not_create_identity():
     with tempfile.TemporaryDirectory() as tmp:
         root=Path(tmp)/"selected-state"
