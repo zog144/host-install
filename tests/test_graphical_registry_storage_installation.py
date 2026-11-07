@@ -88,6 +88,7 @@ def test_installer_selects_stable_registry_scope_before_approval():
     "same_fs", "changed_owner_unit", "changed_broker_unit", "changed_root_source",
     "wrong_anchor", "wrong_grant", "owner_active", "ipc_claimed",
     "requires_in_service", "broker_missing_authority_mount",
+    "owner_missing_authority_mount",
 ))
 def test_manifest_or_unit_replacement_fails_closed(tamper):
     m=list(fixture())
@@ -125,6 +126,10 @@ def test_manifest_or_unit_replacement_fails_closed(tamper):
         m[6]=trust.replace(
             b"RequiresMountsFor=/var/lib/zog-graphical-owner-authority\n",b"")
         selection["broker_unit_sha256"]=i.digest(m[6])
+    elif tamper=="owner_missing_authority_mount":
+        m[5]=owner.replace(
+            b"RequiresMountsFor=/var/lib/zog-graphical-owner-authority\n",b"")
+        selection["owner_unit_sha256"]=i.digest(m[5])
     with pytest.raises(broker.BrokerInstallHeld):
         review(m)
 
