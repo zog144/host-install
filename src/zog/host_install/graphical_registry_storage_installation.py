@@ -162,3 +162,75 @@ def review_registry_bound_storage(
         "broker_active": False,
         "ssm_authorized": False,
     }
+
+
+
+def review_signed_registry_install_commit(
+    selection, *, registered_installation, pinned_registry_public,
+    proposed_authority, storage_approval, pinned_operator_public,
+    independently_retained_anchor_sha256, mount_plan,
+    root_scope_module, root_checkpoint_module,
+    owner_unit, broker_unit, signed_install_commit,
+    pinned_installer_public, independently_retained_commit_sha256, now,
+):
+    """A historical installer commit is not a reusable per-operation approval.
+
+    Exact signed acceptance time is verified within the original 15-minute
+    storage-establishment grant, while current time may be later (reboot).
+    Separate Work must still prove *actual* mounted volume UUIDs and S3 data.
+    """
+    from zog.root_control import graphical_installation_storage_commit as root_commit
+    from zog.root_control import graphical_operation_owner_source as operation
+
+    if type(signed_install_commit) is not dict or type(
+            signed_install_commit.get("accepted_at")) is not int:
+        _hold()
+    review_registry_bound_storage(
+        selection, registered_installation=registered_installation,
+        pinned_registry_public=pinned_registry_public,
+        proposed_authority=proposed_authority,
+        storage_approval=storage_approval,
+        pinned_operator_public=pinned_operator_public,
+        independently_retained_anchor_sha256=independently_retained_anchor_sha256,
+        mount_plan=mount_plan, root_scope_module=root_scope_module,
+        root_checkpoint_module=root_checkpoint_module,
+        owner_unit=owner_unit, broker_unit=broker_unit,
+        now=signed_install_commit["accepted_at"])
+    try:
+        proof = root_commit.verify_installed_storage_commit(
+            registered_installation=registered_installation,
+            pinned_registry_public=pinned_registry_public,
+            storage_authority=proposed_authority,
+            signed_storage_approval=storage_approval,
+            pinned_operator_public=pinned_operator_public,
+            independently_retained_anchor_sha256=independently_retained_anchor_sha256,
+            receipt=signed_install_commit,
+            pinned_installer_public=pinned_installer_public,
+            independently_retained_commit_sha256=
+                independently_retained_commit_sha256, now=now)
+    except operation.OperationDenied:
+        _hold()
+    mounted = {record["path"]: record for record in mount_plan["mounts"]}
+    if (signed_install_commit["ledger_fs_uuid"] !=
+            mounted[broker.ORIGINAL_LEDGER]["filesystem_uuid"]
+            or signed_install_commit["authority_fs_uuid"] !=
+            mounted[broker.ROOT_AUTHORITY]["filesystem_uuid"]
+            or signed_install_commit["state_fs_uuid"] !=
+            mount_plan["state_fs_uuid"]
+            or signed_install_commit["owner_unit_sha256"] !=
+                selection["owner_unit_sha256"]
+            or signed_install_commit["broker_unit_sha256"] !=
+                selection["broker_unit_sha256"]
+            or proof["installation_scope_sha256"] !=
+                selection["installation_scope_sha256"]):
+        _hold()
+    return {
+        "status": "SIGNED_INSTALLATION_COMMIT_SOURCE_ONLY",
+        "installation_scope_sha256": proof["installation_scope_sha256"],
+        "mounts_observed_native": False,
+        "genesis_observed_native": False,
+        "external_anchor_observed_native": False,
+        "owner_credentials_accepted": False,
+        "owner_ipc_accepted": False,
+        "service_placement_accepted": False,
+    }
