@@ -5,7 +5,9 @@ on:
   pull_request:
     paths:
       - src/zog/host_install/graphical_registry_storage_installation.py
+      - src/zog/host_install/graphical_registry_identity_mapping.py
       - tests/test_graphical_registry_storage_installation.py
+      - tests/test_graphical_registry_identity_mapping.py
       - .github/workflows/graphical-registry-storage-installation.yml
 permissions:
   contents: read
@@ -38,6 +40,7 @@ jobs:
           test "$(git -C companions/root-control rev-parse HEAD)" = d2bcb8002f04a0fae2b0b4bb3b77a782ec049ce7
           python -m pytest -q -rs \
             tests/test_graphical_registry_storage_installation.py \
+            tests/test_graphical_registry_identity_mapping.py \
             tests/test_graphical_protected_storage_admission.py \
             companions/root-control/tests/test_graphical_installation_storage_authority.py \
             companions/root-control/tests/test_graphical_s3_installation_checkpoint.py \
