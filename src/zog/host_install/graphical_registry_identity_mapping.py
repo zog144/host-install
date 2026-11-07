@@ -145,7 +145,16 @@ def verify_mapping(*, signed_mapping, registered_installation,
             raw, DOMAIN+canonical(signed))
     except (InvalidSignature, ValueError, TypeError):
         hold()
-    # The mapping does not replace independent registry signing or source\n    # scope verification. No conversion of UUID IDs is permitted.\n    from zog.root_control.graphical_installation_storage_authority import installation_scope\n    from zog.root_control.graphical_operation_owner_source import OperationDenied\n    try:\n        installation_scope(registered_installation,\n            pinned_registry_public=pinned_registry_public)\n    except OperationDenied:\n        hold()\n    return {"status":"REGISTRY_IDENTITY_MAPPING_SOURCE_VALIDATED_ONLY",
+    # The mapping does not replace independent registry signing or source
+    # scope verification. No conversion of UUID IDs is permitted.
+    from zog.root_control.graphical_installation_storage_authority import installation_scope
+    from zog.root_control.graphical_operation_owner_source import OperationDenied
+    try:
+        installation_scope(registered_installation,
+            pinned_registry_public=pinned_registry_public)
+    except OperationDenied:
+        hold()
+    return {"status":"REGISTRY_IDENTITY_MAPPING_SOURCE_VALIDATED_ONLY",
             "mapped_installation_scope":False,"native_state_accepted":False,
             "native_registry_accepted":False,"storage_authorized":False,
             "broker_activation_authorized":False,"ssm_authorized":False}
