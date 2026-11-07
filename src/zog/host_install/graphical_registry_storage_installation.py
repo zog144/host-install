@@ -87,6 +87,7 @@ def review_registry_bound_storage(
 ):
     """No caller-set success flag and no implied native installation receipt."""
     from zog.root_control import graphical_installation_storage_authority as root
+    from zog.root_control import graphical_operation_owner_source as operation
 
     if (type(selection) is not dict or set(selection) != FIELDS
             or selection["schema"] != SCHEMA
@@ -105,14 +106,17 @@ def review_registry_bound_storage(
             or digest(owner_unit) != selection["owner_unit_sha256"]
             or digest(broker_unit) != selection["broker_unit_sha256"]):
         _hold()
-    proof = root.verify_installation_storage_selection(
-        registry=registered_installation,
-        pinned_registry_public=pinned_registry_public,
-        authority=proposed_authority,
-        signed_storage_approval=storage_approval,
-        pinned_operator_public=pinned_operator_public,
-        independently_retained_anchor_sha256=
-            independently_retained_anchor_sha256, now=now)
+    try:
+        proof = root.verify_installation_storage_selection(
+            registry=registered_installation,
+            pinned_registry_public=pinned_registry_public,
+            authority=proposed_authority,
+            signed_storage_approval=storage_approval,
+            pinned_operator_public=pinned_operator_public,
+            independently_retained_anchor_sha256=
+                independently_retained_anchor_sha256, now=now)
+    except operation.OperationDenied:
+        _hold()  # Normalize upstream refusal to the installer hold contract.
     for key in ("host_id", "installation_id", "state_volume_id",
                 "registry_id", "controller_id"):
         if selection[key] != registered_installation.get(key):
