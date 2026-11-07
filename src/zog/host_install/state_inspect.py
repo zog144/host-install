@@ -63,8 +63,13 @@ def load_configuration():
     try:
         b, i, a = (decode(read_at(fd, n + '.json')) for n in ('bootstrap', 'installation', 'accounts'))
         try:
-            m = {'schema': 1, 'kind': 'zog-state-volume', 'installation_id': b['installation_id'], 'account_profile': PROFILE,
+            directory_backend = b['state'].get('storage_backend') == 'root-directory'
+            m = {'schema': 2 if directory_backend else 1,
+                 'kind': 'zog-state-directory' if directory_backend else 'zog-state-volume',
+                 'installation_id': b['installation_id'], 'account_profile': PROFILE,
                  **{k: b['state'][k] for k in ('state_volume_id', 'partition_partuuid', 'filesystem_uuid')}}
+            if directory_backend:
+                m['backing_root'] = '/'
         except (KeyError, TypeError) as exc:
             raise StateError('record-fields', 'invalid STATE binding') from exc
         bundle = validate(dict(bootstrap=b, installation=i, accounts=a, marker=m))
@@ -113,6 +118,41 @@ def assess_mount(rows, devices, expected, root_device):
     return m
 
 
+def assess_root_directory(rows, devices, expected, root_device):
+    """Directory-backed STATE: /state is an ordinary directory on selected root.
+
+    The v2 marker binds the exact root filesystem UUID and PARTUUID, but does
+    not make this host-root storage an independent failure/rollback domain.
+    This is a pure assessment of externally supplied observations.
+    """
+    require(not any(r['target'] == '/state' or r['target'].startswith('/state/')
+                    for r in rows), 'unexpected-state-mount',
+            'directory STATE must not be independently mounted or nested-mounted')
+    roots = [r for r in rows if r['target'] == '/']
+    require(len(roots) == 1, 'host-root-ambiguous', 'one root filesystem required')
+    root = roots[0]
+    require(root['root'] == '/' and root['type'] in ('ext4', 'xfs')
+            and root['device'] == root_device,
+            'wrong-directory-backing', 'selected root filesystem mismatch')
+    require(all('rw' in root[k] and 'ro' not in root[k]
+                for k in ('options', 'super_options')),
+            'state-read-only', 'root filesystem must be writable')
+    require(not any(r['target'] == '/state' for r in rows),
+            'unexpected-state-mount', 'STATE must not be a mount')
+    selected = [d for d in devices if
+                d.get('partuuid') == expected['partition_partuuid']]
+    matched_fs = [d for d in devices if
+                  d.get('uuid') == expected['filesystem_uuid']]
+    require(len(selected) == len(matched_fs) == 1 and selected[0] == matched_fs[0],
+            'directory-backing-ambiguous', 'root UUID/PARTUUID must uniquely match')
+    device = selected[0]
+    require(device.get('maj:min') == root['device'] and
+            device.get('fstype') == root['type'] and
+            device.get('type') == 'part',
+            'wrong-directory-backing', 'root block device differs from directory marker')
+    return dict(root, backend='root-directory', state_path='/state')
+
+
 def accounts_match():
     for name, gid in ACCOUNTS['groups'].items():
         require(grp.getgrnam(name).gr_gid == gid and grp.getgrgid(gid).gr_name == name and
@@ -128,7 +168,12 @@ def accounts_match():
 def _mount(bundle):
     rows = mounts(Path('/proc/self/mountinfo').read_text())
     root = os.stat('/').st_dev
-    return assess_mount(rows, topology(), bundle['bootstrap']['state'], f'{os.major(root)}:{os.minor(root)}')
+    expected = bundle['bootstrap']['state']
+    if expected.get('storage_backend') == 'root-directory':
+        return assess_root_directory(
+            rows, topology(), expected, f'{os.major(root)}:{os.minor(root)}')
+    return assess_mount(
+        rows, topology(), expected, f'{os.major(root)}:{os.minor(root)}')
 
 
 def root_partition_partuuid():
