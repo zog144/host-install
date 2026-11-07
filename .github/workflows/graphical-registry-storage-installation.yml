@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: zog144/root-control
-          ref: 38a15064baccb01a7caea3d5b3fe630d972cc5bd
+          ref: 5557c3b321ea9281888353b75ca4eb7cc6a541be
           path: companions/root-control
           persist-credentials: false
       - uses: actions/setup-python@v5
@@ -35,11 +35,12 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}/tests:${{ github.workspace }}/companions/root-control/src:${{ github.workspace }}/companions/root-control/tests
         run: |
-          test "$(git -C companions/root-control rev-parse HEAD)" = 38a15064baccb01a7caea3d5b3fe630d972cc5bd
+          test "$(git -C companions/root-control rev-parse HEAD)" = 5557c3b321ea9281888353b75ca4eb7cc6a541be
           python -m pytest -q -rs \
             tests/test_graphical_registry_storage_installation.py \
             tests/test_graphical_protected_storage_admission.py \
             companions/root-control/tests/test_graphical_installation_storage_authority.py \
-            companions/root-control/tests/test_graphical_s3_installation_checkpoint.py
+            companions/root-control/tests/test_graphical_s3_installation_checkpoint.py \
+            companions/root-control/tests/test_graphical_installation_storage_commit.py
       - if: always()
         run: echo 'Source-only registry binding; native mounts, S3 genesis, owner credential and IPC placement remain UNACCEPTED.' >> "$GITHUB_STEP_SUMMARY"
