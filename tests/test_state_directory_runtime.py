@@ -34,6 +34,7 @@ def directory_bundle():
                  filesystem_uuid=ROOT_UUID,partition_partuuid=ROOT_PARTUUID,
                  marker_sha256=digest(marker))
     b["installation"]["installer_recorded"]["marker_sha256"]=digest(marker)
+    b["bootstrap"]["installation_record"]["sha256"]=digest(b["installation"])
     return b
 
 
