@@ -117,7 +117,10 @@ def verify_mapping(*, signed_mapping, registered_installation,
              "state_volume_id":"state_volume_id","registry_id":"registry_id",
              "controller_id":"controller_id"}
     if (any(registered_installation.get(k) != m[v] for k,v in mapping.items())
-            or m["signed_registry_sha256"] != sha(canonical(registered_installation))):
+            or registered_installation.get("host_fingerprint") !=
+                "sha256:" + m["legacy_fingerprint"]
+            or m["signed_registry_sha256"] !=
+                "sha256:" + hashlib.sha256(canonical(registered_installation)).hexdigest()):
         hold()
     # Native proof must independently attest /state mount from the SAME Host.
     # A cross-Host state receipt or absent mount cannot satisfy this contract.
@@ -142,7 +145,7 @@ def verify_mapping(*, signed_mapping, registered_installation,
             raw, DOMAIN+canonical(signed))
     except (InvalidSignature, ValueError, TypeError):
         hold()
-    return {"status":"REGISTRY_IDENTITY_MAPPING_SOURCE_VALIDATED_ONLY",
+    # The mapping does not replace independent registry signing or source\n    # scope verification. No conversion of UUID IDs is permitted.\n    from zog.root_control.graphical_installation_storage_authority import installation_scope\n    from zog.root_control.graphical_operation_owner_source import OperationDenied\n    try:\n        installation_scope(registered_installation,\n            pinned_registry_public=pinned_registry_public)\n    except OperationDenied:\n        hold()\n    return {"status":"REGISTRY_IDENTITY_MAPPING_SOURCE_VALIDATED_ONLY",
             "mapped_installation_scope":False,"native_state_accepted":False,
             "native_registry_accepted":False,"storage_authorized":False,
             "broker_activation_authorized":False,"ssm_authorized":False}
