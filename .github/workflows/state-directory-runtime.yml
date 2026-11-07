@@ -33,7 +33,7 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/src
         run: |
           python -m pytest -q -rs tests/test_state_directory_runtime.py -k 'not root_capable'
-          python -m pytest -q -rs tests/test_state.py tests/test_state_provision.py
+          sudo --preserve-env=PYTHONPATH ${{ env.pythonLocation }}/bin/python -m pytest -q -rs tests/test_state.py tests/test_state_provision.py
       - name: Root-capable disposable directory lifecycle acceptance
         env:
           PYTHONPATH: ${{ github.workspace }}/src
