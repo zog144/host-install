@@ -254,9 +254,15 @@ def test_original_witness_is_captured_before_move_and_public_only(
     finally:
         os.close(fd)
 
-def test_original_witness_denies_missing_consumer_selection(retained):
+def test_original_witness_denies_missing_consumer_selection(retained,tmp_path):
     plan,moved,evidence,witness,*_=retained
+    legacy=tmp_path/"original-host-discover-identity"
+    moved.rename(legacy)
+    os.chown(legacy,991,991)
+    for item in legacy.iterdir():os.chown(item,991,991)
     plan["consumer_selection_sha256"]=None
-    # The witness issuer can only attest exactly the selected plan, and does
-    # not let a caller promote unreviewed consumer revision to native GO.
-    assert plan["status"]=="SOURCE_REVIEW_NATIVE_CONSUMER_HOLD"
+    fd=os.open(legacy,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+    try:
+        with pytest.raises(StateError,match="migration-witness"):
+            c.original_witness_from_fd(plan,fd)
+    finally:os.close(fd)
