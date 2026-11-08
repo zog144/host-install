@@ -130,16 +130,95 @@ def selected_beacon_argv(identity_fd, completion_fd, public_fingerprint):
     ]
 
 
-def source_only_main():
-    """The reviewed root launcher is not a production-activated entrypoint."""
-    require(RUNTIME_ENABLED,"migration-native-hold",
-            "protected retained migration launcher is not yet activated")
-    raise StateError("migration-native-hold",
-                     "native installed-byte and systemd acceptance missing")
+def run_selected_once():
+    """Open trusted local sources anew on EACH restart; never inspect a key.
+
+    Unreachable until a separately approved source change enables runtime.
+    This is the actual subprocess/FD lifetime code, not a production claim.
+    """
+    require(RUNTIME_ENABLED and os.geteuid()==0,"migration-native-hold",
+            "reviewed native service activation has not been approved")
+    from .state_inspect import metadata
+    with inspect_live() as context:
+        root=directory(TRANSACTION_DIRECTORY)
+        try:
+            metadata(root,0,0,0o700)
+            entries=os.listdir(root)
+            require(len(entries)==1 and
+                    __import__("zog.host_install.state_account_migration",
+                               fromlist=["_uuid"])._uuid(entries[0]),
+                    "migration-launcher","exactly one approved transaction required")
+            migration_id=entries[0]
+            folder=os.open(migration_id,
+                           os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,
+                           dir_fd=root)
+            try:
+                metadata(folder,0,0,0o700)
+                def open_root_record(name):
+                    fd=os.open(name,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK,
+                               dir_fd=folder)
+                    try:
+                        _read_protected(fd)
+                        return fd
+                    except BaseException:
+                        os.close(fd)
+                        raise
+                plan_fd=open_root_record("plan.json")
+                try:
+                    journal_fd=open_root_record("transaction.json")
+                    try:
+                        completion_fd=open_root_record(COMPLETION_FILE)
+                        try:
+                            home=os.open("host-discover",
+                                os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,
+                                dir_fd=context.fd)
+                            try:
+                                identity_fd=os.open("identity",
+                                    os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,
+                                    dir_fd=home)
+                                try:
+                                    result=validate_relaunch_fds(
+                                        context,plan_fd,journal_fd,
+                                        completion_fd,identity_fd)
+                                    require(result["migration_id"]==migration_id,
+                                            "migration-launcher","wrong transaction directory")
+                                    exe=Path(CONSUMER_EXECUTABLE)
+                                    info=exe.lstat()
+                                    require(stat.S_ISREG(info.st_mode)
+                                            and info.st_uid==0
+                                            and info.st_gid==0
+                                            and info.st_nlink==1
+                                            and not info.st_mode & 0o022,
+                                            "migration-launcher",
+                                            "untrusted selected installed executable")
+                                    args=selected_beacon_argv(
+                                        identity_fd,completion_fd,
+                                        result["public_fingerprint"])
+                                    context.recheck()
+                                    # Only these two already-open descriptors
+                                    # cross root -> UID 970. No secret content
+                                    # appears in argv/environment/logs.
+                                    child=subprocess.Popen(
+                                        args,close_fds=True,
+                                        pass_fds=(identity_fd,completion_fd),
+                                        user=CONSUMER_UID,group=CONSUMER_GID,
+                                        extra_groups=list(CONSUMER_GROUPS),
+                                        stdin=subprocess.DEVNULL,
+                                        env={"PATH":"/usr/bin:/bin",
+                                             "LANG":"C.UTF-8"},
+                                        cwd="/opt/host-discover")
+                                    return child.wait()
+                                finally:os.close(identity_fd)
+                            finally:os.close(home)
+                        finally:os.close(completion_fd)
+                    finally:os.close(journal_fd)
+                finally:os.close(plan_fd)
+            finally:os.close(folder)
+        finally:os.close(root)
 
 
 def main():
-    source_only_main()
+    return run_selected_once()
 
 
 if __name__ == "__main__":
