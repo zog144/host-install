@@ -206,15 +206,27 @@ def review_disabled_v3_freeze(
             or mount_plan.get("mode") != "provision-separately-approved-new-scope"):
         hold()
     protected.plan_protected_mounts(mount_plan)
+    if any(row["block_partuuid"] == selected_state["partition_partuuid"]
+           for row in mount_plan["mounts"]):
+        # A protected mount must not reuse the Host root/STATE partition.
+        hold()
     local = (type(storage_registry) is dict
              and storage_registry.get("schema") == root.LOCAL_SCHEMA)
     if local:
-        if (state_bundle["installation"]["installation_mode"] != "non-resident"
+        if (state_bundle["bootstrap"]["registries"] != []
+                or state_bundle["bootstrap"]["control_authority"] is not None
+                or state_bundle["installation"]["installation_mode"] != "non-resident"
                 or storage_registry.get("host_install_installation_uuid") !=
                     state_bundle["bootstrap"]["installation_id"]
                 or storage_registry.get("host_install_state_uuid") !=
                     selected_state["state_volume_id"]
                 or pinned_registry_public is not None):
+            hold()
+    else:
+        # Do not silently switch a standalone Host into the legacy signed
+        # registry backend because a gateway supplied a registry-shaped JSON.
+        if (not state_bundle["bootstrap"]["registries"]
+                or type(state_bundle["bootstrap"]["control_authority"]) is not dict):
             hold()
     # A locally selected Host has no registrar signature. A legacy managed
     # registry can still be verified only in its explicitly selected mode.
