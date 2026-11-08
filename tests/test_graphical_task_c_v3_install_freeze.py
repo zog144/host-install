@@ -311,6 +311,12 @@ def test_built_wheels_have_exact_source_bytes_and_real_pep427_record():
     if not wheel_dir:
         pytest.skip("actual wheel build evidence supplied only by pinned CI")
     evidence=selected("root-directory",local=True)
+    for key in (
+        "root_sources_sha256", "gateway_sources_sha256", "state_sources_sha256",
+        "owner_service_sha256", "owner_socket_sha256", "broker_service_sha256",
+        "broker_socket_sha256",
+    ):
+        print("freeze",key+"="+evidence["selection"][key],flush=True)
     for distribution,modules in (
         ("root_control",evidence["root_modules"]),
         ("host_deploy",evidence["gateway_modules"]),
