@@ -254,3 +254,55 @@ def test_standalone_does_not_infer_management_or_bypass_identity_safety(attack):
     else:
         assert decide(b,evidence)["control_allowed"] is False
         assert decide(b,evidence)["identity_action"] != "load-existing"
+
+def test_standalone_plan_never_creates_a_mount_or_registrar_prerequisite():
+    from zog.host_install.non_resident import build_plan, validate_plan
+    from zog.host_install import state_device
+    b=standalone_bundle()
+    plan=build_plan(b)
+    assert validate_plan(plan) is plan
+    assert plan["systemd"]["mount_unit"] is None
+    assert plan["systemd"]["zog_service_ordering"]["requires"]==[]
+    assert plan["state"]["independent_volume"] is False
+    assert plan["execution"]["identity_initialization_authorized"] is False
+    assert plan["state_initialization"]["policy"]=="explicit-install-transaction"
+    for key,value in (
+            ("mount_unit",{"name":"state.mount"}),
+            ("zog_service_ordering",{"requires":["state.mount"],"after":[],
+                                    "binds_to":[],"state_failure_blocks_zog_only":True})):
+        altered=copy.deepcopy(plan)
+        altered["systemd"][key]=value
+        with pytest.raises(StateError):
+            validate_plan(altered)
+    # The legacy EBS device formatter must not consume a directory selection.
+    with pytest.raises(StateError,match="state-backend"):
+        state_device.build_plan(
+            b,{},[],"serial:fake-disposable","vol-0123456789abcdef0")
+
+
+@pytest.mark.skipif(os.geteuid()!=0,reason="root-only disposable standalone filesystem acceptance")
+def test_root_capable_standalone_layout_and_offline_configuration_need_no_registrar():
+    from zog.host_install.state_provision import stage_overlay, prepared_layout
+    with tempfile.TemporaryDirectory() as tmp:
+        b=standalone_bundle()
+        result=stage_overlay(b,Path(tmp)/"overlay")
+        assert result["identity_created"] is False
+        assert result["slot_selected"] is False
+        config=Path(tmp)/"overlay/etc/zog/host-install"
+        bootstrap=json.loads((config/"bootstrap.json").read_text())
+        assert bootstrap["registries"]==[]
+        assert bootstrap["control_authority"] is None
+        root=Path(tmp)/"state"
+        root.mkdir(mode=0o755)
+        root.chmod(0o755)
+        c=Disposable(root)
+        try:
+            c.bundle=b
+            state_id=b["bootstrap"]["state"]["state_volume_id"]
+            result=state_provision.prepare_tree(c,state_id)
+            assert result["identity_created"] is False
+            prepared_layout(c)
+            state_provision.prepare_tree(c,state_id)
+            assert not (root/"host-discover/identity").exists()
+        finally:
+            c.close()
