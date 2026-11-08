@@ -166,6 +166,12 @@ class NativeStageBackend:
     def _status_files(self, stage):
         original,before,after=FILE_OWNERS[stage]
         root=self.path(original)
+        if stage=="legacy-identity-owner-updated":
+            moved=self.path(DESTINATION)
+            require(root.exists() != moved.exists(),
+                    "migration-native-file","identity missing or in both locations")
+            if not root.exists():
+                root=moved
         require(root.exists() and not root.is_symlink(),
                 "migration-native-file","original file tree missing")
         paths=sorted(root.iterdir()) if root.is_dir() else []
