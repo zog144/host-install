@@ -291,3 +291,28 @@ def test_missing_wheel_record_or_wrong_hash_cannot_select_installer():
                         raw.replace("\n",",\n",1)):
         with pytest.raises(broker.BrokerInstallHeld):
             freeze.verify_wheel_record(replacement.encode(),row["state_modules"])
+
+def test_built_wheels_have_exact_source_bytes_and_real_pep427_record():
+    """Optional CI validation against freshly built *uninstalled* wheels."""
+    import zipfile
+    wheel_dir=os.environ.get("V3_WHEEL_DIR")
+    if not wheel_dir:
+        pytest.skip("actual wheel build evidence supplied only by pinned CI")
+    evidence=selected("root-directory",local=True)
+    for distribution,modules in (
+        ("root_control",evidence["root_modules"]),
+        ("host_deploy",evidence["gateway_modules"]),
+        ("host_install",evidence["state_modules"]),
+    ):
+        choices=list(Path(wheel_dir).glob(distribution+"-*.whl"))
+        assert len(choices)==1,(distribution,choices)
+        with zipfile.ZipFile(choices[0]) as archive:
+            names=archive.namelist()
+            records=[path for path in names if path.endswith(".dist-info/RECORD")]
+            assert len(records)==1
+            for name,source in modules.items():
+                path=name.replace(".","/")+".py"
+                assert archive.read(path)==source,(distribution,name)
+            digest=freeze.verify_wheel_record(archive.read(records[0]),modules)
+            print(distribution,"wheel_sha256="+freeze.sha(choices[0].read_bytes()),
+                  "RECORD_sha256="+digest,flush=True)
