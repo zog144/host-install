@@ -113,12 +113,14 @@ def changed_configuration(raw, *, old=SOURCE, new=DESTINATION):
 
 
 def changed_unit_dropin():
-    """Explicit drop-in clearing old writable paths, retaining credentials."""
-    return (
-        "[Service]\n"
-        "ReadWritePaths=\n"
-        "ReadWritePaths=/state/host-discover/identity /var/lib/host-discover/credentials\n"
-    ).encode("ascii")
+    """Select the *disabled* protected FD launcher, not the legacy key loader.
+
+    The template deliberately retains an unrendered pinned Python path until
+    Work has independently verified an installed 3.12 interpreter and chosen
+    a root-owned systemd service. No production service may install it as-is.
+    """
+    from .state_account_migration_launcher import reviewed_launcher_dropin_template
+    return reviewed_launcher_dropin_template()
 
 
 def _check_inventory(inventory):
