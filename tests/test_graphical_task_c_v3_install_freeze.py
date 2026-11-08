@@ -331,6 +331,14 @@ def test_built_wheels_have_exact_source_bytes_and_real_pep427_record():
             for name,source in modules.items():
                 path=name.replace(".","/")+".py"
                 assert archive.read(path)==source,(distribution,name)
-            digest=freeze.verify_wheel_record(archive.read(records[0]),modules)
+            actual_record=archive.read(records[0])
+            digest=freeze.verify_wheel_record(actual_record,modules)
+            slot={"root_control":"root","host_deploy":"gateway",
+                  "host_install":"state"}[distribution]
+            evidence[slot+"_record"]=actual_record
+            evidence["selection"][slot+"_record_sha256"]=digest
             print(distribution,"wheel_sha256="+freeze.sha(choices[0].read_bytes()),
                   "RECORD_sha256="+digest,flush=True)
+    # Re-run the whole disabled three-owner signed storage/commit/source
+    # selection using REAL generated wheel RECORD bytes, not synthetic rows.
+    assert freeze.review_disabled_v3_freeze(**evidence)["status"]==freeze.STATUS
