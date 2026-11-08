@@ -10,7 +10,9 @@ import os
 import stat
 
 from .state_contract import StateError, canonical, decode, digest, require
-from .state_account_migration_consumer import COMPLETION_SCHEMA, IDENTITY_DIRECTORY
+from .state_account_migration_consumer import (
+    COMPLETION_SCHEMA, IDENTITY_DIRECTORY, CONSUMER_SELECTION,
+)
 from .state_account_migration import JOURNAL_SCHEMA, SCHEMA, STAGES, _uuid
 from .state_io import publish
 
@@ -68,6 +70,7 @@ def original_witness_from_fd(plan, identity_fd, *,
     require(type(plan) is dict and plan.get("schema")==SCHEMA
             and plan.get("status")=="SOURCE_REVIEW_NATIVE_CONSUMER_HOLD"
             and _uuid(plan.get("migration_id"))
+            and plan.get("consumer_selection_sha256")==digest(CONSUMER_SELECTION)
             and type(expected_uid) is int and type(expected_gid) is int,
             "migration-witness", "selected migration plan required")
     directory=os.fstat(identity_fd)
