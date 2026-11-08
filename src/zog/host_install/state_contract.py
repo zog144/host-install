@@ -228,7 +228,15 @@ def validate(bundle):
     if b['mode'] in ('migration', 'recovery'):
         require(init['expected_host_uuid'] is not None, 'identity-binding', 'recovery must name identity')
     regs = b['registries']
-    require(type(regs) is list and 1 <= len(regs) <= 32, 'registry', 'registry list required')
+    # A non-resident Host can be installed and recover without ever joining
+    # a Command Center. Managed enrollment is optional, not a boot authority.
+    # A standalone configuration has no registry and no remote-control grant.
+    require(type(regs) is list and len(regs) <= 32, 'registry', 'invalid registry list')
+    if not regs:
+        require(mode == 'non-resident' and b['control_authority'] is None,
+                'standalone-configuration',
+                'registry-free configuration requires non-resident installation and no control authority')
+        return bundle
     ids = set(); controls = []
     for reg in regs:
         fields(reg, 'registry_id origin role ca')
