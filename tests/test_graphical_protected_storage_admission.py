@@ -102,3 +102,50 @@ def test_rendered_mount_units_bind_distinct_exact_devices_and_remain_disabled():
     plan["mounts"][0]["expected_source"]="/dev/nvme1n1p1"
     with pytest.raises(broker.BrokerInstallHeld):
         s.disabled_mount_unit_candidates(plan)
+
+@pytest.mark.parametrize("backend",("root-directory","mounted-volume"))
+def test_actual_protected_mount_readback_never_requires_root_directory_to_be_mount(
+        monkeypatch,backend):
+    """Synthetic mount namespace: real native proof remains Work-only."""
+    import os
+    import stat
+    from types import SimpleNamespace
+    from zog.host_install import state_inspect
+    plan=fixture()
+    class PathFixture:
+        def __init__(self,value): self.value=str(value)
+        def lstat(self):
+            assert self.value in (broker.ORIGINAL_LEDGER,broker.ROOT_AUTHORITY)
+            device=(9911 if self.value==broker.ORIGINAL_LEDGER else 9922)
+            return SimpleNamespace(st_mode=stat.S_IFDIR|0o700,
+                                   st_dev=device,st_uid=0)
+        def is_symlink(self):return False
+    context=SimpleNamespace(
+        fd=os.open("/",os.O_RDONLY|os.O_DIRECTORY),
+        bundle={"bootstrap":{"state":{
+            "filesystem_uuid":plan["state_fs_uuid"],
+            "storage_backend":backend}}},
+        calls=0,
+    )
+    def recheck():context.calls+=1
+    context.recheck=recheck
+    context.__class__ = type("FakeContext",(SimpleNamespace,),{
+        "__enter__":lambda self:self,
+        "__exit__":lambda self,*args:False,
+    })
+    monkeypatch.setattr(s,"Path",PathFixture)
+    monkeypatch.setattr(state_inspect,"inspect_live",lambda:context)
+    monkeypatch.setattr(s.os.path,"ismount",lambda path:
+        str(path) in (broker.ORIGINAL_LEDGER,broker.ROOT_AUTHORITY)
+        or (backend=="mounted-volume" and str(path)=="/state"))
+    try:
+        output=s.inspect_actual_mounts(plan)
+        assert output["status"]=="MOUNT_NAMESPACE_OBSERVED_NATIVE_IDENTITY_UNACCEPTED"
+        assert output["state_backend"]==backend
+        assert output["ssm_authorized"] is False
+        assert context.calls==2
+        plan["state_fs_uuid"]="44444444-4444-4444-8444-444444444444"
+        with pytest.raises(broker.BrokerInstallHeld):
+            s.inspect_actual_mounts(plan)
+    finally:
+        os.close(context.fd)
