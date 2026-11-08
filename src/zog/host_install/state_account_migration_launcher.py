@@ -137,15 +137,15 @@ def reviewed_launcher_dropin_template():
     the old legacy service cannot inherit a root-only completion FD by itself.
     """
     return (
-        "[Service]\\n"
-        "User=root\\n"
-        "Group=root\\n"
-        "ExecStart=\\n"
+        "[Service]\n"
+        "User=root\n"
+        "Group=root\n"
+        "ExecStart=\n"
         "ExecStart=@PINNED_HOST_INSTALL_PYTHON312@ -m "
-        "zog.host_install.state_account_migration_launcher\\n"
-        "ReadWritePaths=\\n"
+        "zog.host_install.state_account_migration_launcher\n"
+        "ReadWritePaths=\n"
         "ReadWritePaths=/state/host-discover/identity "
-        "/var/lib/host-discover/credentials\\n"
+        "/var/lib/host-discover/credentials\n"
     ).encode("ascii")
 
 
