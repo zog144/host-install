@@ -1,0 +1,34 @@
+name: Registry directory STATE account migration source and rollback
+on:
+  push:
+    branches: [regular/registry-directory-state-account-migration-20261108]
+  pull_request:
+    paths:
+      - src/zog/host_install/state_account_migration.py
+      - tests/test_state_account_migration.py
+      - .github/workflows/registry-state-account-migration.yml
+permissions:
+  contents: read
+jobs:
+  source-migration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install 'pytest>=8,<10'
+      - name: Review migration contract, bounded journal and rollback
+        env:
+          PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}/tests
+        run: |
+          python -m pytest -q -rs tests/test_state_account_migration.py             tests/test_state_directory_runtime.py -k 'not root_capable'
+      - if: always()
+        run: echo "Only disposable backend tested. Native UID/GID, legacy key, /state, services, AWS, beaconing and registry endpoint were not modified. Consumer compatibility remains HOLD." >> "$GITHUB_STEP_SUMMARY"
