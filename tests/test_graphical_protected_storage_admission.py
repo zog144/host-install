@@ -114,6 +114,7 @@ def test_actual_protected_mount_readback_never_requires_root_directory_to_be_mou
     plan=fixture()
     class PathFixture:
         def __init__(self,value): self.value=str(value)
+        def __str__(self): return self.value
         def lstat(self):
             assert self.value in (broker.ORIGINAL_LEDGER,broker.ROOT_AUTHORITY)
             device=(9911 if self.value==broker.ORIGINAL_LEDGER else 9922)
