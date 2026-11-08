@@ -99,8 +99,13 @@ def test_systemd_observer_queries_exact_unit_and_bounded_commands(monkeypatch):
         journal_stage_reader=lambda:["service-restored"])
     assert restored.stage_state("service-stopped",{})=="after"
     assert probe.stage_state("systemd-daemon-reloaded",{})=="before"
-    probe.transition("systemd-daemon-reloaded")
-    assert probe.stage_state("systemd-daemon-reloaded",{})=="after"
+    # Reload is meaningful only after the protected journal has committed
+    # the selected unit change; no reload need may also mean no change yet.
+    selected=observer.NativeNSSSystemdObserver(
+        journal_stage_reader=lambda:["systemd-path-switched"])
+    assert selected.stage_state("systemd-daemon-reloaded",{})=="before"
+    selected.transition("systemd-daemon-reloaded")
+    assert selected.stage_state("systemd-daemon-reloaded",{})=="after"
     assert all(argv[0]=="systemctl" for argv in calls)
     with pytest.raises(StateError):
         probe.transition("restart-everything")
