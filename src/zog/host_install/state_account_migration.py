@@ -27,6 +27,7 @@ STAGES = (
     "archive-group-remapped",
     "host-discover-account-remapped",
     "missing-accounts-created",
+    "legacy-file-ownership-reconciled",
     "state-layout-prepared",
     "identity-moved",
     "configuration-path-switched",
@@ -120,7 +121,7 @@ def _check_inventory(inventory):
                 } and row["kind"] == "file" and row["uid"] == LEGACY_UID
                     and row["gid"] == LEGACY_GID and row["mode"] == 0o600
                     and row["links"] == 1 and _uid(row["dev"])
-                    and _uid(row["inode"]) and row["inode"] > 0),
+                    and type(row["inode"]) is int and row["inode"] > 0),
                 "migration-inventory", "unsafe legacy identity entry")
     creds = inventory["credential_files"]
     require(type(creds) is dict and len(creds) <= 128,
@@ -243,6 +244,10 @@ def review_source_migration(bundle, *, migration_id, root_observation,
         "unit_before_sha256":_digest_bytes(unit_bytes),
         "unit_dropin_sha256":_digest_bytes(changed_unit_dropin()),
         "bundle_sha256":digest(bundle),
+        "account_snapshot_sha256":digest(account_snapshot),
+        "file_inventory_metadata_sha256":digest(file_inventory),
+        "root_observation_sha256":digest(root_observation),
+        "public_binding_sha256":digest(binding),
         "service_was_active":service_snapshot["active"],
         "service_was_enabled":service_snapshot["enabled"],
         "status":"SOURCE_REVIEW_NATIVE_CONSUMER_HOLD",
@@ -358,9 +363,25 @@ class MigrationJournal:
             self._save(row)
         return fd,row
 
+    def _observed_prefix(self):
+        # An observed migration must be a contiguous prefix of completed
+        # stages. Independent or rearranged changes cannot be reconciled by
+        # blindly replaying the remaining commands.
+        seen_before=False
+        for stage in STAGES:
+            value=self.backend.state(stage)
+            require(value in ("before","after"),"migration-recovery",
+                    "unexpected stage evidence")
+            if value=="before":
+                seen_before=True
+            else:
+                require(not seen_before,"migration-recovery",
+                        "non-contiguous migration stages")
+
     def execute(self, *, rollback=False, checkpoint=lambda phase:None):
         fd,row=self._open()
         try:
+            self._observed_prefix()
             require(not (row["status"]=="rolling-back" and not rollback)
                     and not (row["status"]=="rolled-back" and not rollback),
                     "migration-direction", "rollback cannot become a new apply")
