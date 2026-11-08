@@ -21,7 +21,7 @@ from .state_contract import validate as validate_state, canonical as state_canon
 
 ROOT_HEAD = "935e2764c227b0d8036015d9d11e7419b3afd5e0"
 GATEWAY_HEAD = "95ff98327ed9730774fdaa5d6f588ac8c63b8ad6"
-STATE_HEAD = "b08f074727e21926cb6460766b53f0d0696855e5"
+STATE_HEAD = "aaccfdb2852532a9667682938937afe768dbc821"
 SCHEMA = "zog-task-c-three-owner-disabled-install-freeze-v1"
 STATUS = "THREE_OWNER_V3_SOURCE_FROZEN_NATIVE_DISABLED"
 STATE_SOURCES = frozenset((
@@ -218,23 +218,26 @@ def review_disabled_v3_freeze(
             hold()
     # A locally selected Host has no registrar signature. A legacy managed
     # registry can still be verified only in its explicitly selected mode.
-    proof = root.verify_installation_storage_selection(
-        registry=storage_registry, pinned_registry_public=pinned_registry_public,
-        authority=storage_authority,
-        signed_storage_approval=signed_storage_approval,
-        pinned_operator_public=pinned_operator_public,
-        independently_retained_anchor_sha256=retained_anchor_sha256,
-        now=signed_install_commit["accepted_at"], allow_local=local)
-    root_commit.verify_installed_storage_commit(
-        registered_installation=storage_registry,
-        pinned_registry_public=pinned_registry_public,
-        storage_authority=storage_authority,
-        signed_storage_approval=signed_storage_approval,
-        pinned_operator_public=pinned_operator_public,
-        independently_retained_anchor_sha256=retained_anchor_sha256,
-        receipt=signed_install_commit, pinned_installer_public=pinned_installer_public,
-        independently_retained_commit_sha256=retained_install_commit_sha256,
-        now=now, allow_local=local)
+    try:
+        proof = root.verify_installation_storage_selection(
+            registry=storage_registry, pinned_registry_public=pinned_registry_public,
+            authority=storage_authority,
+            signed_storage_approval=signed_storage_approval,
+            pinned_operator_public=pinned_operator_public,
+            independently_retained_anchor_sha256=retained_anchor_sha256,
+            now=signed_install_commit["accepted_at"], allow_local=local)
+        root_commit.verify_installed_storage_commit(
+            registered_installation=storage_registry,
+            pinned_registry_public=pinned_registry_public,
+            storage_authority=storage_authority,
+            signed_storage_approval=signed_storage_approval,
+            pinned_operator_public=pinned_operator_public,
+            independently_retained_anchor_sha256=retained_anchor_sha256,
+            receipt=signed_install_commit, pinned_installer_public=pinned_installer_public,
+            independently_retained_commit_sha256=retained_install_commit_sha256,
+            now=now, allow_local=local)
+    except op.OperationDenied:
+        hold()
     if (proof["installation_scope_sha256"] != selection["storage_scope_sha256"]
             or op.digest(signed_storage_approval) != selection["storage_approval_sha256"]
             or op.digest(signed_install_commit) != selection["storage_commit_sha256"]
