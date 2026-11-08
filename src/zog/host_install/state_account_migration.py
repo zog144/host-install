@@ -19,6 +19,7 @@ import uuid
 
 from .state_contract import ACCOUNTS, StateError, canonical, decode, digest, require, validate
 from .state_inspect import assess_root_directory
+from .state_account_migration_consumer import verify_consumer_selection, CONSUMER_SELECTION
 
 SCHEMA = "zog-host-registry-directory-state-account-migration-v1"
 JOURNAL_SCHEMA = "zog-host-registry-state-account-journal-v1"
@@ -257,8 +258,12 @@ def review_source_migration(bundle, *, migration_id, root_observation,
             set(service_snapshot) == {"active", "enabled"} and
             all(type(x) is bool for x in service_snapshot.values()),
             "migration-service", "both original service states required")
-    require(consumer_contract is None,
-            "migration-consumer", "only a reviewed consumer revision may remove this HOLD")
+    # Exact reviewed source selection is now available; a caller-supplied
+    # boolean or alternate revision is never sufficient for native admission.
+    # The protected root journal, completion FD issuer and launcher remain
+    # separate prerequisites before any actual mutation.
+    if consumer_contract is not None:
+        verify_consumer_selection(consumer_contract)
     # Digests of public configuration and unit, NEVER key/credential bytes.
     plan = {
         "schema":SCHEMA, "migration_id":migration_id,
@@ -278,6 +283,8 @@ def review_source_migration(bundle, *, migration_id, root_observation,
         "root_observation_sha256":digest(root_observation),
         "public_binding_sha256":digest(binding),
         "control_registry_id":controls[0]["registry_id"],
+        "consumer_selection_sha256":digest(CONSUMER_SELECTION)
+            if consumer_contract is not None else None,
         "service_was_active":service_snapshot["active"],
         "service_was_enabled":service_snapshot["enabled"],
         "status":"SOURCE_REVIEW_NATIVE_CONSUMER_HOLD",
