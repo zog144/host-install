@@ -199,6 +199,9 @@ def build_plan(bundle, snapshot, observed_signatures, expected_identity,
     validate(bundle)
     require(installation_mode(bundle['installation']) == 'non-resident',
             'installation-mode', 'non-resident installation required')
+    require(bundle['marker']['kind'] == 'zog-state-volume' and
+            bundle['bootstrap']['state'].get('storage_backend') is None,
+            'state-backend', 'dedicated disk plan must not operate on root-directory STATE')
     target, binding = _resolve_target(
         snapshot, expected_identity, selected_volume_reference)
     assessment = assess_target(_base_inventory(snapshot), target['path'],
@@ -269,6 +272,9 @@ def validate_plan(plan, bundle):
     validate(bundle)
     require(installation_mode(bundle['installation']) == 'non-resident',
             'installation-mode', 'non-resident installation required')
+    require(bundle['marker']['kind'] == 'zog-state-volume' and
+            bundle['bootstrap']['state'].get('storage_backend') is None,
+            'state-backend', 'dedicated disk plan must not operate on root-directory STATE')
     require(plan['installation_id'] == bundle['installation']['installation_id'] and
             plan['bundle_sha256'] == digest(bundle),
             'plan-binding', 'plan does not match installation bundle')
