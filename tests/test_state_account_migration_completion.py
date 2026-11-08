@@ -251,6 +251,8 @@ def test_original_witness_is_captured_before_move_and_public_only(
                 # filesystem inode from the native preflight inventory.
                 assert original["key_inode"]!=witness["key_inode"]
 
+    finally:
+        os.close(fd)
 
 def test_original_witness_denies_missing_consumer_selection(retained):
     plan,moved,evidence,witness,*_=retained
