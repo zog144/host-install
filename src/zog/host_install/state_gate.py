@@ -24,6 +24,10 @@ def decide(bundle, evidence):
     station = evidence['station']
     fields(station, 'status registry_id')
     require(station['status'] in ('fresh', 'cached', 'unavailable', 'stale-checkpoint', 'stale-trust'), 'evidence-type', 'station')
+    standalone = bundle['bootstrap']['control_authority'] is None
+    if standalone:
+        require(station['status'] == 'unavailable' and station['registry_id'] is None,
+                'standalone-configuration', 'standalone identity cannot assert a remote control session')
     def result(action, code, control=False):
         return dict(identity_action=action, code=code, control_allowed=control)
     if not evidence['mount_verified']: return result('block', 'mount-unverified')
@@ -38,6 +42,10 @@ def decide(bundle, evidence):
         return result('recovery-only', 'reconciliation-required')
     if identity['status'] == 'complete':
         if identity['candidates'] != 1: return result('block', 'identity-inconsistent')
+        if standalone:
+            # Local STATE and existing key are usable without any registry.
+            # No authenticated remote command/control is implied.
+            return result('load-existing', 'standalone-local-ready')
         if station['registry_id'] != b['control_authority']['registry_id']:
             return result('load-existing', 'wrong-control-registry')
         fresh = station['status'] == 'fresh'
