@@ -117,6 +117,9 @@ def selected(backend="root-directory",local=False):
         config=configuration(backend,mount["state_fs_uuid"],
             identity["host_install_installation_uuid"],
             identity["host_install_state_uuid"])
+        config["bootstrap"]["registries"]=[]
+        config["bootstrap"]["control_authority"]=None
+        validate(config)
         anchor=authority["anchor_identity_sha256"]
     else:
         state,receipt,pub,_=signed_install_fixture()
@@ -220,6 +223,7 @@ def test_v3_exact_three_owner_selection_has_no_activation(backend,local):
     "retained_commit","approval_signature","installed_boolean",
     "wrong_local_install_uuid","wrong_local_state_uuid","legacy_downshift",
     "gateway_scope","gateway_root_snapshot",
+    "unexpected_local_enrollment","reused_state_partuuid",
 ))
 def test_three_owner_freeze_denies_source_or_identity_substitution(tamper):
     row=selected("root-directory",local=True)
@@ -275,6 +279,14 @@ def test_three_owner_freeze_denies_source_or_identity_substitution(tamper):
         row["gateway_selection"]["installation_scope_sha256"]="sha256:"+"e"*64
     elif tamper=="gateway_root_snapshot":
         row["gateway_selection"]["root_source_sha256"]="sha256:"+"d"*64
+    elif tamper=="unexpected_local_enrollment":
+        row["state_bundle"]["bootstrap"]["registries"]=copy.deepcopy(
+            NONRESIDENT["bootstrap"]["registries"])
+        row["state_bundle"]["bootstrap"]["control_authority"]=copy.deepcopy(
+            NONRESIDENT["bootstrap"]["control_authority"])
+    elif tamper=="reused_state_partuuid":
+        row["mount_plan"]["mounts"][0]["block_partuuid"]=(
+            row["state_bundle"]["bootstrap"]["state"]["partition_partuuid"])
     with pytest.raises((broker.BrokerInstallHeld,ValueError)):
         freeze.review_disabled_v3_freeze(**row)
 
