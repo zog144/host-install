@@ -228,7 +228,10 @@ def test_original_witness_is_captured_before_move_and_public_only(
             assert original["identity_inode"]==ino(legacy)
             assert "private_key" not in original
             assert "identity.pem" not in c.canonical(original).decode()
-            owner=os.open(evidence,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+            published=tmp_path/"new-original-witness"
+            published.mkdir(mode=0o700)
+            published.chmod(0o700)
+            owner=os.open(published,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
             try:
                 outcome=c.publish_original_witness(owner,original)
                 assert outcome["mutation_authorized"] is False
