@@ -132,9 +132,16 @@ def _check_inventory(inventory):
                     "kind", "uid", "gid", "mode", "links", "dev", "inode"
                 } and row["kind"] == "file" and row["uid"] == LEGACY_UID
                     and row["gid"] == LEGACY_GID and row["mode"] == 0o600
-                    and row["links"] == 1 and _uid(row["dev"])
+                    and row["links"] == 1
+                    and type(row["dev"]) is int and row["dev"] > 0
                     and type(row["inode"]) is int and row["inode"] > 0),
                 "migration-inventory", "unsafe legacy identity entry")
+    # All existing identity files must be ordinary non-hardlinked entries on
+    # the same filesystem; their bytes are never copied or included in reports.
+    identity_devices={entry["dev"] for name,entry in inventory.items()
+                      if name in ALLOWED_IDENTITY_FILES and entry is not None}
+    require(len(identity_devices)==1,"migration-inventory",
+            "identity entries cross filesystem boundaries")
     creds = inventory["credential_files"]
     require(type(creds) is dict and len(creds) <= 128,
             "migration-inventory", "credential inventory must be bounded")
@@ -313,7 +320,12 @@ class MigrationJournal:
         payload=canonical(row)
         fd=os.open(tmp,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
         try:
-            os.write(fd,payload)
+            view=memoryview(payload)
+            while view:
+                size=os.write(fd,view)
+                require(size > 0,"migration-journal",
+                        "interrupted journal publication")
+                view=view[size:]
             os.fsync(fd)
         finally:os.close(fd)
         os.replace(tmp,target)
