@@ -46,6 +46,15 @@ jobs:
           test "$(git -C companions/root-control rev-parse HEAD)" = 935e2764c227b0d8036015d9d11e7419b3afd5e0
           test "$(git -C companions/host-deploy rev-parse HEAD)" = 95ff98327ed9730774fdaa5d6f588ac8c63b8ad6
           python -m pytest -q -rs tests/test_graphical_task_c_v3_install_freeze.py             tests/test_graphical_registry_storage_installation.py             tests/test_graphical_protected_storage_admission.py             companions/root-control/tests/test_graphical_task_c_backend_observation.py             companions/root-control/tests/test_graphical_task_c_local_identity.py             companions/host-deploy/tests/test_graphics_owner_trust_v3_install.py             companions/host-deploy/tests/test_graphics_owner_trust_v3_backend_observation.py
+      - name: Build pinned, uninstalled component wheels and verify wheel RECORD
+        env:
+          PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}/tests:${{ github.workspace }}/companions/root-control/src:${{ github.workspace }}/companions/root-control/tests:${{ github.workspace }}/companions/host-deploy/src:${{ github.workspace }}/companions/host-deploy/tests
+          V3_WHEEL_DIR: ${{ runner.temp }}/v3-wheels
+        run: |
+          python -m pip install 'setuptools>=80,<83' wheel
+          mkdir -p "$V3_WHEEL_DIR"
+          python -m pip wheel --no-deps --no-build-isolation -w "$V3_WHEEL_DIR"             . companions/root-control companions/host-deploy
+          python -m pytest -q -s tests/test_graphical_task_c_v3_install_freeze.py             -k test_built_wheels_have_exact_source_bytes_and_real_pep427_record
       - if: always()
         run: |
           echo 'All v3 credentials, services, sockets, STATE and Task C native admission remain disabled. Wheel RECORD fixture verification is not attestation of an installed runtime.' >> "$GITHUB_STEP_SUMMARY"
