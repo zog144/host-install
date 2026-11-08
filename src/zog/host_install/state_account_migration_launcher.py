@@ -30,8 +30,8 @@ CONSUMER_GID = 970
 CONSUMER_GROUPS = (972,973)
 
 
-def _protected_fd(fd, limit=65536):
-    return decode(_read_protected(fd,size=limit))
+def _protected_fd(fd, size=65536):
+    return decode(_read_protected(fd,size=size))
 
 
 def validate_relaunch_fds(context, plan_fd, journal_fd, completion_fd,
