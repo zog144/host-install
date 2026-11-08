@@ -130,6 +130,39 @@ def selected_beacon_argv(identity_fd, completion_fd, public_fingerprint):
     ]
 
 
+def reviewed_launcher_dropin_template():
+    """Not installable as-is: Work must select a verified Python 3.12 binary.
+
+    Runtime selection is a root-owned launcher that drops to service UID 970;
+    the old legacy service cannot inherit a root-only completion FD by itself.
+    """
+    return (
+        "[Service]\\n"
+        "User=root\\n"
+        "Group=root\\n"
+        "ExecStart=\\n"
+        "ExecStart=@PINNED_HOST_INSTALL_PYTHON312@ -m "
+        "zog.host_install.state_account_migration_launcher\\n"
+        "ReadWritePaths=\\n"
+        "ReadWritePaths=/state/host-discover/identity "
+        "/var/lib/host-discover/credentials\\n"
+    ).encode("ascii")
+
+
+def render_launcher_dropin(python_executable):
+    """Produce a reviewed selection; do not touch installed units."""
+    from .state_contract import require
+    require(type(python_executable) is str
+            and python_executable.startswith("/")
+            and all(c.isalnum() or c in "/._-" for c in python_executable)
+            and ".." not in python_executable.split("/")
+            and python_executable.endswith("python3.12"),
+            "migration-launcher","pinned Python 3.12 path required")
+    return reviewed_launcher_dropin_template().replace(
+        b"@PINNED_HOST_INSTALL_PYTHON312@",
+        python_executable.encode("ascii"))
+
+
 def run_selected_once():
     """Open trusted local sources anew on EACH restart; never inspect a key.
 
@@ -222,4 +255,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
