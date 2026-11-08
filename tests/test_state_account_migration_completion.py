@@ -196,7 +196,9 @@ def test_original_witness_is_captured_before_move_and_public_only(
         (legacy/"binding.json").write_text(json.dumps({
             "host_id":str(uuid.uuid4()),"fingerprint":fp}))
     elif attack=="substituted-key-inode":
-        (legacy/"identity.pem").unlink()
+        # Keep the original inode allocated: unlink+create may legitimately
+        # reuse exactly the same inode number on ext4/XFS.
+        (legacy/"identity.pem").rename(tmp_path/"original-key-backup")
         (legacy/"identity.pem").write_bytes(b"substituted")
         (legacy/"identity.pem").chmod(0o600)
         os.chown(legacy/"identity.pem",991,991)
