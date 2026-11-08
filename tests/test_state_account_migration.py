@@ -322,3 +322,139 @@ def test_journal_rejects_wrong_directory_permissions(tmp_path,plan):
     root.chmod(0o777)
     with pytest.raises(StateError):
         m.MigrationJournal(root,plan,DisposableBackend(),require_root=False).execute()
+
+class DisposableFilesystemBackend(DisposableBackend):
+    """Real rename/content/ownership simulation on a temporary root.
+
+    No production account database, native /state or service is accessed.
+    """
+    def __init__(self,root):
+        super().__init__()
+        self.root=root
+        self.old=root/"var/lib/host-discover/identity"
+        self.new=root/"state/host-discover/identity"
+        self.config=root/"etc/host-discover/configuration.json"
+        self.dropin=root/"etc/systemd/system/host-discover.service.d/zog-state-migration.conf"
+        self.old.mkdir(parents=True)
+        self.config.parent.mkdir(parents=True)
+        for name,payload in (("identity.pem",b"synthetic-existing-key-never-regenerate"),
+                             ("binding.json",b'{"public":"synthetic"}'),
+                             ("key.lock",b"")):
+            (self.old/name).write_bytes(payload)
+        self.original_inode=self.old.stat().st_ino
+        self.old_key_inode=(self.old/"identity.pem").stat().st_ino
+        self.key_content=b"synthetic-existing-key-never-regenerate"
+        self.before=fixture()["configuration_bytes"]
+        self.after=m.changed_configuration(self.before)
+        self.config.write_bytes(self.before)
+        self.snapshot={"identity_owner":(991,991),
+                       "credentials_owner":(991,990),
+                       "destinations_owner":(991,991)}
+    def state(self,stage):
+        if stage=="identity-moved":
+            old=self.old.exists()
+            new=self.new.exists()
+            return "before" if old and not new else "after" if new and not old else "conflict"
+        if stage=="configuration-path-switched":
+            value=self.config.read_bytes()
+            return "before" if value==self.before else "after" if value==self.after else "conflict"
+        if stage=="systemd-path-switched":
+            return "after" if self.dropin.is_file() and self.dropin.read_bytes()==m.changed_unit_dropin() else (
+                "before" if not self.dropin.exists() else "conflict")
+        return super().state(stage)
+    def apply(self,stage):
+        if stage=="identity-moved":
+            assert self.new.parent.is_dir()
+            os.rename(self.old,self.new)
+            self.actions.append(("apply",stage))
+        elif stage=="configuration-path-switched":
+            self.config.write_bytes(self.after)
+            self.actions.append(("apply",stage))
+        elif stage=="systemd-path-switched":
+            self.dropin.parent.mkdir(parents=True,exist_ok=True)
+            self.dropin.write_bytes(m.changed_unit_dropin())
+            self.actions.append(("apply",stage))
+        else:
+            super().apply(stage)
+            if stage=="state-layout-prepared":
+                self.new.parent.mkdir(parents=True,exist_ok=True)
+            if stage=="legacy-file-ownership-reconciled":
+                self.snapshot={
+                    "identity_owner":(970,970),
+                    "credentials_owner":(970,972),
+                    "destinations_owner":(970,970),
+                }
+    def undo(self,stage):
+        if stage=="identity-moved":
+            os.rename(self.new,self.old)
+            self.actions.append(("undo",stage))
+        elif stage=="configuration-path-switched":
+            self.config.write_bytes(self.before)
+            self.actions.append(("undo",stage))
+        elif stage=="systemd-path-switched":
+            self.dropin.unlink()
+            self.actions.append(("undo",stage))
+        else:
+            super().undo(stage)
+            if stage=="legacy-file-ownership-reconciled":
+                self.snapshot={
+                    "identity_owner":(991,991),
+                    "credentials_owner":(991,990),
+                    "destinations_owner":(991,991),
+                }
+            if stage=="state-layout-prepared":
+                self.new.parent.rmdir()
+
+
+@pytest.mark.parametrize("crash_at",[
+    "apply-after:identity-moved",
+    "apply-after:configuration-path-switched",
+    "apply-after:systemd-path-switched",
+    "rollback-after:identity-moved",
+    "rollback-after:configuration-path-switched",
+    "rollback-after:systemd-path-switched",
+])
+def test_disposable_same_filesystem_inode_preserved_and_rollback(
+        tmp_path,plan,crash_at):
+    backend=DisposableFilesystemBackend(tmp_path/"sandbox")
+    engine=journal(tmp_path,plan,backend)
+    def crash(location):
+        if location==crash_at:raise RuntimeError("simulated filesystem interruption")
+    if crash_at.startswith("rollback"):
+        assert engine.execute()["status"]=="complete"
+        with pytest.raises(RuntimeError):
+            engine.execute(rollback=True,checkpoint=crash)
+        assert engine.execute(rollback=True)["status"]=="rolled-back"
+        assert backend.old.stat().st_ino==backend.original_inode
+        assert (backend.old/"identity.pem").stat().st_ino==backend.old_key_inode
+        assert (backend.old/"identity.pem").read_bytes()==backend.key_content
+        assert backend.config.read_bytes()==backend.before
+        assert not backend.dropin.exists()
+        assert backend.snapshot["credentials_owner"]==(991,990)
+    else:
+        with pytest.raises(RuntimeError):
+            engine.execute(checkpoint=crash)
+        assert engine.execute()["status"]=="complete"
+        assert backend.new.stat().st_ino==backend.original_inode
+        assert (backend.new/"identity.pem").stat().st_ino==backend.old_key_inode
+        assert (backend.new/"identity.pem").read_bytes()==backend.key_content
+        assert backend.config.read_bytes()==backend.after
+        assert backend.dropin.read_bytes()==m.changed_unit_dropin()
+        assert backend.snapshot["credentials_owner"]==(970,972)
+    assert backend.public_fingerprint==FINGERPRINT
+    assert backend.credential_path==m.CREDENTIALS
+
+
+def test_unexpected_partial_filesystem_placement_blocks_resume(tmp_path,plan):
+    backend=DisposableFilesystemBackend(tmp_path/"sandbox")
+    engine=journal(tmp_path,plan,backend)
+    def crash(location):
+        if location=="apply-before:state-layout-prepared":
+            raise RuntimeError("crash")
+    with pytest.raises(RuntimeError):
+        engine.execute(checkpoint=crash)
+    backend.new.parent.mkdir(parents=True)
+    backend.new.mkdir()
+    with pytest.raises(StateError,match="migration-recovery"):
+        engine.execute()
+    assert backend.old.exists() and backend.new.exists()
