@@ -8,6 +8,10 @@ on:
       - src/zog/host_install/state_inspect.py
       - src/zog/host_install/state_provision.py
       - src/zog/host_install/cli.py
+      - src/zog/host_install/state_gate.py
+      - src/zog/host_install/state_device.py
+      - src/zog/host_install/non_resident.py
+      - tests/test_non_resident.py
       - tests/test_state_directory_runtime.py
       - .github/workflows/state-directory-runtime.yml
 permissions:
@@ -33,7 +37,7 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/src
         run: |
           python -m pytest -q -rs tests/test_state_directory_runtime.py -k 'not root_capable'
-          sudo --preserve-env=PYTHONPATH ${{ env.pythonLocation }}/bin/python -m pytest -q -rs tests/test_state.py tests/test_state_provision.py
+          sudo --preserve-env=PYTHONPATH ${{ env.pythonLocation }}/bin/python -m pytest -q -rs tests/test_state.py tests/test_state_provision.py tests/test_non_resident.py
       - name: Root-capable disposable directory lifecycle acceptance
         env:
           PYTHONPATH: ${{ github.workspace }}/src
