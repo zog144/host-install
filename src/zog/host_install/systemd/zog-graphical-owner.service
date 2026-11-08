@@ -2,6 +2,7 @@
 Description=Protected Zog graphical operation claim and selected SSM sender
 Documentation=man:systemd.service(5)
 RequiresMountsFor=/var/lib/zog-graphical-owner-ledger
+RequiresMountsFor=/var/lib/zog-graphical-owner-authority
 After=local-fs.target network-online.target
 Wants=network-online.target
 
