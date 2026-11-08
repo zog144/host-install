@@ -297,9 +297,43 @@ class MigrationJournal:
                 stat.S_IMODE(os.fstat(fd).st_mode)==0o600 and
                 os.fstat(fd).st_uid==os.geteuid(),"migration-journal","unsafe lock")
         fcntl.flock(fd,fcntl.LOCK_EX)
-        if (self.root/".transaction.pending").exists():
-            os.close(fd)
-            raise StateError("migration-journal","uncertain interrupted pending journal requires review")
+        pending=self.root/".transaction.pending"
+        if pending.exists():
+            info=pending.lstat()
+            require(stat.S_ISREG(info.st_mode) and info.st_nlink==1
+                    and info.st_uid==os.geteuid()
+                    and stat.S_IMODE(info.st_mode)==0o600,
+                    "migration-journal","unsafe pending journal")
+            candidate=decode(pending.read_bytes())
+            require(type(candidate) is dict
+                    and candidate.get("schema")==JOURNAL_SCHEMA
+                    and candidate.get("migration_id")==self.plan["migration_id"]
+                    and candidate.get("plan_sha256")==digest(self.plan)
+                    and candidate.get("status") in
+                        ("applying","complete","rolling-back","rolled-back")
+                    and type(candidate.get("completed")) is list
+                    and candidate["completed"]==list(
+                        STAGES[:len(candidate["completed"])])
+                    and candidate.get("active") in (None,*STAGES),
+                    "migration-journal","unrecognized pending intent")
+            if target.exists():
+                prior=decode(target.read_bytes())
+                require(type(prior) is dict
+                        and prior.get("schema")==JOURNAL_SCHEMA
+                        and prior.get("migration_id")==candidate["migration_id"]
+                        and prior.get("plan_sha256")==candidate["plan_sha256"]
+                        and prior.get("status") in
+                            ("applying","complete","rolling-back","rolled-back"),
+                        "migration-journal","pending transaction conflicts")
+                # Save always writes the newer journal and fsyncs before the
+                # rename; the native backend will still recheck every phase.
+                require(not (prior.get("status")=="rolled-back"
+                             and candidate["status"]=="applying"),
+                        "migration-journal","pending journal reverses rollback")
+            os.replace(pending,target)
+            d=os.open(self.root,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+            try:os.fsync(d)
+            finally:os.close(d)
         if target.exists():
             info=target.lstat()
             require(stat.S_ISREG(info.st_mode) and info.st_uid==os.geteuid()
@@ -354,10 +388,18 @@ class MigrationJournal:
             else:
                 require(row["status"] in ("applying","complete"),"migration-direction",
                         "invalid migration direction")
+                if row["status"]=="complete":
+                    require(all(self.backend.state(stage)=="after" for stage in STAGES),
+                            "migration-recovery","completed installation changed")
+                    return {"status":"complete","migration_id":row["migration_id"],
+                            "native_accepted":False,"service_activation_authorized":False}
                 for stage in STAGES:
                     state=self.backend.state(stage)
                     require(state in ("before","after"),"migration-recovery",
                             "unrecognized partial or conflicting stage")
+                    if stage in row["completed"]:
+                        require(state=="after","migration-recovery",
+                                "completed stage was reverted independently")
                     if state=="before":
                         row.update(status="applying",active=stage)
                         self._save(row)
