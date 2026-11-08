@@ -82,9 +82,14 @@ class RootCommandRunner:
     def run(self, stage, *, rollback=False):
         args=exact_command(stage,rollback)
         require(os.geteuid()==0,"root-required","root-owned migration required")
-        p=subprocess.run(args, stdin=subprocess.DEVNULL,
+        # Never resolve a root-capable account tool through inherited PATH.
+        selected=("/usr/sbin/"+args[0],*args[1:])
+        require(Path(selected[0]).is_file()
+                and not Path(selected[0]).is_symlink(),
+                "migration-native-command","account command binary missing")
+        p=subprocess.run(selected, stdin=subprocess.DEVNULL,
                          stdout=subprocess.PIPE,stderr=subprocess.PIPE,
-                         timeout=30,check=False)
+                         timeout=30,check=False,env={"PATH":"/usr/sbin:/usr/bin:/bin","LANG":"C"})
         require(p.returncode==0, "migration-native-command",
                 "account command rejected; reconcile protected stage before retry")
         return p.returncode
@@ -119,6 +124,11 @@ class NativeStageBackend:
         if root==Path("/"):
             require(NATIVE_ACTIVATION_ENABLED,"migration-native-hold",
                     "production native account/file mutation disabled")
+            from .state_account_migration_observer import NativeNSSSystemdObserver
+            require(type(probe) is NativeNSSSystemdObserver and
+                    type(command_runner) is RootCommandRunner,
+                    "migration-native-observer",
+                    "production must use fresh protected NSS/systemd probes")
         else:
             require(allow_disposable and root.is_dir()
                     and not root.is_symlink() and
