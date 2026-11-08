@@ -24,14 +24,26 @@ SCHEMA = "zog-host-registry-directory-state-account-migration-v1"
 JOURNAL_SCHEMA = "zog-host-registry-state-account-journal-v1"
 STAGES = (
     "service-stopped",
-    "archive-group-remapped",
-    "host-discover-account-remapped",
-    "missing-accounts-created",
-    "legacy-file-ownership-reconciled",
+    "archive-consumers-gid-updated",
+    "host-discover-group-gid-updated",
+    "host-discover-primary-gid-updated",
+    "host-discover-uid-updated",
+    "host-discover-home-updated",
+    "host-discover-shell-updated",
+    "host-control-group-created",
+    "box-control-group-created",
+    "box-control-user-created",
+    "host-discover-supplementary-groups-updated",
+    "box-control-supplementary-groups-updated",
+    "legacy-identity-owner-updated",
+    "legacy-credentials-owner-and-group-updated",
+    "legacy-destinations-owner-updated",
+    "canonical-configuration-published",
     "state-layout-prepared",
     "identity-moved",
     "configuration-path-switched",
     "systemd-path-switched",
+    "systemd-daemon-reloaded",
     "service-restored",
 )
 LEGACY_UID = 991
@@ -216,6 +228,16 @@ def review_source_migration(bundle, *, migration_id, root_observation,
             and cfg.get("identity_directory") == SOURCE
             and cfg.get("credential_directory") == CREDENTIALS,
             "migration-registry", "existing host-discover endpoint/binding not selected")
+    # Existing managed beaconing must not silently become registry-free or
+    # acquire a different trust endpoint when introducing the STATE bundle.
+    controls = [r for r in b["registries"] if r["role"] == "control"]
+    require(len(controls) == 1 and b["control_authority"] is not None
+            and controls[0]["registry_id"] == b["control_authority"]["registry_id"]
+            and controls[0]["origin"].rstrip("/") == cfg["server"].rstrip("/")
+            and controls[0]["ca"] is None
+            and cfg.get("ca_file") in (None, ""),
+            "migration-registry",
+            "canonical registry origin/CA must preserve existing managed beacon")
     target_bytes = changed_configuration(configuration_bytes)
     require(type(unit_bytes) is bytes and len(unit_bytes) <= 65536
             and b"User=host-discover" in unit_bytes.splitlines()
@@ -248,6 +270,7 @@ def review_source_migration(bundle, *, migration_id, root_observation,
         "file_inventory_metadata_sha256":digest(file_inventory),
         "root_observation_sha256":digest(root_observation),
         "public_binding_sha256":digest(binding),
+        "control_registry_id":controls[0]["registry_id"],
         "service_was_active":service_snapshot["active"],
         "service_was_enabled":service_snapshot["enabled"],
         "status":"SOURCE_REVIEW_NATIVE_CONSUMER_HOLD",
@@ -267,6 +290,9 @@ class MigrationJournal:
         self.plan=plan
         self.backend=backend
         self.require_root=require_root
+        require(not require_root,"migration-consumer-hold",
+                "No native executor exists until host-discover can retain the "
+                "original legacy key under canonical STATE")
         require(type(plan) is dict and plan.get("schema")==SCHEMA
                 and _uuid(plan.get("migration_id")) and
                 plan.get("status")=="SOURCE_REVIEW_NATIVE_CONSUMER_HOLD",
