@@ -120,19 +120,17 @@ def test_actual_protected_mount_readback_never_requires_root_directory_to_be_mou
             return SimpleNamespace(st_mode=stat.S_IFDIR|0o700,
                                    st_dev=device,st_uid=0)
         def is_symlink(self):return False
-    context=SimpleNamespace(
-        fd=os.open("/",os.O_RDONLY|os.O_DIRECTORY),
-        bundle={"bootstrap":{"state":{
-            "filesystem_uuid":plan["state_fs_uuid"],
-            "storage_backend":backend}}},
-        calls=0,
-    )
-    def recheck():context.calls+=1
-    context.recheck=recheck
-    context.__class__ = type("FakeContext",(SimpleNamespace,),{
-        "__enter__":lambda self:self,
-        "__exit__":lambda self,*args:False,
-    })
+    class ContextFixture:
+        def __init__(self):
+            self.fd=os.open("/",os.O_RDONLY|os.O_DIRECTORY)
+            self.bundle={"bootstrap":{"state":{
+                "filesystem_uuid":plan["state_fs_uuid"],
+                "storage_backend":backend}}}
+            self.calls=0
+        def recheck(self):self.calls+=1
+        def __enter__(self):return self
+        def __exit__(self,*args):return False
+    context=ContextFixture()
     monkeypatch.setattr(s,"Path",PathFixture)
     monkeypatch.setattr(state_inspect,"inspect_live",lambda:context)
     monkeypatch.setattr(s.os.path,"ismount",lambda path:
