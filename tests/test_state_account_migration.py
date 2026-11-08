@@ -25,6 +25,8 @@ def fixture():
     b=directory_bundle()
     b["bootstrap"]["mode"]="migration"
     b["installation"]["operation"]="migration"
+    b["bootstrap"]["registries"][0]["origin"]=(
+        "https://host-registry.hosts.zog-network-demo.uk")
     b["bootstrap"]["initialization"]["expected_host_uuid"]=HOST_UUID
     b["bootstrap"]["initialization"]["expected_fingerprint"]=FINGERPRINT
     b["bootstrap"]["installation_record"]["sha256"]=digest(b["installation"])
@@ -116,6 +118,7 @@ def test_source_migration_explicit_identity_account_and_registry():
     "state_exists","nested_state_mount","wrong_root_uuid","root_readonly",
     "foreign_service","wrong_group","changed_endpoint","wrong_config_path",
     "unexpected_consumer_contract","wrong_install_mode",
+    "unrelated_canonical_registry","unapproved_ca_replacement",
 ))
 def test_preflight_rejects_foreign_identity_or_unreviewed_migration(attack):
     row=fixture()
@@ -175,6 +178,11 @@ def test_preflight_rejects_foreign_identity_or_unreviewed_migration(attack):
         row["consumer_contract"]={"approved":True}
     elif attack=="wrong_install_mode":
         row["bundle"]["bootstrap"]["mode"]="fresh"
+    elif attack=="unrelated_canonical_registry":
+        row["bundle"]["bootstrap"]["registries"][0]["origin"]="https://other.example.invalid"
+    elif attack=="unapproved_ca_replacement":
+        row["configuration_bytes"]=row["configuration_bytes"].replace(
+            b'"archive_issuer"',b'"ca_file":"/etc/my-old-ca.pem", "archive_issuer"')
     with pytest.raises(StateError):
         review(row)
 
@@ -378,7 +386,7 @@ class DisposableFilesystemBackend(DisposableBackend):
             super().apply(stage)
             if stage=="state-layout-prepared":
                 self.new.parent.mkdir(parents=True,exist_ok=True)
-            if stage=="legacy-file-ownership-reconciled":
+            if stage=="legacy-credentials-owner-and-group-updated":
                 self.snapshot={
                     "identity_owner":(970,970),
                     "credentials_owner":(970,972),
@@ -396,7 +404,7 @@ class DisposableFilesystemBackend(DisposableBackend):
             self.actions.append(("undo",stage))
         else:
             super().undo(stage)
-            if stage=="legacy-file-ownership-reconciled":
+            if stage=="legacy-credentials-owner-and-group-updated":
                 self.snapshot={
                     "identity_owner":(991,991),
                     "credentials_owner":(991,990),
@@ -458,3 +466,11 @@ def test_unexpected_partial_filesystem_placement_blocks_resume(tmp_path,plan):
     with pytest.raises(StateError,match="migration-recovery"):
         engine.execute()
     assert backend.old.exists() and backend.new.exists()
+
+def test_no_production_root_executor_before_consumer_adoption(tmp_path,plan):
+    backend=DisposableBackend()
+    root=tmp_path/"production-hold"
+    root.mkdir(mode=0o700)
+    with pytest.raises(StateError,match="migration-consumer-hold"):
+        m.MigrationJournal(root,plan,backend)
+    assert all(backend.state(stage)=="before" for stage in m.STAGES)
