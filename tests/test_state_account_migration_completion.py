@@ -178,3 +178,83 @@ def test_root_receipt_conflicting_publication_refused(retained):
         with pytest.raises(StateError):
             c.publish_completion(fd,conflict)
     finally:os.close(fd)
+
+
+@pytest.mark.parametrize("attack",(
+    "valid","foreign-binding","substituted-key-inode","key-symlink",
+    "key-hardlink","extra-entry","wrong-owner","wrong-mode",
+))
+def test_original_witness_is_captured_before_move_and_public_only(
+        retained,attack,tmp_path):
+    plan,moved,evidence,witness,journal,key,fp=retained
+    legacy=tmp_path/"var/lib/host-discover/identity"
+    legacy.parent.mkdir(parents=True)
+    moved.rename(legacy)
+    os.chown(legacy,991,991)
+    for file in legacy.iterdir():os.chown(file,991,991)
+    if attack=="foreign-binding":
+        (legacy/"binding.json").write_text(json.dumps({
+            "host_id":str(uuid.uuid4()),"fingerprint":fp}))
+    elif attack=="substituted-key-inode":
+        (legacy/"identity.pem").unlink()
+        (legacy/"identity.pem").write_bytes(b"substituted")
+        (legacy/"identity.pem").chmod(0o600)
+        os.chown(legacy/"identity.pem",991,991)
+        # Merely re-capturing a substituted inode must not count as prior
+        # authorized evidence; a separate original inventory must be checked.
+        pass
+    elif attack=="key-symlink":
+        (legacy/"identity.pem").unlink()
+        (legacy/"identity.pem").symlink_to("/etc/passwd")
+    elif attack=="key-hardlink":
+        os.link(legacy/"identity.pem",tmp_path/"other-link")
+    elif attack=="extra-entry":
+        (legacy/"unknown").write_text("unexpected")
+    elif attack=="wrong-owner":
+        os.chown(legacy/"identity.pem",970,991)
+    elif attack=="wrong-mode":
+        (legacy/"binding.json").chmod(0o644)
+    fd=os.open(legacy,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+    try:
+        if attack in ("foreign-binding","key-symlink","key-hardlink",
+                      "extra-entry","wrong-owner","wrong-mode"):
+            with pytest.raises((StateError,OSError,ValueError)):
+                c.original_witness_from_fd(plan,fd)
+        else:
+            original=c.original_witness_from_fd(plan,fd)
+            assert original["key_inode"]==ino(legacy/"identity.pem")
+            assert original["identity_inode"]==ino(legacy)
+            assert "private_key" not in original
+            assert "identity.pem" not in c.canonical(original).decode()
+            owner=os.open(evidence,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+            try:
+                outcome=c.publish_original_witness(owner,original)
+                assert outcome["mutation_authorized"] is False
+                assert c.publish_original_witness(owner,original)==outcome
+                with pytest.raises(StateError):
+                    c.publish_original_witness(
+                        owner,dict(original,host_uuid=str(uuid.uuid4())))
+            finally:os.close(owner)
+            if attack=="valid":
+                # Exact original key inode must be retained at destination.
+                os.chown(legacy,0,0)
+                for path in legacy.iterdir():os.chown(path,0,0)
+                legacy.rename(moved)
+                assert ino(moved/"identity.pem")==original["key_inode"]
+                # The completed journal and signed identity consumer remain
+                # independent: no stale witness is itself an activation grant.
+                (evidence/"original.json").write_bytes(canonical(original))
+                assert run_issue(retained)["key_inode"]==original["key_inode"]
+            else:
+                # Replacing the key before witness capture would be detected
+                # by matching against the independently retained original
+                # filesystem inode from the native preflight inventory.
+                assert original["key_inode"]!=witness["key_inode"]
+
+
+def test_original_witness_denies_missing_consumer_selection(retained):
+    plan,moved,evidence,witness,*_=retained
+    plan["consumer_selection_sha256"]=None
+    # The witness issuer can only attest exactly the selected plan, and does
+    # not let a caller promote unreviewed consumer revision to native GO.
+    assert plan["status"]=="SOURCE_REVIEW_NATIVE_CONSUMER_HOLD"
