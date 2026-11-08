@@ -11,6 +11,9 @@ on:
       - tests/test_state_account_migration.py
       - tests/test_state_account_migration_completion.py
       - tests/test_state_account_migration_native.py
+      - src/zog/host_install/state_account_migration_storage.py
+      - src/zog/host_install/state_provision.py
+      - tests/test_state_account_migration_storage.py
       - .github/workflows/registry-state-account-migration.yml
 permissions:
   contents: read
@@ -57,7 +60,8 @@ jobs:
         run: |
           sudo --preserve-env=PYTHONPATH "${{ env.pythonLocation }}/bin/python" -m pytest -q -rs \
             tests/test_state_account_migration_completion.py \
-            tests/test_state_account_migration_native.py
+            tests/test_state_account_migration_native.py \
+            tests/test_state_account_migration_storage.py
       - name: Exact companion source consumer regression tests
         env:
           PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}/tests:${{ github.workspace }}/companions/host-identify/src:${{ github.workspace }}/companions/host-identify/tests:${{ github.workspace }}/companions/host-discover/src:${{ github.workspace }}/companions/host-discover/tests
