@@ -174,3 +174,83 @@ def test_root_capable_unmarked_nonempty_directory_and_conflicting_marker_hold():
             with pytest.raises(StateError):
                 state_provision.prepare_tree(c,c.bundle["bootstrap"]["state"]["state_volume_id"])
         finally:c.close()
+
+# A registry is not an installation or boot prerequisite on non-resident Hosts.
+# Standalone operation is explicit; an absent registry cannot be upgraded into
+# a remote-control grant from an untrusted station status or cached record.
+from zog.host_install.state_gate import decide
+
+
+def standalone_bundle(directory=True):
+    b=directory_bundle() if directory else copy.deepcopy(BASE)
+    b["bootstrap"]["registries"]=[]
+    b["bootstrap"]["control_authority"]=None
+    assert validate(b) is b
+    return b
+
+
+def standalone_evidence():
+    return {
+        "mount_verified":True,"accounts_verified":True,
+        "storage_probe":"passed",
+        "identity":{"status":"complete","initialization_id":None,
+                    "candidates":1,"matches_expected":True},
+        "authorization":{
+            "verified_current_transaction":False,
+            "installation_id":BASE["installation"]["installation_id"],
+            "state_volume_id":BASE["bootstrap"]["state"]["state_volume_id"],
+            "initialization_id":BASE["bootstrap"]["initialization"]["authorization_id"],
+            "action":"none"},
+        "schemas":{"identity":1,"trust":1,"control":1,"controller":1},
+        "recovery_hold":False,
+        "station":{"status":"unavailable","registry_id":None},
+    }
+
+
+@pytest.mark.parametrize("directory", [False,True])
+def test_nonresident_local_state_and_identity_need_no_registry_or_external_signer(directory):
+    b=standalone_bundle(directory)
+    expected={"identity_action":"load-existing","code":"standalone-local-ready",
+              "control_allowed":False}
+    assert decide(b,standalone_evidence())==expected
+    assert b["bootstrap"]["registries"]==[]
+    assert b["bootstrap"]["control_authority"] is None
+
+
+@pytest.mark.parametrize("attack",[
+    "managed_authority_without_registry","registry_without_authority",
+    "standalone_resident","unexpected_station_session",
+    "unexpected_registry_id","wrong_identity","missing_storage",
+    "local_recovery_hold","fresh_key_without_authorization",
+])
+def test_standalone_does_not_infer_management_or_bypass_identity_safety(attack):
+    b=standalone_bundle()
+    evidence=standalone_evidence()
+    if attack=="managed_authority_without_registry":
+        b["bootstrap"]["control_authority"]=copy.deepcopy(BASE["bootstrap"]["control_authority"])
+    elif attack=="registry_without_authority":
+        b["bootstrap"]["registries"]=copy.deepcopy(BASE["bootstrap"]["registries"])
+    elif attack=="standalone_resident":
+        b["installation"]["installation_mode"]="resident"
+    elif attack=="unexpected_station_session":
+        evidence["station"]["status"]="fresh"
+    elif attack=="unexpected_registry_id":
+        evidence["station"]["registry_id"]="primary"
+    elif attack=="wrong_identity":
+        evidence["identity"]["matches_expected"]=False
+    elif attack=="missing_storage":
+        evidence["mount_verified"]=False
+    elif attack=="local_recovery_hold":
+        evidence["recovery_hold"]=True
+    elif attack=="fresh_key_without_authorization":
+        evidence["identity"]["status"]="absent"
+        evidence["identity"]["candidates"]=0
+    if attack in (
+            "managed_authority_without_registry","registry_without_authority",
+            "standalone_resident","unexpected_station_session",
+            "unexpected_registry_id"):
+        with pytest.raises(StateError):
+            decide(b,evidence)
+    else:
+        assert decide(b,evidence)["control_allowed"] is False
+        assert decide(b,evidence)["identity_action"] != "load-existing"
