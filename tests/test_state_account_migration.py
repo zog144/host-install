@@ -119,6 +119,7 @@ def test_source_migration_explicit_identity_account_and_registry():
     "foreign_service","wrong_group","changed_endpoint","wrong_config_path",
     "unexpected_consumer_contract","wrong_install_mode",
     "unrelated_canonical_registry","unapproved_ca_replacement",
+    "cross_filesystem_identity",
 ))
 def test_preflight_rejects_foreign_identity_or_unreviewed_migration(attack):
     row=fixture()
@@ -183,6 +184,8 @@ def test_preflight_rejects_foreign_identity_or_unreviewed_migration(attack):
     elif attack=="unapproved_ca_replacement":
         row["configuration_bytes"]=row["configuration_bytes"].replace(
             b'"archive_issuer"',b'"ca_file":"/etc/my-old-ca.pem", "archive_issuer"')
+    elif attack=="cross_filesystem_identity":
+        row["file_inventory"]["key.lock"]["dev"]=1
     with pytest.raises(StateError):
         review(row)
 
@@ -474,3 +477,10 @@ def test_no_production_root_executor_before_consumer_adoption(tmp_path,plan):
     with pytest.raises(StateError,match="migration-consumer-hold"):
         m.MigrationJournal(root,plan,backend)
     assert all(backend.state(stage)=="before" for stage in m.STAGES)
+
+def test_large_realistic_inode_numbers_are_not_rejected_as_uid_values():
+    row=fixture()
+    for key in ("key.lock","identity.pem","binding.json"):
+        row["file_inventory"][key]["inode"]+=2**42
+        row["file_inventory"][key]["dev"]+=2**26
+    assert review(row)["status"]=="SOURCE_REVIEW_NATIVE_CONSUMER_HOLD"
