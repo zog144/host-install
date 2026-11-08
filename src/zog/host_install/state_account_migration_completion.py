@@ -51,6 +51,107 @@ def _pair(pair):
             and all(type(v) is int and v > 0 for v in pair))
 
 
+
+def original_witness_from_fd(plan, identity_fd, *,
+                             expected_uid=991, expected_gid=991):
+    """Record ORIGINAL legacy entry identity before any migration mutation.
+
+    Only public binding and optional CA bytes are inspected. The private key
+    is never opened/read/serialized. The later retained-key consumer proves
+    that the existing key corresponds to the original public fingerprint.
+    This source helper does NOT authenticate the FD origin: native Work must
+    open it from the independently verified legacy location, under the
+    selected root transaction lock before stopping host-discover.
+    """
+    require(os.geteuid()==0, "root-required",
+            "original identity witness requires root")
+    require(type(plan) is dict and plan.get("schema")==SCHEMA
+            and plan.get("status")=="SOURCE_REVIEW_NATIVE_CONSUMER_HOLD"
+            and _uuid(plan.get("migration_id"))
+            and type(expected_uid) is int and type(expected_gid) is int,
+            "migration-witness", "selected migration plan required")
+    directory=os.fstat(identity_fd)
+    require(stat.S_ISDIR(directory.st_mode)
+            and (directory.st_uid,directory.st_gid,
+                 stat.S_IMODE(directory.st_mode))==
+                (expected_uid,expected_gid,0o700),
+            "migration-witness","original identity owner/mode unrecognized")
+    entries=set(os.listdir(identity_fd))
+    require(entries in (set(ENTRIES),set(ENTRIES)|{"registry-ca.pem"}),
+            "migration-witness","unexpected original identity entry")
+    pairs={"identity_inode":_inode(directory)}
+    contents={}
+    for name,field in list(ENTRIES.items()) + (
+            [("registry-ca.pem","ca_inode")] if "registry-ca.pem" in entries
+            else []):
+        fd=os.open(name,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK,
+                   dir_fd=identity_fd)
+        try:
+            info=os.fstat(fd)
+            require(stat.S_ISREG(info.st_mode)
+                    and info.st_nlink==1
+                    and info.st_dev==directory.st_dev
+                    and (info.st_uid,info.st_gid,stat.S_IMODE(info.st_mode))==
+                        (expected_uid,expected_gid,0o600)
+                    and 0 <= info.st_size <= 32768,
+                    "migration-witness","unrecognized identity file metadata")
+            pairs[field]=_inode(info)
+            if name in ("binding.json","registry-ca.pem"):
+                # These are public metadata/certificate bytes, never a
+                # secret key. The key is verified by host-identify on use.
+                value=os.read(fd,32769)
+                require(len(value)==info.st_size,
+                        "migration-witness","public evidence size changed")
+                contents[name]=value
+        finally:os.close(fd)
+    binding=decode(contents["binding.json"])
+    require(type(binding) is dict
+            and set(binding)=={"host_id","fingerprint"}
+            and binding["host_id"]==plan["host_uuid"]
+            and binding["fingerprint"]==plan["public_fingerprint"],
+            "migration-witness","original public identity binding differs")
+    # No legacy key fingerprint is inferred merely from binding: the exact
+    # Ed25519 private key is authenticated by the retained loader later.
+    witness={
+        "schema":WITNESS_SCHEMA,
+        "migration_id":plan["migration_id"],
+        "plan_sha256":digest(plan),
+        "host_uuid":plan["host_uuid"],
+        "fingerprint":plan["public_fingerprint"],
+        "registry_origin":plan["registry_origin"],
+        **pairs,
+        "ca_inode":pairs.get("ca_inode"),
+        "ca_sha256":(
+            hashlib.sha256(contents["registry-ca.pem"]).hexdigest()
+            if "registry-ca.pem" in entries else None),
+    }
+    require(set(witness)==WITNESS_FIELDS,
+            "migration-witness","incomplete original identity witness")
+    return witness
+
+
+def publish_original_witness(root_fd, witness, *,
+                             checkpoint=lambda _:None):
+    """First durable mutation: publish root-owned original inode evidence.
+
+    Caller must authenticate the exact journal parent and hold the permanent
+    owner lock. Repeat same bytes is allowed; replacement is prohibited.
+    """
+    require(os.geteuid()==0 and type(witness) is dict
+            and set(witness)==WITNESS_FIELDS
+            and witness["schema"]==WITNESS_SCHEMA,
+            "migration-witness","exact pre-migration witness required")
+    root=os.fstat(root_fd)
+    require(stat.S_ISDIR(root.st_mode)
+            and (root.st_uid,root.st_gid,stat.S_IMODE(root.st_mode))==
+                (0,0,0o700),
+            "migration-witness","protected root-owned parent required")
+    publish(root_fd,"original.json",canonical(witness),0o600,
+            checkpoint=checkpoint)
+    return {"status":"original-witness-published",
+            "witness_sha256":digest(witness),"mutation_authorized":False}
+
+
 def completion_from_observed_fds(
     *, plan, original_witness_fd, journal_fd, identity_fd,
     identity_directory=IDENTITY_DIRECTORY, expected_uid=970, expected_gid=970,
