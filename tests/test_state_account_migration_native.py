@@ -180,15 +180,16 @@ def test_native_step_retry_after_disposable_interrupt(root_case,tmp_path,point):
 def test_chown_partial_stage_resumes_only_selected_original_inode(root_case,tmp_path,monkeypatch):
     backend,fake,root,identity,creds,cfg,dropin,inodes=root_case
     engine=journal(tmp_path,backend)
-    original=os.chown
+    original=os.fchown
     calls=[0]
-    def interrupt(path,uid,gid,*,follow_symlinks=True):
-        if str(path).startswith(str(identity)) and uid==970:
+    def interrupt(fd,uid,gid):
+        selected=os.readlink("/proc/self/fd/"+str(fd))
+        if selected.startswith(str(identity)) and uid==970:
             calls[0]+=1
-            if calls[0]==2:raise OSError("crash during file ownership update")
-        return original(path,uid,gid,follow_symlinks=follow_symlinks)
+            if calls[0]==2:raise OSError("crash during opened inode ownership update")
+        return original(fd,uid,gid)
     with monkeypatch.context() as ctx:
-        ctx.setattr(native.os,"chown",interrupt)
+        ctx.setattr(native.os,"fchown",interrupt)
         with pytest.raises(OSError):
             engine.execute()
     assert backend.state("legacy-identity-owner-updated")=="before"
