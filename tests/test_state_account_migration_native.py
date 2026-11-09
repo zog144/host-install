@@ -42,6 +42,10 @@ def root_case(tmp_path):
         pytest.skip("root-required temporary filesystem chown/rename")
     selected=source_fixture()
     selected["consumer_contract"]=dict(CONSUMER_SELECTION)
+    # The second name is synthetic; only a native protected inventory may
+    # identify the real Host's second credential file.
+    selected["file_inventory"]["credential_files"]["second-retained.json"]={
+        "kind":"file","uid":991,"gid":990,"mode":0o640,"links":1}
     plan=migration.review_source_migration(**selected)
     root=tmp_path/"sandbox"
     identity=root/migration.SOURCE.lstrip("/")
@@ -59,9 +63,10 @@ def root_case(tmp_path):
         p.chmod(0o600);os.chown(p,991,991)
     identity.chmod(0o700);os.chown(identity,991,991)
     (credentials/"archive.json").write_bytes(b"synthetic-not-a-credential")
-    (credentials/"archive.json").chmod(0o640)
+    (credentials/"second-retained.json").write_bytes(b"synthetic-second-file")
+    for p in credentials.iterdir():p.chmod(0o640)
     credentials.chmod(0o750)
-    for p in (credentials,credentials/"archive.json"):os.chown(p,991,990)
+    for p in [credentials,*credentials.iterdir()]:os.chown(p,991,990)
     dest.parent.mkdir(parents=True,exist_ok=True)
     dest.write_bytes(b"synthetic-destinations")
     dest.chmod(0o600);os.chown(dest,991,991)
@@ -74,6 +79,9 @@ def root_case(tmp_path):
         plan,filesystem_root=root,allow_disposable=True,
         probe=fake,command_runner=fake,
         original_identity_inodes=inodes,
+        original_credential_inodes={
+            p.name:list(stat(p)) for p in credentials.iterdir()},
+        selected_file_inventory=selected["file_inventory"],
         initial_config=selected["configuration_bytes"])
     return backend,fake,root,identity,credentials,cfg,dropin,inodes
 
@@ -124,6 +132,7 @@ def test_disposable_root_migrates_identity_inode_and_restores_it(root_case,tmp_p
     assert (moved/"identity.pem").read_bytes()==b"synthetic-key-only"
     assert (moved/"identity.pem").stat().st_uid==970
     assert (creds/"archive.json").stat().st_gid==972
+    assert (creds/"second-retained.json").stat().st_gid==972
     assert cfg.read_bytes()==migration.changed_configuration(backend.original_config)
     assert dropin.read_bytes()==migration.changed_unit_dropin()
     assert engine.execute()["status"]=="complete"
@@ -133,6 +142,7 @@ def test_disposable_root_migrates_identity_inode_and_restores_it(root_case,tmp_p
     assert list(stat(identity/"identity.pem"))==inodes["identity.pem"]
     assert (identity/"identity.pem").stat().st_uid==991
     assert (creds/"archive.json").stat().st_gid==990
+    assert (creds/"second-retained.json").stat().st_gid==990
     assert cfg.read_bytes()==backend.original_config
     assert not dropin.exists()
     assert len(fake.commands)==2*len(native.ACCOUNT_COMMANDS)
@@ -242,3 +252,51 @@ def test_disposable_native_role_origin_files_preserved_through_rollback(
         assert path.read_bytes()==content
         assert list(stat(path))==backend.original_identity_inodes[name]
         assert (path.stat().st_uid,path.stat().st_gid)==(991,991)
+
+
+@pytest.mark.parametrize("attack",(
+    "extra-file","missing-file","substituted-inode",
+    "symlink","hardlink","wrong-mode","mismatched-source-plan",
+))
+def test_credential_ownership_requires_exact_closed_native_witness(
+        root_case,attack,tmp_path):
+    backend,fake,root,identity,creds,cfg,dropin,inodes=root_case
+    file=creds/"second-retained.json"
+    if attack=="extra-file":
+        (creds/"foreign").write_text("no")
+    elif attack=="missing-file":file.unlink()
+    elif attack=="substituted-inode":
+        file.rename(creds/"kept-old-inode")
+        file.write_bytes(b"unselected")
+        file.chmod(0o640);os.chown(file,991,990)
+        (creds/"kept-old-inode").unlink()
+    elif attack=="symlink":
+        file.unlink()
+        file.symlink_to("/etc/passwd")
+    elif attack=="hardlink":
+        os.link(file,tmp_path/"foreign-link")
+    elif attack=="wrong-mode":
+        file.chmod(0o600)
+    elif attack=="mismatched-source-plan":
+        backend.credential_files=frozenset({"archive.json"})
+    with pytest.raises((StateError,OSError)):
+        backend.state("legacy-credentials-owner-and-group-updated")
+    assert (creds/"archive.json").stat().st_gid==990
+
+
+def test_original_credential_inventory_digest_denies_unreviewed_files(
+        root_case):
+    backend,fake,root,identity,creds,cfg,dropin,inodes=root_case
+    assert backend.credential_files=={
+        "archive.json","second-retained.json"}
+    assert set(backend.original_credential_inodes)==backend.credential_files
+    assert backend.plan["file_inventory_metadata_sha256"]==__import__(
+        "zog.host_install.state_contract",fromlist=["digest"]).digest(
+            {**__import__("test_state_account_migration",fromlist=["fixture"])
+             .fixture()["file_inventory"],
+             "credential_files":{
+                "archive.json":{"kind":"file","uid":991,"gid":990,
+                                "mode":0o640,"links":1},
+                "second-retained.json":{"kind":"file","uid":991,"gid":990,
+                                        "mode":0o640,"links":1},
+             }})
