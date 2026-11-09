@@ -242,7 +242,7 @@ def initial_journal(selection):
     }
 
 
-def publish_disposable_admission(folder, selection):
+def publish_disposable_admission(folder, selection, *, disposable=False):
     """Crash-resilient, no-replace test publication; NEVER production root.
 
     No live Host pathname can be supplied to this helper. Root-owned
@@ -250,10 +250,11 @@ def publish_disposable_admission(folder, selection):
     remain separate reviewed prerequisites.
     """
     p = Path(folder).absolute()
-    require(os.geteuid() == 0 and p.is_dir() and p != Path("/")
+    # Explicit opt-in and a temporary test subtree are necessary. Never
+    # interpret a 'root-owned empty folder' as authorization for production.
+    require(disposable and os.geteuid() == 0 and p.is_dir()
             and not p.is_symlink()
-            and not str(p).startswith(("/var/lib/zog-host-install",
-                                       "/etc/zog", "/state", "/opt/host-discover"))
+            and (p.is_relative_to("/tmp/") or p.is_relative_to("/var/tmp/"))
             and p.stat().st_uid == 0
             and stat.S_IMODE(p.stat().st_mode) == 0o700
             and not any(p.iterdir()),
