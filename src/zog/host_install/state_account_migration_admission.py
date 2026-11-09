@@ -12,7 +12,7 @@ from pathlib import Path
 import re
 import stat
 
-from .state_contract import canonical, decode, digest, require, validate
+from .state_contract import StateError, canonical, decode, digest, require, validate
 from .state_account_migration import (
     JOURNAL_SCHEMA, SCHEMA, review_source_migration,
 )
