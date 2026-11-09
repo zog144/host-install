@@ -69,6 +69,9 @@ def fixture():
             "binding.json":file_(122),
             "key.lock":file_(123),
             "registry-ca.pem":None,
+            "mirror-role.json":None,
+            "mirror-role.lock":None,
+            "primary-origin.json":None,
             "credential_files":{
                 "archive.json":{"kind":"file","uid":991,"gid":990,
                                 "mode":0o640,"links":1}},
@@ -484,3 +487,36 @@ def test_large_realistic_inode_numbers_are_not_rejected_as_uid_values():
         row["file_inventory"][key]["inode"]+=2**42
         row["file_inventory"][key]["dev"]+=2**26
     assert review(row)["status"]=="SOURCE_REVIEW_NATIVE_CONSUMER_HOLD"
+
+
+@pytest.mark.parametrize("attack",(
+    "valid", "sidecar-bad-mode", "sidecar-foreign-uid",
+    "sidecar-hardlink", "sidecar-other-device", "sidecar-unknown-name",
+))
+def test_retained_legacy_role_origin_files_in_closed_source_inventory(attack):
+    row=fixture()
+    file_=lambda inode: {
+        "kind":"file","uid":991,"gid":991,"mode":0o600,
+        "links":1,"dev":259,"inode":inode,
+    }
+    for name,inode in (("mirror-role.json",212),("mirror-role.lock",213),
+                       ("primary-origin.json",214)):
+        row["file_inventory"][name]=file_(inode)
+    if attack=="sidecar-bad-mode":
+        row["file_inventory"]["mirror-role.json"]["mode"]=0o644
+    elif attack=="sidecar-foreign-uid":
+        row["file_inventory"]["primary-origin.json"]["uid"]=970
+    elif attack=="sidecar-hardlink":
+        row["file_inventory"]["mirror-role.lock"]["links"]=2
+    elif attack=="sidecar-other-device":
+        row["file_inventory"]["mirror-role.json"]["dev"]=12
+    elif attack=="sidecar-unknown-name":
+        row["file_inventory"]["other-role.json"]=file_(215)
+    if attack=="valid":
+        result=review(row)
+        assert result["status"]=="SOURCE_REVIEW_NATIVE_CONSUMER_HOLD"
+        assert result["file_inventory_metadata_sha256"]==digest(
+            row["file_inventory"])
+        return
+    with pytest.raises(StateError,match="migration-inventory"):
+        review(row)
