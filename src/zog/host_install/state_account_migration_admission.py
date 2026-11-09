@@ -112,9 +112,19 @@ def select_runtime(executable, interpreter, executable_sha256,
         # symlink, so resolve it only within the selected venv.
         cur = root
         for part in Path(path).parts[1:-1]:
+            previous = cur.lstat()
+            require(stat.S_ISDIR(previous.st_mode)
+                    and previous.st_uid == 0
+                    and not previous.st_mode & 0o022,
+                    "migration-runtime", "unprotected candidate ancestor")
             cur = cur / part
             require(not cur.is_symlink(), "migration-runtime",
                     "intermediate candidate path is a symlink")
+        parent_info = cur.lstat()
+        require(stat.S_ISDIR(parent_info.st_mode)
+                and parent_info.st_uid == 0
+                and not parent_info.st_mode & 0o022,
+                "migration-runtime", "unprotected candidate bin directory")
         require(item.exists(), "migration-runtime", "candidate file absent")
         resolved = item.resolve(strict=True)
         venv_root = (root / CANDIDATE_ROOT.lstrip("/")).resolve()
@@ -147,6 +157,25 @@ def select_runtime(executable, interpreter, executable_sha256,
         return [s.st_dev, s.st_ino]
     executable_inode = verify(executable, executable_sha256)
     interpreter_inode = verify(interpreter, interpreter_sha256)
+    # The selected console-script must actually invoke that same interpreter.
+    # A matching script SHA-256 alone does not prevent a foreign shebang from
+    # launching an unreviewed environment.
+    script = root / executable.lstrip("/")
+    with script.open("rb") as fp:
+        shebang = fp.readline(256)
+    require(shebang.startswith(b"#!") and shebang.endswith(b"\n")
+            and len(shebang) < 256,
+            "migration-runtime", "reviewed console-script shebang required")
+    try:
+        selected_python = shebang[2:].strip().decode("ascii")
+    except UnicodeError as exc:
+        raise StateError("migration-runtime", "invalid shebang encoding") from exc
+    allowed_python = {CANDIDATE_PYTHON, CANDIDATE_ROOT + "/bin/python",
+                      CANDIDATE_ROOT + "/bin/python3"}
+    require(selected_python in allowed_python
+            and (root / selected_python.lstrip("/")).resolve(strict=True) ==
+                (root / interpreter.lstrip("/")).resolve(strict=True),
+            "migration-runtime", "candidate script bypasses selected Python")
     return {
         "schema": RUNTIME_SCHEMA,
         "consumer_selection_sha256": digest(CONSUMER_SELECTION),
