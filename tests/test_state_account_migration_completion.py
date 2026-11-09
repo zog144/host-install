@@ -271,3 +271,100 @@ def test_original_witness_denies_missing_consumer_selection(retained,tmp_path):
         with pytest.raises(StateError,match="migration-witness"):
             c.original_witness_from_fd(plan,fd)
     finally:os.close(fd)
+
+
+@pytest.mark.parametrize("attack", (
+    "valid", "changed-role", "deleted-origin", "role-symlink",
+    "role-hardlink", "wrong-origin-mode", "foreign-role-owner",
+    "unlisted-entry", "changed-role-inode",
+))
+def test_retained_role_and_origin_are_bound_across_identity_migration(
+        retained,attack,tmp_path):
+    plan,moved,evidence,witness,journal,key,fingerprint=retained
+    legacy=tmp_path/"old/host-discover/identity"
+    legacy.parent.mkdir(parents=True)
+    moved.rename(legacy)
+    sidecars={
+        "mirror-role.json":b'{"status":{"state":"stopped"}}',
+        "mirror-role.lock":b"",
+        "primary-origin.json":b'{"origin":"https://registry.example.invalid"}',
+    }
+    for name,data in sidecars.items():
+        target=legacy/name
+        target.write_bytes(data)
+        target.chmod(0o600)
+    os.chown(legacy,991,991)
+    for child in legacy.iterdir():os.chown(child,991,991)
+    source_fd=os.open(legacy,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+    try:original=c.original_witness_from_fd(plan,source_fd)
+    finally:os.close(source_fd)
+    assert set(original["retained_files"])==set(sidecars)
+    assert all(original["retained_files"][n]["inode"]==ino(legacy/n)
+               for n in sidecars)
+    assert not any(data.decode(errors="ignore") in canonical(original).decode()
+                   for data in sidecars.values() if data)
+    (evidence/"original.json").write_bytes(canonical(original))
+    # Simulate exactly the source-approved owner conversion and one inode-
+    # preserving filesystem move before any daemon is launched.
+    os.chown(legacy,0,0)
+    for child in legacy.iterdir():os.chown(child,0,0)
+    legacy.rename(moved)
+    if attack=="changed-role":
+        (moved/"mirror-role.json").write_bytes(b'{"status":"tampered"}')
+    elif attack=="deleted-origin":
+        (moved/"primary-origin.json").unlink()
+    elif attack=="role-symlink":
+        (moved/"mirror-role.json").unlink()
+        (moved/"mirror-role.json").symlink_to("/etc/passwd")
+    elif attack=="role-hardlink":
+        os.link(moved/"mirror-role.lock",tmp_path/"foreign-hardlink")
+    elif attack=="wrong-origin-mode":
+        (moved/"primary-origin.json").chmod(0o644)
+    elif attack=="foreign-role-owner":
+        os.chown(moved/"mirror-role.json",10001,-1)
+    elif attack=="unlisted-entry":
+        (moved/"other-role.json").write_bytes(b"{}")
+    elif attack=="changed-role-inode":
+        replacement=moved/"replacement-tmp"
+        replacement.write_bytes(sidecars["mirror-role.json"])
+        replacement.chmod(0o600)
+        os.replace(replacement,moved/"mirror-role.json")
+    if attack != "valid":
+        with pytest.raises((StateError,OSError,ValueError)):
+            run_issue(retained)
+        return
+    receipt=run_issue(retained)
+    assert set(receipt)=={
+        "schema","status","migration_id","identity_directory","host_uuid",
+        "fingerprint","registry_origin","uid","gid","identity_inode",
+        "key_inode","binding_inode","lock_inode","ca_inode","ca_sha256",
+        "plan_sha256","journal_sha256",
+    }
+    # The consumer's completion remains an identity document: mutable role
+    # files are secured at migration time, not permanently inode-pinned.
+    directory_fd=os.open(evidence,os.O_RDONLY|os.O_DIRECTORY)
+    try:c.publish_completion(directory_fd,receipt)
+    finally:os.close(directory_fd)
+    from zog.host_identify.retained_legacy import load_retained_legacy_fd
+    selected=os.open(moved,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+    completed=os.open(evidence/c.COMPLETION_FILE,os.O_RDONLY|os.O_NOFOLLOW)
+    try:
+        identity,binding=load_retained_legacy_fd(
+            selected,completed,expected_host_uuid=plan["host_uuid"],
+            expected_fingerprint=fingerprint,
+            expected_registry_origin=plan["registry_origin"],
+            identity_directory=str(moved))
+        assert binding["fingerprint"]==fingerprint
+        # Existing roles.Controller.save atomically publishes role changes.
+        replacement=moved/".new-role"
+        replacement.write_bytes(b'{"status":{"state":"ready"}}')
+        replacement.chmod(0o600)
+        os.replace(replacement,moved/"mirror-role.json")
+        again,_=load_retained_legacy_fd(
+            selected,completed,expected_host_uuid=plan["host_uuid"],
+            expected_fingerprint=fingerprint,
+            expected_registry_origin=plan["registry_origin"],
+            identity_directory=str(moved))
+        from zog.host_identify.signatures import fingerprint as compute_fp
+        assert compute_fp(again.public_key())==fingerprint
+    finally:os.close(completed);os.close(selected)
