@@ -60,6 +60,73 @@ def _pair(pair):
 
 
 
+
+def open_original_legacy_identity_fd(
+        expected_inode, *, expected_root_device,
+        filesystem_root="/", allow_disposable=False,
+        expected_uid=991, expected_gid=991):
+    """Open the *selected live pathname* before stopping the daemon.
+
+    The caller must independently authenticate the expected root device and
+    original identity inode and hold the protected transaction lock. Walking
+    each component with openat(NOFOLLOW) pins the ancestry; writable or
+    non-root-owned ancestors are refused, even if the final identity directory
+    has the expected inode. The returned FD belongs to the caller.
+
+    A non-root filesystem_root is ONLY for isolated root-owned source tests.
+    This helper neither publishes evidence nor authorizes account mutation.
+    """
+    require(os.geteuid() == 0, "root-required",
+            "original directory selection requires root")
+    require(_pair(expected_inode)
+            and type(expected_root_device) is int
+            and expected_root_device > 0
+            and expected_inode[0] == expected_root_device
+            and type(filesystem_root) is str
+            and filesystem_root.startswith("/")
+            and (filesystem_root == "/" or
+                 (allow_disposable
+                  and os.path.realpath(filesystem_root) == filesystem_root)),
+            "migration-original-path", "independently selected root required")
+    fd = os.open(filesystem_root,
+                 os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        root = os.fstat(fd)
+        require(stat.S_ISDIR(root.st_mode)
+                and root.st_dev == expected_root_device
+                and root.st_uid == 0
+                and not stat.S_IMODE(root.st_mode) & 0o022,
+                "migration-original-path", "untrusted original filesystem root")
+        for index, part in enumerate(("var", "lib", "host-discover", "identity")):
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY |
+                            os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
+            try:
+                info = os.fstat(child)
+                final = index == 3
+                require(stat.S_ISDIR(info.st_mode)
+                        and info.st_dev == expected_root_device
+                        and (
+                            (info.st_uid, info.st_gid,
+                             stat.S_IMODE(info.st_mode)) ==
+                            (expected_uid, expected_gid, 0o700)
+                            and _inode(info) == expected_inode
+                            if final else
+                            info.st_uid == 0
+                            and not stat.S_IMODE(info.st_mode) & 0o022
+                        ),
+                        "migration-original-path",
+                        "original directory lineage or inode changed")
+            except BaseException:
+                os.close(child)
+                raise
+            os.close(fd)
+            fd = child
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
 def original_witness_from_fd(plan, identity_fd, *,
                              expected_uid=991, expected_gid=991):
     """Record ORIGINAL legacy entry identity before any migration mutation.
@@ -95,8 +162,13 @@ def original_witness_from_fd(plan, identity_fd, *,
     for name,field in list(ENTRIES.items()) + (
             [("registry-ca.pem","ca_inode")] if "registry-ca.pem" in entries
             else []) + [(name,None) for name in sorted(entries & RETAINED_FILES)]:
-        fd=os.open(name,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK,
-                   dir_fd=identity_fd)
+        # The private key is metadata-only evidence here. O_PATH prevents
+        # accidental read access; the retained consumer authenticates key
+        # contents separately after the completed migration.
+        flags = (os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC
+                 if name == "identity.pem" else
+                 os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+        fd=os.open(name,flags,dir_fd=identity_fd)
         try:
             info=os.fstat(fd)
             require(stat.S_ISREG(info.st_mode)
