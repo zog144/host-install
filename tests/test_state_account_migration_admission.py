@@ -95,13 +95,17 @@ def test_disposable_admission_publication_is_exclusive_and_protected(tmp_path):
     folder = tmp_path / "journal"
     folder.mkdir(mode=0o700)
     selected = review(selection())
-    outcome = a.publish_disposable_admission(folder, selected)
+    outcome = a.publish_disposable_admission(folder, selected, disposable=True)
     assert outcome["native_accepted"] is False
     assert (folder/"plan.json").stat().st_mode & 0o777 == 0o600
     assert (folder/"transaction.json").stat().st_mode & 0o777 == 0o600
     with pytest.raises(StateError):
-        a.publish_disposable_admission(folder, selected)
+        a.publish_disposable_admission(folder, selected, disposable=True)
     assert not launcher.RUNTIME_ENABLED
+    other = tmp_path / "unselected"
+    other.mkdir(mode=0o700)
+    with pytest.raises(StateError):
+        a.publish_disposable_admission(other, selected)
 
 
 def test_runtime_byte_selection_rejects_wrong_digest_and_path(tmp_path):
