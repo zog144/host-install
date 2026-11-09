@@ -335,10 +335,34 @@ class NativeStageBackend:
                          self.original_credential_inodes[p.name]),
                     "migration-native-inventory",
                     "unrecognized original credential entry")
-            if (s.st_uid,s.st_gid)!=target:
-                os.chown(p,*target,follow_symlinks=False)
-                require((p.lstat().st_uid,p.lstat().st_gid)==target,
-                        "migration-native-owner","owner update failed")
+            # Pin the selected inode with an FD across the ownership syscall.
+            # lstat(path) followed by chown(path) can otherwise mutate a
+            # substituted entry after a concurrent pathname replacement.
+            fd=os.open(p,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK|
+                       (os.O_DIRECTORY if stat.S_ISDIR(s.st_mode) else 0))
+            try:
+                held=os.fstat(fd)
+                require([held.st_dev,held.st_ino]==[s.st_dev,s.st_ino]
+                        and (held.st_uid,held.st_gid) in (before,after)
+                        and stat.S_IFMT(held.st_mode)==stat.S_IFMT(s.st_mode)
+                        and stat.S_IMODE(held.st_mode)==stat.S_IMODE(s.st_mode),
+                        "migration-native-owner",
+                        "selected inode changed before ownership update")
+                if (held.st_uid,held.st_gid)!=target:
+                    os.fchown(fd,*target)
+                after_fd=os.fstat(fd)
+                require((after_fd.st_uid,after_fd.st_gid)==target
+                        and [after_fd.st_dev,after_fd.st_ino]==[s.st_dev,s.st_ino],
+                        "migration-native-owner",
+                        "opened inode ownership update failed")
+                after_path=p.lstat()
+                require((after_path.st_uid,after_path.st_gid)==target
+                        and [after_path.st_dev,after_path.st_ino]==
+                            [s.st_dev,s.st_ino],
+                        "migration-native-owner",
+                        "original name changed after ownership update")
+            finally:
+                os.close(fd)
         dfd=os.open(root if root.is_dir() else root.parent,
                     os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
         try:os.fsync(dfd)
