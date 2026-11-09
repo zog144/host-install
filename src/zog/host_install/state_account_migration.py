@@ -60,7 +60,12 @@ DESTINATIONS = "/var/lib/host-discover/beacon-destinations.json"
 CONFIGURATION = "/etc/host-discover/configuration.json"
 SELECTED_UNIT = "host-discover.service"
 REQUIRED_IDENTITY_FILES = frozenset(("key.lock", "identity.pem", "binding.json"))
-OPTIONAL_IDENTITY_FILES = frozenset(("registry-ca.pem",))
+# Retain only recognized legacy operational records. These may change
+# after the beacon resumes; they are not new identity/admission receipts.
+OPTIONAL_IDENTITY_FILES = frozenset((
+    "registry-ca.pem", "mirror-role.json", "mirror-role.lock",
+    "primary-origin.json",
+))
 ALLOWED_IDENTITY_FILES = REQUIRED_IDENTITY_FILES | OPTIONAL_IDENTITY_FILES
 PATH_CHANGE_FIELDS = frozenset(("identity_directory",))
 HEX = re.compile(r"[0-9a-f]{64}\Z")
