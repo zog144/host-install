@@ -270,7 +270,12 @@ def publish_disposable_admission(folder, selection, *, disposable=False):
             item = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL |
                            os.O_NOFOLLOW | os.O_CLOEXEC, 0o600, dir_fd=fd)
             try:
-                os.write(item, raw)
+                remaining = memoryview(raw)
+                while remaining:
+                    written = os.write(item, remaining)
+                    require(written > 0, "migration-admission",
+                            "incomplete durable record write")
+                    remaining = remaining[written:]
                 os.fsync(item)
             finally:
                 os.close(item)
