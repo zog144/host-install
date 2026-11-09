@@ -210,6 +210,13 @@ class NativeStageBackend:
                      or stat.S_ISDIR(s.st_mode)),
                     "migration-native-file","unsafe file type/link")
             if stage=="legacy-identity-owner-updated":
+                require(s.st_dev==root.lstat().st_dev and
+                        (stat.S_ISDIR(s.st_mode) and
+                         stat.S_IMODE(s.st_mode)==0o700 if p==root
+                         else stat.S_ISREG(s.st_mode) and
+                         stat.S_IMODE(s.st_mode)==0o600),
+                        "migration-native-inventory",
+                        "retained identity/role entry ownership layout changed")
                 key="directory" if p==root else p.name
                 if key in self.original_identity_inodes:
                     require([s.st_dev,s.st_ino]==self.original_identity_inodes[key],
@@ -267,10 +274,16 @@ class NativeStageBackend:
                     "foreign file owner/path")
             if stage=="legacy-identity-owner-updated":
                 key="directory" if p==root else p.name
-                if key in self.original_identity_inodes:
-                    require([s.st_dev,s.st_ino]==
+                require(key in self.original_identity_inodes and
+                        s.st_dev==root.lstat().st_dev
+                        and (stat.S_IMODE(s.st_mode)==0o700 if p==root
+                             else stat.S_ISREG(s.st_mode)
+                             and s.st_nlink==1
+                             and stat.S_IMODE(s.st_mode)==0o600)
+                        and [s.st_dev,s.st_ino]==
                             self.original_identity_inodes[key],
-                            "migration-native-witness","file inode changed")
+                        "migration-native-witness",
+                        "unreviewed identity/role inode or mode")
             if (s.st_uid,s.st_gid)!=target:
                 os.chown(p,*target,follow_symlinks=False)
                 require((p.lstat().st_uid,p.lstat().st_gid)==target,
