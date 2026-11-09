@@ -4,7 +4,9 @@ This module deliberately cannot create production /state or authorize a service,
 account, or identity mutation. Native acceptance must supply independently
 authenticated live observations and a separately reviewed protected executor.
 """
+import copy
 import hashlib
+import uuid
 import os
 from pathlib import Path
 import re
@@ -26,6 +28,65 @@ RUNTIME_SCHEMA = "zog-registry-state-migration-runtime-selection-v1"
 CANDIDATE_EXECUTABLE = CANDIDATE_ROOT + "/bin/host-discover"
 CANDIDATE_PYTHON = CANDIDATE_ROOT + "/bin/python3.12"
 HEX64 = re.compile(r"[0-9a-f]{64}\Z")
+
+
+def assemble_migration_bundle(template, *, installation_id, state_volume_id,
+                              installation_record_id, authorization_id,
+                              root_fs_uuid, root_partuuid,
+                              host_uuid, fingerprint, registry_origin):
+    """Create a canonical non-resident migration bundle from explicit selections.
+
+    UUIDs and installed Host facts must be independently authorized/reobserved
+    by the native issuer. This pure builder does not create an installation or
+    grant its own authorization_id; it never initializes another Host key.
+    """
+    require(type(template) is dict, "migration-bundle", "template required")
+    validate(template)
+    require(template["bootstrap"]["mode"] == "fresh"
+            and template["installation"]["operation"] == "fresh"
+            and template["installation"]["installation_mode"] == "non-resident",
+            "migration-bundle", "only uninstalled non-resident template accepted")
+    supplied = (installation_id, state_volume_id, installation_record_id,
+                authorization_id, root_fs_uuid, root_partuuid, host_uuid)
+    def valid_uuid(value):
+        try:
+            return type(value) is str and str(uuid.UUID(value)) == value \
+                and uuid.UUID(value).int != 0
+        except (ValueError, AttributeError, TypeError):
+            return False
+    require(all(valid_uuid(x) for x in supplied)
+            and len(set(supplied)) == len(supplied)
+            and type(fingerprint) is str and HEX64.fullmatch(fingerprint)
+            and type(registry_origin) is str
+            and registry_origin.startswith("https://")
+            and registry_origin.rstrip("/") == registry_origin,
+            "migration-bundle", "distinct identifiers and original Host binding required")
+    b = copy.deepcopy(template)
+    bootstrap, installation, marker = b["bootstrap"], b["installation"], b["marker"]
+    installation["installation_id"] = installation_id
+    installation["record_id"] = installation_record_id
+    installation["operation"] = "migration"
+    bootstrap["installation_id"] = installation_id
+    bootstrap["mode"] = "migration"
+    bootstrap["initialization"]["authorization_id"] = authorization_id
+    bootstrap["initialization"]["expected_host_uuid"] = host_uuid
+    bootstrap["initialization"]["expected_fingerprint"] = fingerprint
+    controls = [r for r in bootstrap["registries"] if r["role"] == "control"]
+    require(len(controls) == 1, "migration-bundle", "one existing control origin required")
+    controls[0]["origin"] = registry_origin
+    controls[0]["ca"] = None
+    marker.update(schema=2, kind="zog-state-directory", backing_root="/",
+                  installation_id=installation_id, state_volume_id=state_volume_id,
+                  filesystem_uuid=root_fs_uuid, partition_partuuid=root_partuuid)
+    state = bootstrap["state"]
+    state.update(storage_backend="root-directory", filesystem_type="directory",
+                 state_volume_id=state_volume_id, filesystem_uuid=root_fs_uuid,
+                 partition_partuuid=root_partuuid)
+    state["marker_sha256"] = digest(marker)
+    installation["installer_recorded"]["marker_sha256"] = digest(marker)
+    bootstrap["installation_record"]["sha256"] = digest(installation)
+    validate(b)
+    return b
 
 
 def select_runtime(executable, interpreter, executable_sha256,
