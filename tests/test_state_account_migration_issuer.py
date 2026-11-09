@@ -83,6 +83,13 @@ def test_operator_selection_produces_exact_canonical_bundle_and_held_journal():
     assert result["plan"]["consumer_selection_sha256"] == digest(CONSUMER_SELECTION)
     assert bundle["marker"]["kind"] == "zog-state-directory"
     assert result["plan"]["status"] == "SOURCE_REVIEW_NATIVE_CONSUMER_HOLD"
+    from zog.host_install.state_account_migration_launcher import (
+        render_selected_launcher_dropin,
+    )
+    unit=render_selected_launcher_dropin(result)
+    assert result["plan"]["unit_dropin_sha256"] == hashlib.sha256(unit).hexdigest()
+    assert admission.CANDIDATE_PYTHON.encode() in unit
+    assert b"@PINNED_HOST_INSTALL_PYTHON312@" not in unit
     initial = admission.initial_journal(result)
     assert initial["status"] == "applying" and initial["completed"] == []
     assert issuer.check_selection(selected) == selected
