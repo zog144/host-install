@@ -47,7 +47,7 @@ def selection_and_evidence():
         "registry_origin":
             "https://host-registry.hosts.zog-network-demo.uk",
         "identity_inode": identity["directory"],
-        "credential_inodes": creds,
+        "credential_inodes": copy.deepcopy(creds),
         "file_inventory_sha256": digest(f["file_inventory"]),
         "configuration_sha256": hashlib.sha256(
             f["configuration_bytes"]).hexdigest(),
