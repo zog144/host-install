@@ -301,3 +301,34 @@ def test_original_credential_inventory_digest_denies_unreviewed_files(
                 "second-retained.json":{"kind":"file","uid":991,"gid":990,
                                         "mode":0o640,"links":1},
              }})
+
+
+def test_native_fd_owner_update_rejects_inflight_path_replacement(
+        root_case,tmp_path,monkeypatch):
+    backend,fake,root,identity,creds,cfg,dropin,inodes=root_case
+    old_key=identity/"identity.pem"
+    retained=identity/"identity-original-held.pem"
+    original_chown=os.fchown
+    injected=[False]
+    def replace_after_fd_open(fd,uid,gid):
+        path=os.readlink("/proc/self/fd/"+str(fd))
+        if path==str(old_key) and uid==970 and not injected[0]:
+            injected[0]=True
+            old_key.rename(retained)
+            old_key.write_bytes(b"replaced-after-original-fd-open")
+            old_key.chmod(0o600)
+            os.chown(old_key,991,991)
+        return original_chown(fd,uid,gid)
+    with monkeypatch.context() as patch:
+        patch.setattr(native.os,"fchown",replace_after_fd_open)
+        engine=journal(tmp_path,backend)
+        with pytest.raises(StateError,match="migration-native-owner"):
+            engine.execute()
+    assert injected==[True]
+    assert old_key.read_bytes()==b"replaced-after-original-fd-open"
+    assert old_key.stat().st_uid==991
+    assert list(stat(retained))==inodes["identity.pem"]
+    # No success or silent restart is allowed after a concurrent pathname
+    # replacement. The original FD can change its own inode, not the
+    # substituted path; the stage fails and requires protected recovery.
+    assert fake.status["service-restored"]=="before"
