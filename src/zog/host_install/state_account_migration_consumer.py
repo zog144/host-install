@@ -5,7 +5,7 @@ Neither a caller assertion nor a signed registrar mapping authorizes mutation.
 """
 from .state_contract import StateError, require
 
-HOST_IDENTIFY_REVISION = "39972469ec01017f83dea488ca5b868d9d691062"
+HOST_IDENTIFY_REVISION = "3fd8bd0bf6ae53a2b9f9214b2eac7f2eb2a492f9"
 HOST_DISCOVER_REVISION = "99965cf6d66f68c92affbedf585bf7b366f4d095"
 HOST_INSTALL_BASE = "dfce38a239957b98c1d433dac94ea9fc4b0918fd"
 COMPLETION_SCHEMA = "zog-retained-legacy-state-identity-completion-v1"
