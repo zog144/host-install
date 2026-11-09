@@ -177,6 +177,15 @@ def review_admission(bundle, source_inputs, runtime, *,
             } and source_inputs["consumer_contract"] == CONSUMER_SELECTION,
             "migration-admission", "complete selected review inputs required")
     plan = review_source_migration(bundle, **source_inputs)
+    from .state_account_migration_launcher import render_launcher_dropin
+    # The bare review_source_migration retains an intentionally unrendered
+    # placeholder. An admitted plan MUST hash only the selected Python 3.12
+    # drop-in that will actually be published by the native adapter.
+    require(type(runtime) is dict
+            and runtime.get("interpreter") == CANDIDATE_PYTHON,
+            "migration-admission", "reviewed launcher interpreter required")
+    plan["unit_dropin_sha256"] = hashlib.sha256(
+        render_launcher_dropin(runtime["interpreter"])).hexdigest()
     inventory = source_inputs["file_inventory"]
     identity = {k: [v["dev"], v["inode"]]
                 for k,v in inventory.items() if k in (
