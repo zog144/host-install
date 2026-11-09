@@ -117,9 +117,22 @@ def select_runtime(executable, interpreter, executable_sha256,
                     "intermediate candidate path is a symlink")
         require(item.exists(), "migration-runtime", "candidate file absent")
         resolved = item.resolve(strict=True)
-        require(resolved.is_relative_to((root / CANDIDATE_ROOT.lstrip("/")).resolve())
-                and resolved.is_file(), "migration-runtime",
-                "candidate interpreter or executable escaped its venv")
+        venv_root = (root / CANDIDATE_ROOT.lstrip("/")).resolve()
+        # The venv's python3.12 is often a symlink to the protected host
+        # interpreter; only that exact root-owned system path is admissible.
+        system_python = root / "usr/bin/python3.12"
+        require(resolved.is_file() and (
+                    resolved.is_relative_to(venv_root)
+                    or (path == CANDIDATE_PYTHON and
+                        resolved == system_python)),
+                "migration-runtime",
+                "candidate executable or Python target outside selection")
+        if resolved == system_python:
+            for parent in (root / "usr", root / "usr/bin"):
+                ps = parent.lstat()
+                require(stat.S_ISDIR(ps.st_mode) and ps.st_uid == 0
+                        and not ps.st_mode & 0o022,
+                        "migration-runtime", "unprotected system Python ancestry")
         s = resolved.stat()
         require(stat.S_ISREG(s.st_mode) and s.st_uid == 0
                 and s.st_gid == 0 and s.st_nlink == 1
