@@ -113,15 +113,26 @@ def validate_relaunch_fds(context, plan_fd, journal_fd, completion_fd,
             "remote_control_authorized":False}
 
 
-def selected_beacon_argv(identity_fd, completion_fd, public_fingerprint):
+def selected_beacon_argv(identity_fd, completion_fd, public_fingerprint, *, runtime=None):
     require(type(identity_fd) is int and type(completion_fd) is int
             and 3 <= identity_fd != completion_fd >= 3
             and type(public_fingerprint) is str
             and len(public_fingerprint)==64
             and all(c in "0123456789abcdef" for c in public_fingerprint),
             "migration-launcher","invalid pre-opened descriptor selection")
+    if runtime is not None:
+        from .state_account_migration_admission import (
+            CANDIDATE_EXECUTABLE, CANDIDATE_PYTHON, RUNTIME_SCHEMA,
+        )
+        require(type(runtime) is dict and
+                runtime.get("schema") == RUNTIME_SCHEMA and
+                runtime.get("executable") == CANDIDATE_EXECUTABLE and
+                runtime.get("interpreter") == CANDIDATE_PYTHON and
+                runtime.get("consumer_selection_sha256") ==
+                    digest(CONSUMER_SELECTION),
+                "migration-launcher", "unreviewed candidate runtime")
     return [
-        CONSUMER_EXECUTABLE,
+        CONSUMER_EXECUTABLE if runtime is None else runtime["executable"],
         "--configuration",CONSUMER_CONFIGURATION,
         "--existing-legacy-migration",
         "--retained-identity-fd",str(identity_fd),
@@ -161,6 +172,29 @@ def render_launcher_dropin(python_executable):
     return reviewed_launcher_dropin_template().replace(
         b"@PINNED_HOST_INSTALL_PYTHON312@",
         python_executable.encode("ascii"))
+
+
+def render_selected_launcher_dropin(selection):
+    """Pin the reviewed candidate Python path in a source-only drop-in.
+
+    This produces bytes for review, not permission to install or activate them.
+    """
+    from .state_account_migration_admission import (
+        ADMISSION_SCHEMA, CANDIDATE_EXECUTABLE, CANDIDATE_PYTHON,
+        RUNTIME_SCHEMA,
+    )
+    require(type(selection) is dict and
+            selection.get("schema") == ADMISSION_SCHEMA
+            and type(selection.get("runtime")) is dict,
+            "migration-launcher", "reviewed admission required")
+    runtime=selection["runtime"]
+    require(runtime.get("schema") == RUNTIME_SCHEMA and
+            runtime.get("executable") == CANDIDATE_EXECUTABLE and
+            runtime.get("interpreter") == CANDIDATE_PYTHON and
+            runtime.get("consumer_selection_sha256") ==
+                digest(CONSUMER_SELECTION),
+            "migration-launcher", "consumer runtime not pinned")
+    return render_launcher_dropin(runtime["interpreter"])
 
 
 def run_selected_once():
