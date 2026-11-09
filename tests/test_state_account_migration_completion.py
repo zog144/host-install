@@ -66,7 +66,7 @@ def retained(tmp_path,monkeypatch):
         "key_inode":original["identity.pem"],
         "binding_inode":original["binding.json"],
         "lock_inode":original["key.lock"],
-        "ca_inode":None,"ca_sha256":None,
+        "ca_inode":None,"ca_sha256":None,"retained_files":{},
     }
     (moved/"binding.json").write_text(json.dumps({
         "host_id":plan["host_uuid"],"fingerprint":real_fingerprint}))
