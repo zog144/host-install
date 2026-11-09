@@ -368,3 +368,68 @@ def test_retained_role_and_origin_are_bound_across_identity_migration(
         from zog.host_identify.signatures import fingerprint as compute_fp
         assert compute_fp(again.public_key())==fingerprint
     finally:os.close(completed);os.close(selected)
+
+
+@pytest.mark.parametrize("attack", (
+    "valid", "parent-symlink", "foreign-parent", "writable-parent",
+    "wrong-root-device", "wrong-inode", "changed-identity-path",
+    "final-symlink",
+))
+def test_original_path_descriptor_is_independently_opened(
+        retained, tmp_path, attack, monkeypatch):
+    # No production /var or Host identity is opened. A disposable stand-in
+    # exercises the exact root-relative, component-by-component traversal.
+    plan, moved, evidence, witness, journal, key, fingerprint = retained
+    root = tmp_path / "original-root"
+    legacy = root / "var/lib/host-discover/identity"
+    legacy.parent.mkdir(parents=True, mode=0o755)
+    moved.rename(legacy)
+    os.chown(legacy, 991, 991)
+    for entry in legacy.iterdir():
+        os.chown(entry, 991, 991)
+    expected = ino(legacy)
+    root_device = root.stat().st_dev
+    if attack == "parent-symlink":
+        legacy.parent.rename(legacy.parent.with_name("host-discover-original"))
+        legacy.parent.symlink_to("host-discover-original")
+    elif attack == "foreign-parent":
+        os.chown(legacy.parent, 991, 991)
+    elif attack == "writable-parent":
+        legacy.parent.chmod(0o777)
+    elif attack == "wrong-root-device":
+        root_device += 1
+    elif attack == "wrong-inode":
+        expected[1] += 1
+    elif attack == "changed-identity-path":
+        legacy.rename(legacy.with_name("identity-original"))
+        legacy.mkdir(mode=0o700)
+        os.chown(legacy, 991, 991)
+    elif attack == "final-symlink":
+        legacy.rename(legacy.with_name("identity-original"))
+        legacy.symlink_to("identity-original", target_is_directory=True)
+    options = dict(expected_root_device=root_device,
+                   filesystem_root=str(root), allow_disposable=True)
+    if attack != "valid":
+        with pytest.raises((StateError, OSError)):
+            c.open_original_legacy_identity_fd(expected, **options)
+        return
+    fd = c.open_original_legacy_identity_fd(expected, **options)
+    try:
+        assert [os.fstat(fd).st_dev, os.fstat(fd).st_ino] == expected
+        original_open = os.open
+        key_opens = []
+
+        def audited_open(path, flags, *args, **kwargs):
+            if path == "identity.pem":
+                key_opens.append(flags)
+                assert flags & os.O_PATH == os.O_PATH
+                assert flags & os.O_NOFOLLOW
+            return original_open(path, flags, *args, **kwargs)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(c.os, "open", audited_open)
+            result = c.original_witness_from_fd(plan, fd)
+        assert key_opens and result["identity_inode"] == expected
+        assert result["key_inode"] == ino(legacy / "identity.pem")
+    finally:
+        os.close(fd)
