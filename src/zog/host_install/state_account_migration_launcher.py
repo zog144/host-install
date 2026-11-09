@@ -258,6 +258,16 @@ def run_selected_once():
                                     finally:
                                         os.close(admission_fd)
                                     plan=_protected_fd(plan_fd)
+                                    from .state_account_migration_issuer import (
+                                        verify_operator_binding,
+                                    )
+                                    selected_fd=open_root_record(
+                                        "operator-selection.json")
+                                    try:
+                                        operator=_protected_fd(selected_fd)
+                                    finally:
+                                        os.close(selected_fd)
+                                    verify_operator_binding(operator, admission)
                                     require(type(admission) is dict
                                             and admission.get("schema")==ADMISSION_SCHEMA
                                             and admission.get("plan")==plan
