@@ -17,7 +17,7 @@ from .state_account_migration import (
     REQUIRED_IDENTITY_FILES, OPTIONAL_IDENTITY_FILES,
     changed_configuration, changed_unit_dropin,
 )
-from .state_contract import StateError, canonical, require
+from .state_contract import StateError, canonical, digest, require
 
 NATIVE_ACTIVATION_ENABLED = False
 
@@ -119,7 +119,9 @@ class NativeStageBackend:
 
     def __init__(self, plan, *, filesystem_root="/", probe=None,
                  command_runner=None, initial_config=None,
-                 original_identity_inodes=None, allow_disposable=False):
+                 original_identity_inodes=None,
+                 original_credential_inodes=None, selected_file_inventory=None,
+                 allow_disposable=False):
         require(os.geteuid()==0,"root-required","native adapter needs root")
         root=Path(filesystem_root).absolute()
         if root==Path("/"):
@@ -153,6 +155,32 @@ class NativeStageBackend:
                         and all(type(x) is int and x>0 for x in pair)
                         for pair in original_identity_inodes.values()),
                 "migration-native-witness","closed original file inodes required")
+        require(type(selected_file_inventory) is dict
+                and digest(selected_file_inventory) ==
+                    plan.get("file_inventory_metadata_sha256")
+                and type(selected_file_inventory.get("credential_files")) is dict
+                and 0 < len(selected_file_inventory["credential_files"]) <= 128,
+                "migration-native-inventory",
+                "full source-selected identity/credential inventory required")
+        names=set(selected_file_inventory["credential_files"])
+        require(type(original_credential_inodes) is dict
+                and set(original_credential_inodes)==names
+                and all(type(name) is str and name not in (".","..")
+                        and __import__("re").fullmatch(r"[A-Za-z0-9_.-]{1,128}",name)
+                        for name in names)
+                and all(type(pair) is list and len(pair)==2
+                        and all(type(x) is int and x>0 for x in pair)
+                        for pair in original_credential_inodes.values()),
+                "migration-native-inventory",
+                "exact original credential inode witnesses required")
+        if root==Path("/"):
+            require(all(
+                selected_file_inventory[name]["dev"] == pair[0]
+                and selected_file_inventory[name]["inode"] == pair[1]
+                for name,pair in original_identity_inodes.items()
+                if name!="directory"),
+                "migration-native-witness",
+                "root original identity metadata differs from selected plan")
         require(type(initial_config) is bytes
                 and changed_configuration(initial_config)
                 and __import__("hashlib").sha256(initial_config).hexdigest()
@@ -163,6 +191,8 @@ class NativeStageBackend:
         self.probe=probe
         self.runner=command_runner
         self.original_identity_inodes=original_identity_inodes
+        self.original_credential_inodes=original_credential_inodes
+        self.credential_files=frozenset(names)
         self.original_config=initial_config
         self.target_config=changed_configuration(initial_config)
 
@@ -199,9 +229,9 @@ class NativeStageBackend:
                     "migration-native-inventory",
                     "original identity/role inventory changed")
         if stage=="legacy-credentials-owner-and-group-updated":
-            require({p.name for p in paths} == {"archive.json"},
+            require({p.name for p in paths} == self.credential_files,
                     "migration-native-inventory",
-                    "unexpected credentials require separate operator review")
+                    "credential files do not match selected protected inventory")
         changes=[]
         for p in selected:
             s=p.lstat()
@@ -222,6 +252,16 @@ class NativeStageBackend:
                     require([s.st_dev,s.st_ino]==self.original_identity_inodes[key],
                             "migration-native-witness",
                             "identity inode changed")
+            if stage=="legacy-credentials-owner-and-group-updated":
+                require(s.st_dev==root.lstat().st_dev
+                        and (stat.S_ISDIR(s.st_mode) and
+                             stat.S_IMODE(s.st_mode)==0o750 if p==root
+                             else stat.S_ISREG(s.st_mode) and
+                             stat.S_IMODE(s.st_mode)==0o640 and
+                             [s.st_dev,s.st_ino]==
+                                 self.original_credential_inodes[p.name]),
+                        "migration-native-inventory",
+                        "original credential inode or mode changed")
             pair=(s.st_uid,s.st_gid)
             require(pair in (before,after),"migration-native-owner",
                     "unrecognized ownership during migration")
@@ -284,6 +324,17 @@ class NativeStageBackend:
                             self.original_identity_inodes[key],
                         "migration-native-witness",
                         "unreviewed identity/role inode or mode")
+            if stage=="legacy-credentials-owner-and-group-updated":
+                require(
+                    (p==root and stat.S_ISDIR(s.st_mode) and
+                     stat.S_IMODE(s.st_mode)==0o750) or
+                    (p!=root and p.name in self.credential_files and
+                     stat.S_ISREG(s.st_mode) and s.st_nlink==1
+                     and stat.S_IMODE(s.st_mode)==0o640
+                     and [s.st_dev,s.st_ino]==
+                         self.original_credential_inodes[p.name]),
+                    "migration-native-inventory",
+                    "unrecognized original credential entry")
             if (s.st_uid,s.st_gid)!=target:
                 os.chown(p,*target,follow_symlinks=False)
                 require((p.lstat().st_uid,p.lstat().st_gid)==target,
