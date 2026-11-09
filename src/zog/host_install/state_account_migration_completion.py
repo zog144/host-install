@@ -21,7 +21,7 @@ COMPLETION_FILE = "retained-legacy-completion.json"
 WITNESS_FIELDS = frozenset((
     "schema", "migration_id", "plan_sha256", "host_uuid", "fingerprint",
     "registry_origin", "identity_inode", "key_inode", "binding_inode",
-    "lock_inode", "ca_inode", "ca_sha256",
+    "lock_inode", "ca_inode", "ca_sha256", "retained_files",
 ))
 INODE_FIELDS = ("identity_inode", "key_inode", "binding_inode", "lock_inode")
 ENTRIES = {
@@ -29,6 +29,12 @@ ENTRIES = {
     "binding.json": "binding_inode",
     "key.lock": "lock_inode",
 }
+# Persistent role/origin state, not Ed25519 admission. Role JSON may legally
+# receive a new inode AFTER restart; protect it through the migration barrier,
+# but do not put its lifetime inode/digest in the consumer completion receipt.
+RETAINED_FILES = frozenset({
+    "mirror-role.json", "mirror-role.lock", "primary-origin.json",
+})
 
 
 def _inode(s):
@@ -80,13 +86,15 @@ def original_witness_from_fd(plan, identity_fd, *,
                 (expected_uid,expected_gid,0o700),
             "migration-witness","original identity owner/mode unrecognized")
     entries=set(os.listdir(identity_fd))
-    require(entries in (set(ENTRIES),set(ENTRIES)|{"registry-ca.pem"}),
+    require(set(ENTRIES) <= entries and
+            not entries - (set(ENTRIES) | {"registry-ca.pem"} | RETAINED_FILES),
             "migration-witness","unexpected original identity entry")
     pairs={"identity_inode":_inode(directory)}
     contents={}
+    retained={}
     for name,field in list(ENTRIES.items()) + (
             [("registry-ca.pem","ca_inode")] if "registry-ca.pem" in entries
-            else []):
+            else []) + [(name,None) for name in sorted(entries & RETAINED_FILES)]:
         fd=os.open(name,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK,
                    dir_fd=identity_fd)
         try:
@@ -98,14 +106,21 @@ def original_witness_from_fd(plan, identity_fd, *,
                         (expected_uid,expected_gid,0o600)
                     and 0 <= info.st_size <= 32768,
                     "migration-witness","unrecognized identity file metadata")
-            pairs[field]=_inode(info)
-            if name in ("binding.json","registry-ca.pem"):
-                # These are public metadata/certificate bytes, never a
-                # secret key. The key is verified by host-identify on use.
+            if field is not None:
+                pairs[field]=_inode(info)
+            if name in ("binding.json","registry-ca.pem") or name in RETAINED_FILES:
+                # Role/origin bytes may include private configuration and are
+                # ONLY hashed, never copied into the witness, source logs or
+                # consumer receipt. The private Ed25519 key is never opened.
                 value=os.read(fd,32769)
                 require(len(value)==info.st_size,
-                        "migration-witness","public evidence size changed")
-                contents[name]=value
+                        "migration-witness","retained evidence size changed")
+                if name in RETAINED_FILES:
+                    retained[name]={
+                        "inode":_inode(info), "size":info.st_size,
+                        "sha256":hashlib.sha256(value).hexdigest()}
+                else:
+                    contents[name]=value
         finally:os.close(fd)
     binding=decode(contents["binding.json"])
     require(type(binding) is dict
@@ -124,6 +139,7 @@ def original_witness_from_fd(plan, identity_fd, *,
         "registry_origin":plan["registry_origin"],
         **pairs,
         "ca_inode":pairs.get("ca_inode"),
+        "retained_files":retained,
         "ca_sha256":(
             hashlib.sha256(contents["registry-ca.pem"]).hexdigest()
             if "registry-ca.pem" in entries else None),
@@ -176,6 +192,17 @@ def completion_from_observed_fds(
     raw_journal = _read_protected(journal_fd, size=65536)
     journal = decode(raw_journal)
     require(type(root_witness) is dict and set(root_witness) == WITNESS_FIELDS
+            and type(root_witness["retained_files"]) is dict
+            and not set(root_witness["retained_files"]) - RETAINED_FILES
+            and all(
+                type(item) is dict and set(item)=={"inode","size","sha256"}
+                and _pair(item["inode"])
+                and type(item["size"]) is int
+                and 0 <= item["size"] <= 32768
+                and type(item["sha256"]) is str
+                and len(item["sha256"])==64
+                and all(ch in "0123456789abcdef" for ch in item["sha256"])
+                for item in root_witness["retained_files"].values())
             and root_witness["schema"] == WITNESS_SCHEMA
             and root_witness["migration_id"] == plan["migration_id"]
             and root_witness["plan_sha256"] == digest(plan)
@@ -209,13 +236,15 @@ def completion_from_observed_fds(
             and _inode(directory) == root_witness["identity_inode"],
             "migration-completion", "original directory inode not preserved")
     entries = set(os.listdir(identity_fd))
-    require(entries in (
-        set(ENTRIES), set(ENTRIES) | {"registry-ca.pem"}),
+    require(entries == (
+        set(ENTRIES) | set(root_witness["retained_files"]) |
+        ({"registry-ca.pem"} if root_witness["ca_inode"] is not None else set())),
         "migration-completion", "identity inventory changed")
     for name, inode_field in (
             list(ENTRIES.items()) + (
                 [("registry-ca.pem", "ca_inode")] if "registry-ca.pem" in entries
-                else [])):
+                else []) + [(name,None) for name in
+                            sorted(root_witness["retained_files"]) ]):
         fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
                      dir_fd=identity_fd)
         try:
@@ -223,8 +252,18 @@ def completion_from_observed_fds(
             require(stat.S_ISREG(s.st_mode) and s.st_nlink == 1
                     and (s.st_uid, s.st_gid, stat.S_IMODE(s.st_mode)) ==
                         (expected_uid, expected_gid, 0o600)
-                    and _inode(s) == root_witness[inode_field],
-                    "migration-completion", "original key/binding/lock/CA changed")
+                    and _inode(s) == (
+                        root_witness[inode_field] if inode_field is not None
+                        else root_witness["retained_files"][name]["inode"]),
+                    "migration-completion", "original retained file changed")
+            if name in RETAINED_FILES:
+                require(s.st_size ==
+                        root_witness["retained_files"][name]["size"]
+                        and s.st_size<=32768
+                        and hashlib.sha256(os.read(fd,32769)).hexdigest() ==
+                            root_witness["retained_files"][name]["sha256"],
+                        "migration-completion",
+                        "retained role/origin bytes changed during migration")
             if name == "registry-ca.pem":
                 require(s.st_size <= 32768
                         and hashlib.sha256(os.read(fd, 32769)).hexdigest() ==
