@@ -197,7 +197,7 @@ def _open_approved_journal_parent(root_device):
 
 def _publish_records(parent_fd, migration_id, *, bundle, admission, witness,
                      checkpoint=lambda _: None):
-    """Publish exact bytes under a durable global lock; journal is last.
+    """Publish exact bytes with the CALLER HOLDING the durable global lock.
 
     A pending file at a known stage is reconciled by state_io.publish, while
     unexpected names, conflicting bytes or a second migration all deny.
@@ -206,42 +206,41 @@ def _publish_records(parent_fd, migration_id, *, bundle, admission, witness,
             and admission["plan"]["migration_id"] == migration_id,
             "migration-issuer", "wrong protected transaction")
     _protected_dir(parent_fd)
-    with lock(parent_fd, ".admission.lock"):
-        names = set(os.listdir(parent_fd))
-        require(names <= {".admission.lock", migration_id,
-                         ".pending-dir." + migration_id},
-                "migration-issuer", "conflicting migration transaction exists")
-        txfd = ensure_directory(parent_fd, migration_id, 0, 0, 0o700)
-        try:
-            _protected_dir(txfd, expected_device=os.fstat(parent_fd).st_dev)
-            require(set(os.listdir(parent_fd)) ==
-                    {".admission.lock", migration_id},
-                    "migration-issuer", "foreign transaction or pending stage")
-            expected = {
-                "bundle.json": canonical(bundle),
-                "plan.json": canonical(admission["plan"]),
-                "admission.json": canonical(admission),
-                "original.json": canonical(witness),
-                "transaction.json": canonical(initial_journal(admission)),
-            }
-            recognized = (set(expected) |
-                          {".pending." + name for name in expected})
-            require(set(os.listdir(txfd)) <= recognized,
-                    "migration-issuer", "foreign transaction entry")
-            for name in ("bundle.json", "plan.json", "admission.json"):
-                publish(txfd, name, expected[name], 0o600,
-                        checkpoint=checkpoint)
-            publish_original_witness(txfd, witness, checkpoint=checkpoint)
-            # An incomplete admission can never have an executable journal.
-            publish(txfd, "transaction.json",
-                    expected["transaction.json"], 0o600,
+    names = set(os.listdir(parent_fd))
+    require(names <= {".admission.lock", migration_id,
+                     ".pending-dir." + migration_id},
+            "migration-issuer", "conflicting migration transaction exists")
+    txfd = ensure_directory(parent_fd, migration_id, 0, 0, 0o700)
+    try:
+        _protected_dir(txfd, expected_device=os.fstat(parent_fd).st_dev)
+        require(set(os.listdir(parent_fd)) ==
+                {".admission.lock", migration_id},
+                "migration-issuer", "foreign transaction or pending stage")
+        expected = {
+            "bundle.json": canonical(bundle),
+            "plan.json": canonical(admission["plan"]),
+            "admission.json": canonical(admission),
+            "original.json": canonical(witness),
+            "transaction.json": canonical(initial_journal(admission)),
+        }
+        recognized = (set(expected) |
+                      {".pending." + name for name in expected})
+        require(set(os.listdir(txfd)) <= recognized,
+                "migration-issuer", "foreign transaction entry")
+        for name in ("bundle.json", "plan.json", "admission.json"):
+            publish(txfd, name, expected[name], 0o600,
                     checkpoint=checkpoint)
-            require(set(os.listdir(txfd)) == set(expected),
-                    "migration-issuer", "orphaned publication remains")
-            os.fsync(txfd)
-            os.fsync(parent_fd)
-        finally:
-            os.close(txfd)
+        publish_original_witness(txfd, witness, checkpoint=checkpoint)
+        # An incomplete admission can never have an executable journal.
+        publish(txfd, "transaction.json",
+                expected["transaction.json"], 0o600,
+                checkpoint=checkpoint)
+        require(set(os.listdir(txfd)) == set(expected),
+                "migration-issuer", "orphaned publication remains")
+        os.fsync(txfd)
+        os.fsync(parent_fd)
+    finally:
+        os.close(txfd)
     return {
         "status": "initial-admission-recorded",
         "migration_id": migration_id,
