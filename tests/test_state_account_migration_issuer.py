@@ -261,3 +261,31 @@ def test_production_issuer_rejects_non_root_before_reading_operator_file(
         issuer.issue()
     with pytest.raises(StateError):
         issuer.preview()
+
+
+def test_archived_operator_record_must_match_approved_admission():
+    selected, observation = selection_and_evidence()
+    _, record = issuer.evaluate(selected, observation)
+    selected["approved_admission_sha256"] = digest(record)
+    assert issuer.verify_operator_binding(selected, record)
+    changed = copy.deepcopy(selected)
+    changed["authorization_reference"] = "other-administrator-approval"
+    with pytest.raises(StateError):
+        issuer.verify_operator_binding(changed, record)
+    changed = copy.deepcopy(selected)
+    changed["approved_admission_sha256"] = "0"*64
+    with pytest.raises(StateError):
+        issuer.verify_operator_binding(changed, record)
+    changed = copy.deepcopy(record)
+    changed["operator_selection_core_sha256"] = "0"*64
+    with pytest.raises(StateError):
+        issuer.verify_operator_binding(selected, changed)
+
+
+def test_unapproved_local_selection_denies_before_native_observation(
+        monkeypatch):
+    selected, _ = selection_and_evidence()
+    monkeypatch.setattr(issuer, "operator_selection_from_protected_file",
+                        lambda: selected)
+    with pytest.raises(StateError, match="operator has not approved"):
+        issuer.issue()
