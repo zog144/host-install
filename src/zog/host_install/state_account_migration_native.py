@@ -14,6 +14,7 @@ import subprocess
 
 from .state_account_migration import (
     STAGES, SOURCE, DESTINATION, CREDENTIALS, CONFIGURATION, SELECTED_UNIT,
+    REQUIRED_IDENTITY_FILES, OPTIONAL_IDENTITY_FILES,
     changed_configuration, changed_unit_dropin,
 )
 from .state_contract import StateError, canonical, require
@@ -143,9 +144,15 @@ class NativeStageBackend:
                 "migration-native-observer",
                 "fresh installed account and service observer required")
         require(type(original_identity_inodes) is dict
-                and set(original_identity_inodes)=={
-                    "directory","identity.pem","binding.json","key.lock"},
-                "migration-native-witness","original file inodes required")
+                and REQUIRED_IDENTITY_FILES <=
+                    set(original_identity_inodes) - {"directory"}
+                and set(original_identity_inodes) <=
+                    REQUIRED_IDENTITY_FILES | OPTIONAL_IDENTITY_FILES |
+                    {"directory"}
+                and all(type(pair) is list and len(pair)==2
+                        and all(type(x) is int and x>0 for x in pair)
+                        for pair in original_identity_inodes.values()),
+                "migration-native-witness","closed original file inodes required")
         require(type(initial_config) is bytes
                 and changed_configuration(initial_config)
                 and __import__("hashlib").sha256(initial_config).hexdigest()
@@ -187,10 +194,10 @@ class NativeStageBackend:
         paths=sorted(root.iterdir()) if root.is_dir() else []
         selected=[root,*paths]
         if stage=="legacy-identity-owner-updated":
-            require({p.name for p in paths} in (
-                {"identity.pem","binding.json","key.lock"},
-                {"identity.pem","binding.json","key.lock","registry-ca.pem"}),
-                "migration-native-inventory","original identity inventory changed")
+            require({p.name for p in paths} ==
+                    set(self.original_identity_inodes) - {"directory"},
+                    "migration-native-inventory",
+                    "original identity/role inventory changed")
         if stage=="legacy-credentials-owner-and-group-updated":
             require({p.name for p in paths} == {"archive.json"},
                     "migration-native-inventory",
