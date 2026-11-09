@@ -194,3 +194,51 @@ def test_unexpected_inode_and_symlink_hold_before_chown(root_case,tmp_path):
     with pytest.raises((StateError,OSError)):
         backend.state("legacy-identity-owner-updated")
     assert cfg.read_bytes()==backend.original_config
+
+
+@pytest.mark.parametrize("attack",(
+    "valid", "wrong-sidecar-inode", "unknown-extra",
+    "symlink-origin", "wrong-role-mode",
+))
+def test_disposable_native_role_origin_files_preserved_through_rollback(
+        root_case,tmp_path,attack):
+    backend,fake,root,identity,creds,cfg,dropin,inodes=root_case
+    originals={
+        "mirror-role.json":b'{"status":{"state":"stopped"}}',
+        "mirror-role.lock":b"",
+        "primary-origin.json":b'{"origin":"https://registry.example.invalid"}',
+    }
+    for name,content in originals.items():
+        path=identity/name
+        path.write_bytes(content)
+        path.chmod(0o600)
+        os.chown(path,991,991)
+        backend.original_identity_inodes[name]=list(stat(path))
+    if attack=="wrong-sidecar-inode":
+        backend.original_identity_inodes["mirror-role.json"]=[1,9999]
+    elif attack=="unknown-extra":
+        (identity/"other-role.json").write_bytes(b"{}")
+    elif attack=="symlink-origin":
+        (identity/"primary-origin.json").unlink()
+        (identity/"primary-origin.json").symlink_to("/etc/passwd")
+    elif attack=="wrong-role-mode":
+        (identity/"mirror-role.lock").chmod(0o644)
+    if attack!="valid":
+        with pytest.raises((StateError,OSError)):
+            backend.state("legacy-identity-owner-updated")
+        assert fake.status["service-stopped"]=="before"
+        return
+    engine=journal(tmp_path,backend)
+    assert engine.execute()["status"]=="complete"
+    moved=root/migration.DESTINATION.lstrip("/")
+    for name,content in originals.items():
+        path=moved/name
+        assert path.read_bytes()==content
+        assert list(stat(path))==backend.original_identity_inodes[name]
+        assert (path.stat().st_uid,path.stat().st_gid)==(970,970)
+    assert engine.execute(rollback=True)["status"]=="rolled-back"
+    for name,content in originals.items():
+        path=identity/name
+        assert path.read_bytes()==content
+        assert list(stat(path))==backend.original_identity_inodes[name]
+        assert (path.stat().st_uid,path.stat().st_gid)==(991,991)
