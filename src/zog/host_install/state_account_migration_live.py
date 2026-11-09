@@ -26,7 +26,7 @@ OLD_EXE = ("/opt/host-discover/releases/"
 ENTRY_NAME = re.compile(r"[A-Za-z0-9_.-]{1,128}\Z")
 
 
-def _read_file(path, size_limit=65536):
+def _read_file(path, size_limit=65536, *, required_mode=None):
     """Open through root-owned non-writable non-symlink ancestors."""
     segments = path.strip("/").split("/")
     fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
@@ -48,7 +48,9 @@ def _read_file(path, size_limit=65536):
             before = os.fstat(opened)
             require(stat.S_ISREG(before.st_mode) and before.st_nlink == 1
                     and before.st_uid == 0 and not before.st_mode & 0o022
-                    and 0 < before.st_size <= size_limit,
+                    and 0 < before.st_size <= size_limit
+                    and (required_mode is None or
+                         stat.S_IMODE(before.st_mode) == required_mode),
                     "migration-input", "unsafe source file")
             raw = os.read(opened, size_limit + 1)
             after = os.fstat(opened)
