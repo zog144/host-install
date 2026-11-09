@@ -249,18 +249,37 @@ def run_selected_once():
                                         completion_fd,identity_fd)
                                     require(result["migration_id"]==migration_id,
                                             "migration-launcher","wrong transaction directory")
-                                    exe=Path(CONSUMER_EXECUTABLE)
-                                    info=exe.lstat()
-                                    require(stat.S_ISREG(info.st_mode)
-                                            and info.st_uid==0
-                                            and info.st_gid==0
-                                            and info.st_nlink==1
-                                            and not info.st_mode & 0o022,
+                                    from .state_account_migration_admission import (
+                                        ADMISSION_SCHEMA, select_runtime,
+                                    )
+                                    admission_fd=open_root_record("admission.json")
+                                    try:
+                                        admission=_protected_fd(admission_fd)
+                                    finally:
+                                        os.close(admission_fd)
+                                    plan=_protected_fd(plan_fd)
+                                    require(type(admission) is dict
+                                            and admission.get("schema")==ADMISSION_SCHEMA
+                                            and admission.get("plan")==plan
+                                            and admission.get("bundle_sha256")==
+                                                digest(context.bundle)
+                                            and type(admission.get("runtime")) is dict
+                                            and admission.get("authorization_reference"),
                                             "migration-launcher",
-                                            "untrusted selected installed executable")
+                                            "protected admission selection absent")
+                                    runtime=admission["runtime"]
+                                    selected=select_runtime(
+                                        runtime["executable"],
+                                        runtime["interpreter"],
+                                        runtime["executable_sha256"],
+                                        runtime["interpreter_sha256"])
+                                    require(selected==runtime,
+                                            "migration-launcher",
+                                            "candidate installed-byte selection changed")
                                     args=selected_beacon_argv(
                                         identity_fd,completion_fd,
-                                        result["public_fingerprint"])
+                                        result["public_fingerprint"],
+                                        runtime=selected)
                                     context.recheck()
                                     # Only these two already-open descriptors
                                     # cross root -> UID 970. No secret content
