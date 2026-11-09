@@ -114,7 +114,8 @@ def test_runtime_byte_selection_rejects_wrong_digest_and_path(tmp_path):
     root = tmp_path / "root"
     dest = root / a.CANDIDATE_ROOT.lstrip("/")
     (dest/"bin").mkdir(parents=True)
-    (dest/"bin/host-discover").write_bytes(b"#!/bin/sh\nexit 0\n")
+    (dest/"bin/host-discover").write_bytes(
+        ("#!" + a.CANDIDATE_PYTHON + "\n").encode() + b"exit 0\n")
     (dest/"bin/python3.12").write_bytes(b"synthetic python selection")
     for x in (dest/"bin/host-discover", dest/"bin/python3.12"):
         x.chmod(0o755)
@@ -126,6 +127,12 @@ def test_runtime_byte_selection_rejects_wrong_digest_and_path(tmp_path):
     with pytest.raises(StateError):
         a.select_runtime(a.CANDIDATE_EXECUTABLE, a.CANDIDATE_PYTHON,
                          "0"*64, two, fs_root=str(root), disposable=True)
+    (dest/"bin/host-discover").write_bytes(b"#!/usr/bin/python3\nexit 0\n")
+    bad = hashlib.sha256(
+        (dest/"bin/host-discover").read_bytes()).hexdigest()
+    with pytest.raises(StateError):
+        a.select_runtime(a.CANDIDATE_EXECUTABLE, a.CANDIDATE_PYTHON,
+                         bad, two, fs_root=str(root), disposable=True)
 
 
 def test_bundle_builder_preserves_original_host_and_directory_root_selection():
