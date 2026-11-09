@@ -88,7 +88,7 @@ def check_selection(selection):
 def operator_selection_from_protected_file():
     require(os.geteuid() == 0, "root-required",
             "only a local root administrator can admit a migration")
-    raw_bytes = _read_file(APPROVAL_PATH)
+    raw_bytes = _read_file(APPROVAL_PATH, required_mode=0o600)
     return check_selection(decode(raw_bytes))
 
 
@@ -301,9 +301,22 @@ def issue():
                     admission["plan"], identity_fd)
             finally:
                 os.close(identity_fd)
-            require(witness["identity_inode"] ==
-                    observation["identity_inodes"]["directory"],
-                    "migration-issuer", "original path replaced")
+            originals = observation["identity_inodes"]
+            require(witness["identity_inode"] == originals["directory"]
+                    and witness["key_inode"] == originals["identity.pem"]
+                    and witness["binding_inode"] == originals["binding.json"]
+                    and witness["lock_inode"] == originals["key.lock"]
+                    and witness["ca_inode"] ==
+                        originals.get("registry-ca.pem")
+                    and set(witness["retained_files"]) ==
+                        set(originals) & {
+                            "mirror-role.json", "mirror-role.lock",
+                            "primary-origin.json"}
+                    and all(witness["retained_files"][name]["inode"] ==
+                            originals[name] for name in
+                            witness["retained_files"]),
+                    "migration-issuer",
+                    "original identity entries changed between observation and witness")
             # Same process serializes via flock; publication routine also
             # holds that permanent inode, allowing only exact-byte retries.
             result = _publish_records(
