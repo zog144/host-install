@@ -122,3 +122,44 @@ def test_runtime_byte_selection_rejects_wrong_digest_and_path(tmp_path):
     with pytest.raises(StateError):
         a.select_runtime(a.CANDIDATE_EXECUTABLE, a.CANDIDATE_PYTHON,
                          "0"*64, two, fs_root=str(root), disposable=True)
+
+
+def test_bundle_builder_preserves_original_host_and_directory_root_selection():
+    from test_state_directory_runtime import BASE, ROOT_UUID, ROOT_PARTUUID
+    from test_state_account_migration import HOST_UUID, FINGERPRINT
+    built = a.assemble_migration_bundle(
+        BASE,
+        installation_id="b31db5af-20bb-4eb5-9755-e9ceba393198",
+        state_volume_id="2e91d838-093a-4ae2-9c2a-a6162d13c0a4",
+        installation_record_id="abf76c5d-7626-478e-b5ed-59a77ddf27ac",
+        authorization_id="4c6ba68c-3477-4bdf-8dc5-bd52aad4f983",
+        root_fs_uuid=ROOT_UUID, root_partuuid=ROOT_PARTUUID,
+        host_uuid=HOST_UUID, fingerprint=FINGERPRINT,
+        registry_origin="https://host-registry.hosts.zog-network-demo.uk")
+    assert built["bootstrap"]["mode"] == "migration"
+    assert built["installation"]["operation"] == "migration"
+    assert built["marker"]["kind"] == "zog-state-directory"
+    assert built["bootstrap"]["initialization"]["expected_host_uuid"] == HOST_UUID
+    assert built["bootstrap"]["state"]["filesystem_uuid"] == ROOT_UUID
+    assert built["bootstrap"]["state"]["marker_sha256"] == digest(built["marker"])
+    assert BASE["bootstrap"]["mode"] == "fresh"
+
+
+def test_bundle_builder_denies_reused_or_unselected_identifiers():
+    from test_state_directory_runtime import BASE, ROOT_UUID, ROOT_PARTUUID
+    from test_state_account_migration import HOST_UUID, FINGERPRINT
+    inputs = {
+        "installation_id": "b31db5af-20bb-4eb5-9755-e9ceba393198",
+        "state_volume_id": "2e91d838-093a-4ae2-9c2a-a6162d13c0a4",
+        "installation_record_id": "abf76c5d-7626-478e-b5ed-59a77ddf27ac",
+        "authorization_id": "4c6ba68c-3477-4bdf-8dc5-bd52aad4f983",
+        "root_fs_uuid": ROOT_UUID, "root_partuuid": ROOT_PARTUUID,
+        "host_uuid": HOST_UUID, "fingerprint": FINGERPRINT,
+        "registry_origin": "https://host-registry.hosts.zog-network-demo.uk",
+    }
+    bad = dict(inputs, state_volume_id=inputs["installation_id"])
+    with pytest.raises(StateError):
+        a.assemble_migration_bundle(BASE, **bad)
+    bad = dict(inputs, registry_origin="http://untrusted.invalid")
+    with pytest.raises(StateError):
+        a.assemble_migration_bundle(BASE, **bad)
