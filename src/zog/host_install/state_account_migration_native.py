@@ -121,12 +121,16 @@ class NativeStageBackend:
                  command_runner=None, initial_config=None,
                  original_identity_inodes=None,
                  original_credential_inodes=None, selected_file_inventory=None,
-                 allow_disposable=False):
+                 selected_admission=None, allow_disposable=False):
         require(os.geteuid()==0,"root-required","native adapter needs root")
         root=Path(filesystem_root).absolute()
         if root==Path("/"):
             require(NATIVE_ACTIVATION_ENABLED,"migration-native-hold",
                     "production native account/file mutation disabled")
+            require(type(selected_admission) is dict
+                    and selected_admission.get("plan") == plan,
+                    "migration-native-consumer",
+                    "root execution requires matching protected admission")
             from .state_account_migration_observer import NativeNSSSystemdObserver
             require(type(probe) is NativeNSSSystemdObserver and
                     type(command_runner) is RootCommandRunner,
@@ -195,6 +199,21 @@ class NativeStageBackend:
         self.credential_files=frozenset(names)
         self.original_config=initial_config
         self.target_config=changed_configuration(initial_config)
+        if selected_admission is None:
+            self.target_dropin=changed_unit_dropin()
+        else:
+            from .state_account_migration_launcher import (
+                render_selected_launcher_dropin,
+            )
+            require(selected_admission.get("plan") == plan,
+                    "migration-native-consumer",
+                    "selected admission and plan differ")
+            self.target_dropin=render_selected_launcher_dropin(
+                selected_admission)
+        require(__import__("hashlib").sha256(self.target_dropin).hexdigest() ==
+                    plan.get("unit_dropin_sha256"),
+                "migration-native-consumer",
+                "systemd drop-in bytes differ from protected plan")
 
     def path(self, absolute):
         require(type(absolute) is str and absolute.startswith("/")
@@ -297,7 +316,7 @@ class NativeStageBackend:
             dropin=self.path(self.DROPIN)
             return ("before" if not dropin.exists() else
                     "after" if dropin.is_file()
-                    and dropin.read_bytes()==changed_unit_dropin()
+                    and dropin.read_bytes()==self.target_dropin
                     else "conflict")
         # Canonical STATE/config are separately guarded by their dedicated
         # privileged filesystem publishers; no arbitrary empty mkdir.
@@ -458,11 +477,11 @@ class NativeStageBackend:
         elif stage=="systemd-path-switched":
             dropin=self.path(self.DROPIN)
             if rollback:
-                self._write_bytes(self.DROPIN,changed_unit_dropin(),remove=True)
+                self._write_bytes(self.DROPIN,self.target_dropin,remove=True)
             else:
                 require(dropin.parent.is_dir(),
                         "migration-native-file","unreviewed systemd dropin path")
-                self._write_bytes(self.DROPIN,changed_unit_dropin())
+                self._write_bytes(self.DROPIN,self.target_dropin)
         else:
             # Canonical /state and /etc publication must use their separate
             # reviewed privileged publishers, not arbitrary mkdir or writes.
