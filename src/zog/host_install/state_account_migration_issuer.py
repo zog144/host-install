@@ -159,6 +159,22 @@ def evaluate(selection, observation):
     return bundle, admission
 
 
+def verify_operator_binding(selected, admission):
+    """Reject mismatched archived operator selection without new signer."""
+    check_selection(selected)
+    require(type(admission) is dict
+            and admission.get("operator_selection_core_sha256") ==
+                digest({**selected, "approved_admission_sha256": None})
+            and selected["approved_admission_sha256"] == digest(admission)
+            and type(admission.get("plan")) is dict
+            and admission["plan"].get("migration_id") ==
+                selected["migration_id"]
+            and admission.get("authorization_reference") ==
+                selected["authorization_reference"],
+            "migration-approval", "archived local operator selection changed")
+    return True
+
+
 def _protected_dir(fd, *, mode=0o700, expected_device=None):
     s = os.fstat(fd)
     require(stat.S_ISDIR(s.st_mode)
@@ -208,11 +224,9 @@ def _publish_records(parent_fd, migration_id, *, selection, bundle, admission, w
     """
     require(os.geteuid() == 0 and _uuid(migration_id)
             and admission["plan"]["migration_id"] == migration_id
-            and check_selection(selection)["migration_id"] == migration_id
-            and admission.get("operator_selection_core_sha256") == digest({
-                **selection, "approved_admission_sha256": None})
-            and selection["approved_admission_sha256"] == digest(admission),
+            and selection["migration_id"] == migration_id,
             "migration-issuer", "wrong protected transaction")
+    verify_operator_binding(selection, admission)
     _protected_dir(parent_fd)
     names = set(os.listdir(parent_fd))
     require(names <= {".admission.lock", migration_id,
