@@ -157,17 +157,19 @@ def _open_test_parent(folder):
 def test_protected_journal_publication_is_atomic_same_byte_retry(tmp_path):
     selected, observed = selection_and_evidence()
     bundle, result = issuer.evaluate(selected, observed)
+    selected["approved_admission_sha256"] = digest(result)
     parent = tmp_path / "migrations"
     fd = _open_test_parent(parent)
     try:
         with lock(fd, ".admission.lock"):
             issued = issuer._publish_records(
-                fd, selected["migration_id"], bundle=bundle, admission=result,
+                fd, selected["migration_id"], selection=selected, bundle=bundle, admission=result,
                 witness=_witness(result))
         assert issued["native_execution_enabled"] is False
         tx = parent / selected["migration_id"]
         assert set(x.name for x in tx.iterdir()) == {
             "plan.json", "admission.json", "bundle.json",
+            "operator-selection.json",
             "original.json", "transaction.json"}
         assert all(x.stat().st_uid == 0 and
                    x.stat().st_mode & 0o777 == 0o600 for x in tx.iterdir())
@@ -175,7 +177,7 @@ def test_protected_journal_publication_is_atomic_same_byte_retry(tmp_path):
             admission.initial_journal(result))
         with lock(fd, ".admission.lock"):
             again = issuer._publish_records(
-                fd, selected["migration_id"], bundle=bundle, admission=result,
+                fd, selected["migration_id"], selection=selected, bundle=bundle, admission=result,
                 witness=_witness(result))
         assert again["admission_sha256"] == issued["admission_sha256"]
         changed = _witness(result)
@@ -183,7 +185,7 @@ def test_protected_journal_publication_is_atomic_same_byte_retry(tmp_path):
         with lock(fd, ".admission.lock"):
             with pytest.raises(StateError):
                 issuer._publish_records(
-                    fd, selected["migration_id"], bundle=bundle, admission=result,
+                    fd, selected["migration_id"], selection=selected, bundle=bundle, admission=result,
                     witness=changed)
     finally:
         os.close(fd)
@@ -197,6 +199,7 @@ def test_interrupted_original_publication_restarts_only_same_bytes(
         tmp_path, crash_at):
     selected, observed = selection_and_evidence()
     bundle, result = issuer.evaluate(selected, observed)
+    selected["approved_admission_sha256"] = digest(result)
     fd = _open_test_parent(tmp_path / "migrations")
     class Crash(Exception):
         pass
@@ -207,12 +210,12 @@ def test_interrupted_original_publication_restarts_only_same_bytes(
         with lock(fd, ".admission.lock"):
             with pytest.raises(Crash):
                 issuer._publish_records(
-                    fd, selected["migration_id"], bundle=bundle,
+                    fd, selected["migration_id"], selection=selected, bundle=bundle,
                     admission=result, witness=_witness(result),
                     checkpoint=crash)
         with lock(fd, ".admission.lock"):
             issuer._publish_records(
-                fd, selected["migration_id"], bundle=bundle, admission=result,
+                fd, selected["migration_id"], selection=selected, bundle=bundle, admission=result,
                 witness=_witness(result))
         assert decode((tmp_path / "migrations" / selected["migration_id"] /
                        "transaction.json").read_bytes()) == (
@@ -224,18 +227,19 @@ def test_interrupted_original_publication_restarts_only_same_bytes(
 def test_second_migration_and_foreign_entry_never_adopted(tmp_path):
     selected, observed = selection_and_evidence()
     bundle, result = issuer.evaluate(selected, observed)
+    selected["approved_admission_sha256"] = digest(result)
     parent = tmp_path / "migrations"
     fd = _open_test_parent(parent)
     try:
         with lock(fd, ".admission.lock"):
             issuer._publish_records(
-                fd, selected["migration_id"], bundle=bundle, admission=result,
+                fd, selected["migration_id"], selection=selected, bundle=bundle, admission=result,
                 witness=_witness(result))
         with lock(fd, ".admission.lock"):
             with pytest.raises(StateError):
                 issuer._publish_records(
                     fd, "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
-                    bundle=bundle,
+                    selection=selected, bundle=bundle,
                     admission={**result, "plan": {
                         **result["plan"],
                         "migration_id": "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"}},
@@ -244,7 +248,7 @@ def test_second_migration_and_foreign_entry_never_adopted(tmp_path):
         with lock(fd, ".admission.lock"):
             with pytest.raises(StateError):
                 issuer._publish_records(
-                    fd, selected["migration_id"], bundle=bundle,
+                    fd, selected["migration_id"], selection=selected, bundle=bundle,
                     admission=result, witness=_witness(result))
     finally:
         os.close(fd)
