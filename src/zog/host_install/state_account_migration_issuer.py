@@ -147,6 +147,10 @@ def evaluate(selection, observation):
         original_identity_inodes=observation["identity_inodes"],
         original_credential_inodes=observation["credential_inodes"],
         authorization_reference=selected["authorization_reference"])
+    # Exclude the later approval digest from the source-selection hash to
+    # avoid a self-referential signature/digest cycle.
+    admission["operator_selection_core_sha256"] = digest({
+        **selected, "approved_admission_sha256": None})
     require(admission["runtime"]["executable_sha256"] ==
                 selected["candidate_executable_sha256"]
             and admission["runtime"]["interpreter_sha256"] ==
@@ -195,7 +199,7 @@ def _open_approved_journal_parent(root_device):
         os.close(root)
 
 
-def _publish_records(parent_fd, migration_id, *, bundle, admission, witness,
+def _publish_records(parent_fd, migration_id, *, selection, bundle, admission, witness,
                      checkpoint=lambda _: None):
     """Publish exact bytes with the CALLER HOLDING the durable global lock.
 
@@ -203,7 +207,11 @@ def _publish_records(parent_fd, migration_id, *, bundle, admission, witness,
     unexpected names, conflicting bytes or a second migration all deny.
     """
     require(os.geteuid() == 0 and _uuid(migration_id)
-            and admission["plan"]["migration_id"] == migration_id,
+            and admission["plan"]["migration_id"] == migration_id
+            and check_selection(selection)["migration_id"] == migration_id
+            and admission.get("operator_selection_core_sha256") == digest({
+                **selection, "approved_admission_sha256": None})
+            and selection["approved_admission_sha256"] == digest(admission),
             "migration-issuer", "wrong protected transaction")
     _protected_dir(parent_fd)
     names = set(os.listdir(parent_fd))
@@ -220,6 +228,7 @@ def _publish_records(parent_fd, migration_id, *, bundle, admission, witness,
             "bundle.json": canonical(bundle),
             "plan.json": canonical(admission["plan"]),
             "admission.json": canonical(admission),
+            "operator-selection.json": canonical(selection),
             "original.json": canonical(witness),
             "transaction.json": canonical(initial_journal(admission)),
         }
@@ -227,7 +236,8 @@ def _publish_records(parent_fd, migration_id, *, bundle, admission, witness,
                       {".pending." + name for name in expected})
         require(set(os.listdir(txfd)) <= recognized,
                 "migration-issuer", "foreign transaction entry")
-        for name in ("bundle.json", "plan.json", "admission.json"):
+        for name in ("bundle.json", "plan.json", "admission.json",
+                     "operator-selection.json"):
             publish(txfd, name, expected[name], 0o600,
                     checkpoint=checkpoint)
         publish_original_witness(txfd, witness, checkpoint=checkpoint)
@@ -321,7 +331,8 @@ def issue():
             # holds that permanent inode, allowing only exact-byte retries.
             result = _publish_records(
                 parentfd, selected["migration_id"],
-                bundle=bundle, admission=admission, witness=witness)
+                selection=selected, bundle=bundle,
+                admission=admission, witness=witness)
             return result
     finally:
         os.close(parentfd)
