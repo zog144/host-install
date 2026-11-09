@@ -1,6 +1,6 @@
 # Registry Host directory-backed STATE: retained identity and account migration
 
-**2026-11-08 · host-install PR #36 · SOURCE INTEGRATION PASS, NATIVE HOLD**
+**Updated 2026-11-09 · host-install PR #36 · RETAINED-FILE SOURCE INTEGRATION PASS, NATIVE HOLD**
 
 This is the **selected single handoff** following the original [private Work inventory](https://github.com/zog144/know-file/blob/01ec0766d495d57a5513274c34b895f0747162d9/host-install/handoffs/host-registry-directory-state-account-migration-2026-11-08.md). It is **not** a license to modify the live registry Host. Work reported the Host unchanged, and Regular has run only GitHub Actions plus disposable filesystem tests.
 
@@ -9,8 +9,8 @@ This is the **selected single handoff** following the original [private Work inv
 | Component | Reviewed immutable source | Purpose |
 |---|---|---|
 | host-install [PR #35](https://github.com/zog144/host-install/pull/35) | `dfce38a239957b98c1d433dac94ea9fc4b0918fd` | Canonical root-directory STATE, no registrar signature |
-| host-identify [PR #1](https://github.com/zog144/host-identify/pull/1) | `39972469ec01017f83dea488ca5b868d9d691062` | Retained legacy Ed25519 key loader via identity and root completion FDs |
-| host-discover [PR #8](https://github.com/zog144/host-discover/pull/8) | `99965cf6d66f68c92affbedf585bf7b366f4d095` | Opt-in unchanged-beacon retained identity consumer, certificate assignment preserved |
+| host-identify [PR #1](https://github.com/zog144/host-identify/pull/1) | `3fd8bd0bf6ae53a2b9f9214b2eac7f2eb2a492f9` | Retained legacy Ed25519 key loader via identity and root completion FDs |
+| host-discover [PR #8](https://github.com/zog144/host-discover/pull/8) | `3d94f34d394fb0c6883e6959d0844110d60867ac` | Opt-in unchanged-beacon retained identity consumer, certificate assignment preserved |
 | host-install [PR #36](https://github.com/zog144/host-install/pull/36) | this branch's exact reviewed source head | Root-only migration source candidate and negative tests |
 
 Both companions are checked out at the exact SHAs and their retained loader and beacon tests run in host-install CI. They are **source selections**, not proof of matching installed wheels or production dependency closure. Task C v3's separate owner/broker/SSM frozen selection in PR #35 remains unchanged and disabled.
@@ -41,8 +41,8 @@ Legacy UID/GID mapping: host-discover `991:991`, archive-consumers `990`. Target
 
 ## Source verification
 
-- [Registry account migration and pinned companion CI](https://github.com/zog144/host-install/actions/runs/42533246571): **PASS on Python 3.12 and 3.13**. Per interpreter: 165 migration/recovery tests (4 unrelated root-capable tests deselected in this first group), 60 privileged disposable-root/receipt/native-stage/relaunch/witness tests, and 35 pinned companion tests.
-- [Root-directory STATE CI](https://github.com/zog144/host-install/actions/runs/42533246589): **PASS**, separately covering disposable root layout.
+- [Registry account migration and pinned companion CI](https://github.com/zog144/host-install/actions/runs/42626855859): **PASS on Python 3.12 and 3.13**. Per interpreter: 171 migration/recovery tests (4 unrelated root-capable cases deselected from this group), 74 privileged disposable-root/receipt/native-stage/relaunch/witness tests, and 43 exact pinned companion tests.
+- [Root-directory STATE CI](https://github.com/zog144/host-install/actions/runs/42626856008): **PASS**, separately covering disposable root layout.
 - Source tests cover same-directory rename preserving key inode, symlinks and hardlinks, foreign public binding, unknown identity files, changed UID/modes, incomplete journal, changed migration IDs, repeated receipt issue, no private material in public records, protected original-witness publication, and rollback/restart source models.
 - A deliberately captured regression demonstrates Linux may reuse an inode after unlink+recreate: the negative test retains the original inode when substituting a key. Stronger assurance comes from the **pre-mutation protected witness plus the retained loader's public-key check**, not inode values in isolation.
 
