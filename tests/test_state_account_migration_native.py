@@ -395,3 +395,48 @@ def test_rollback_quarantine_denies_unsafe_disposable_paths(tmp_path,attack):
         native.quarantine_selected_directory(
             state,ledger,"rolled-back-state")
     assert not (ledger/"rolled-back-state").exists()
+
+
+def test_actual_systemd_effective_identity_fences_retained_fd_launcher(
+        root_case, monkeypatch):
+    backend,*_=root_case
+    from zog.host_install import state_account_migration_live as live
+    from zog.host_install.state_account_migration_admission import CANDIDATE_PYTHON
+    historical={
+        "ExecStart":("{ path="+live.OLD_EXE+" ; argv[]="+
+                     " ".join(live.LEGACY_ARGV)+" ; ignore_errors=no ; }"),
+        "User":"host-discover","Group":"host-discover",
+        "SupplementaryGroups":"archive-consumers",
+        "NeedDaemonReload":"no",
+        "ReadWritePaths":"/var/lib/host-discover/identity /var/lib/host-discover/credentials",
+    }
+    selected={
+        "ExecStart":("{ path="+CANDIDATE_PYTHON+" ; argv[]="+
+                     CANDIDATE_PYTHON+
+                     " -m zog.host_install.state_account_migration_launcher"+
+                     " ; ignore_errors=no ; }"),
+        "User":"root","Group":"root","SupplementaryGroups":"",
+        "NeedDaemonReload":"no",
+        "ReadWritePaths":"/state/host-discover/identity /var/lib/host-discover/credentials",
+    }
+    shown=dict(historical)
+    def systemctl(*args):
+        assert args[:2]==("show","host-discover.service")
+        return shown[args[2].removeprefix("--property=").split("=")[0]]
+    monkeypatch.setattr(live,"_systemctl",systemctl)
+    assert backend._effective_service_state()=="before"
+    shown.update(selected)
+    assert backend._effective_service_state()=="after"
+    shown["ExecStart"]=historical["ExecStart"]
+    with pytest.raises(StateError):
+        backend._effective_service_state()
+    shown.update(selected)
+    shown["SupplementaryGroups"]="archive-consumers"
+    with pytest.raises(StateError):
+        backend._effective_service_state()
+    shown.update(selected)
+    shown["ExecStart"]=shown["ExecStart"].replace(
+        "zog.host_install.state_account_migration_launcher",
+        "zog.host_discover.daemon")
+    with pytest.raises(StateError):
+        backend._effective_service_state()
