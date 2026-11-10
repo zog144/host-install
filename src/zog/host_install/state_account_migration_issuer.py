@@ -215,8 +215,8 @@ def _open_approved_journal_parent(root_device):
         os.close(root)
 
 
-def _publish_records(parent_fd, migration_id, *, selection, bundle, admission, witness,
-                     checkpoint=lambda _: None):
+def _publish_records(parent_fd, migration_id, *, selection, bundle, admission,
+                     witness, file_inventory, checkpoint=lambda _: None):
     """Publish exact bytes with the CALLER HOLDING the durable global lock.
 
     A pending file at a known stage is reconciled by state_io.publish, while
@@ -227,6 +227,12 @@ def _publish_records(parent_fd, migration_id, *, selection, bundle, admission, w
             and selection["migration_id"] == migration_id,
             "migration-issuer", "wrong protected transaction")
     verify_operator_binding(selection, admission)
+    require(type(file_inventory) is dict
+            and digest(file_inventory)==
+                admission["plan"]["file_inventory_metadata_sha256"]
+            and digest(file_inventory)==selection["file_inventory_sha256"],
+            "migration-issuer",
+            "protected complete original inventory must match approved plan")
     _protected_dir(parent_fd)
     names = set(os.listdir(parent_fd))
     require(names <= {".admission.lock", migration_id,
@@ -243,6 +249,7 @@ def _publish_records(parent_fd, migration_id, *, selection, bundle, admission, w
             "plan.json": canonical(admission["plan"]),
             "admission.json": canonical(admission),
             "operator-selection.json": canonical(selection),
+            "source-inventory.json": canonical(file_inventory),
             "original.json": canonical(witness),
             "transaction.json": canonical(initial_journal(admission)),
         }
@@ -251,7 +258,7 @@ def _publish_records(parent_fd, migration_id, *, selection, bundle, admission, w
         require(set(os.listdir(txfd)) <= recognized,
                 "migration-issuer", "foreign transaction entry")
         for name in ("bundle.json", "plan.json", "admission.json",
-                     "operator-selection.json"):
+                     "operator-selection.json", "source-inventory.json"):
             publish(txfd, name, expected[name], 0o600,
                     checkpoint=checkpoint)
         publish_original_witness(txfd, witness, checkpoint=checkpoint)
@@ -346,7 +353,8 @@ def issue():
             result = _publish_records(
                 parentfd, selected["migration_id"],
                 selection=selected, bundle=bundle,
-                admission=admission, witness=witness)
+                admission=admission, witness=witness,
+                file_inventory=observation["source_inputs"]["file_inventory"])
             return result
     finally:
         os.close(parentfd)
