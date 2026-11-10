@@ -110,6 +110,55 @@ def _noreplace(srcdir, src, dstdir, dst):
         raise OSError(code,os.strerror(code),dst)
 
 
+def quarantine_selected_directory(source, destination_parent, destination):
+    """No-replace preservation of selected root-owned rollback evidence.
+
+    This fixed-shape primitive is also exercised on disposable test roots.
+    Never recursively delete or overwrite a STATE tree that may have carried
+    service data since the first successful retained-identity launch.
+    """
+    require(os.geteuid()==0 and source.name in ("state","host-install")
+            and destination in ("rolled-back-state",
+                                "rolled-back-configuration")
+            and ((source.name=="state" and
+                  destination=="rolled-back-state") or
+                 (source.name=="host-install" and
+                  destination=="rolled-back-configuration")),
+            "migration-native-rollback", "unselected directory quarantine")
+    require(source.is_dir() and not source.is_symlink()
+            and destination_parent.is_dir()
+            and not destination_parent.is_symlink()
+            and (source.stat().st_uid,source.stat().st_gid,
+                 stat.S_IMODE(source.stat().st_mode))==(0,0,0o755)
+            and (destination_parent.stat().st_uid,
+                 destination_parent.stat().st_gid,
+                 stat.S_IMODE(destination_parent.stat().st_mode))==(0,0,0o700)
+            and source.stat().st_dev==
+                destination_parent.stat().st_dev
+            and not (destination_parent/destination).exists()
+            and not (destination_parent/destination).is_symlink(),
+            "migration-native-rollback",
+            "unprotected or conflicting original rollback directory")
+    original=(source.stat().st_dev,source.stat().st_ino)
+    srcfd=os.open(source.parent,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+    dstfd=os.open(destination_parent,
+                  os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+    try:
+        _noreplace(srcfd,source.name,dstfd,destination)
+        os.fsync(srcfd)
+        os.fsync(dstfd)
+    finally:
+        os.close(dstfd)
+        os.close(srcfd)
+    archived=destination_parent/destination
+    require(not source.exists() and archived.is_dir()
+            and not archived.is_symlink()
+            and (archived.stat().st_dev,archived.stat().st_ino)==original,
+            "migration-native-rollback",
+            "rollback evidence inode not preserved")
+    return archived
+
+
 class NativeStageBackend:
     """Actual per-operation native state transitions through a protected plan.
 
@@ -647,29 +696,8 @@ class NativeStageBackend:
                     expected- {".host-install.lock"} <= set(os.listdir(source)),
                     "migration-native-rollback",
                     "unrecognized canonical configuration cannot be quarantined")
-        target=self.journal_root/destination
-        require(not target.exists() and not target.is_symlink()
-                and source.stat().st_dev==self.journal_root.stat().st_dev,
-                "migration-native-rollback",
-                "rollback evidence destination already exists or foreign device")
-        srcfd=os.open(parent,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
-        dstfd=os.open(self.journal_root,
-                      os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
-        try:
-            require((os.fstat(dstfd).st_uid,os.fstat(dstfd).st_gid,
-                     stat.S_IMODE(os.fstat(dstfd).st_mode))==(0,0,0o700),
-                    "migration-native-rollback",
-                    "protected rollback evidence parent changed")
-            _noreplace(srcfd,original_name,dstfd,destination)
-            os.fsync(srcfd)
-            os.fsync(dstfd)
-        finally:
-            os.close(dstfd)
-            os.close(srcfd)
-        require(target.is_dir() and not target.is_symlink()
-                and target.stat().st_dev==self.journal_root.stat().st_dev,
-                "migration-native-rollback",
-                "selected rollback evidence not preserved")
+        quarantine_selected_directory(
+            source,self.journal_root,destination)
 
     def prepare_service_start(self, row):
         """Publish original-key completion from the durably committed intent.
