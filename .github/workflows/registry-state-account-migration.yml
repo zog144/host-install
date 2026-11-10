@@ -6,6 +6,7 @@ on:
     paths:
       - src/zog/host_install/state_account_migration_issuer.py
       - src/zog/host_install/state_account_migration_live.py
+      - tests/test_state_account_migration_live.py
       - src/zog/host_install/migration-template.json
       - tests/test_state_account_migration_issuer.py
       - pyproject.toml
@@ -70,6 +71,7 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}/tests:${{ github.workspace }}/companions/host-identify/src:${{ github.workspace }}/companions/host-discover/src
         run: |
           sudo --preserve-env=PYTHONPATH "${{ env.pythonLocation }}/bin/python" -m pytest -q -rs \
+            tests/test_state_account_migration_live.py \
             tests/test_state_account_migration_issuer.py \
             tests/test_state_account_migration_admission.py \
             tests/test_state_account_migration_completion.py \
