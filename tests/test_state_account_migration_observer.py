@@ -93,6 +93,10 @@ def test_systemd_observer_queries_exact_unit_and_bounded_commands(monkeypatch):
             active["ActiveState"]="active"
         elif argv==["systemctl","daemon-reload"]:
             active["NeedDaemonReload"]="no"
+        elif argv==["systemctl","enable","host-discover.service"]:
+            active["UnitFileState"]="enabled"
+        elif argv==["systemctl","disable","host-discover.service"]:
+            active["UnitFileState"]="disabled"
         else:raise AssertionError(argv)
         return SimpleNamespace(returncode=0,stdout=b"",stderr=b"")
     monkeypatch.setattr(observer.subprocess,"run",run)
