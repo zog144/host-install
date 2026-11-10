@@ -197,4 +197,3 @@ class NativeNSSSystemdObserver:
                     "migration-service",
                     "systemd transition failed; reconcile committed journal")
 
-                "migration-service","systemd command failed; reconcile transaction")
