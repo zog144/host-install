@@ -520,7 +520,7 @@ class MigrationJournal:
                         # start intent first, then give the protected native
                         # backend the chance to publish that receipt. A
                         # resumed attempt repeats only the same-byte receipt.
-                        if stage == STAGES[-1] and hasattr(
+                        if self.require_root and stage == STAGES[-1] and hasattr(
                                 self.backend, "prepare_service_start"):
                             self.backend.prepare_service_start(row)
                         self.backend.apply(stage)
