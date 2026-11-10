@@ -30,7 +30,7 @@ RestrictRealtime=yes
 LockPersonality=yes
 SystemCallArchitectures=native
 UMask=0077
-ReadWritePaths=/var/lib/zog-graphical-owner-ledger
+ReadWritePaths=/var/lib/zog-owner-ledger
 CapabilityBoundingSet=
 AmbientCapabilities=
 # Root-backed v4 source-only unit: disabled; no Install section.
