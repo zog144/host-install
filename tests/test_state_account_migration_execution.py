@@ -81,13 +81,15 @@ def test_conflicting_native_records_deny_without_activating_host(admitted,tamper
         read(path,selected["migration_id"])
 
 
-def test_root_executor_does_not_mutate_while_native_gates_held():
-    assert native.NATIVE_ACTIVATION_ENABLED is False
-    assert launcher.RUNTIME_ENABLED is False
-    with pytest.raises(StateError,match="migration-native-hold"):
+def test_root_executor_requires_exact_digest_before_any_filesystem_open():
+    assert native.NATIVE_ACTIVATION_ENABLED is True
+    assert launcher.RUNTIME_ENABLED is True
+    with pytest.raises(StateError,match="migration-native-selection"):
         executor.execute(
             "11111111-1111-4111-8111-111111111111",
-            expected_admission_sha256="a"*64)
+            expected_admission_sha256="unreviewed")
+    # An admitted transaction is still essential; the CLI cannot invent one.
+    assert "transaction.json" in executor.TRANSACTION_FILES
 
 
 def test_package_declares_separate_admission_and_native_executor_entrypoints():
