@@ -143,7 +143,8 @@ class NativeNSSSystemdObserver:
                 return "before"
             if stage=="service-stopped":
                 if (status=="active" and
-                    "service-restored" in completed and
+                    ("service-restored" in completed or
+                     active=="service-restored") and
                     not (rolling and active=="service-stopped")):
                     return "after"  # Historical stop before FD relaunch.
                 return _state(status,"active","inactive")
