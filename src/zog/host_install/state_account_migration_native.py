@@ -358,6 +358,53 @@ class NativeStageBackend:
             changes.append(pair)
         return ("after" if all(x==after for x in changes) else "before")
 
+    def _effective_service_state(self):
+        """Compare actual systemd manager argv/identity, not just unit bytes.
+
+        The new service must execute the protected Python FD supervisor;
+        selecting the previous legacy daemon after /state migration could
+        generate a new Host key. A mismatched reload is always a hard HOLD.
+        """
+        import re
+        import shlex
+        from .state_account_migration_live import (
+            _systemctl, _legacy_argv, OLD_EXE,
+        )
+        fields=("ExecStart","User","Group","SupplementaryGroups",
+                "NeedDaemonReload","ReadWritePaths")
+        values={key:_systemctl(
+            "show","host-discover.service","--property="+key,"--value")
+                for key in fields}
+        starts=re.findall(r"argv\[\]=(.*?)(?=\s+;\s+|\s*})",
+                          values["ExecStart"],flags=re.S)
+        require(len(starts)==1,
+                "migration-native-service","ambiguous actual ExecStart")
+        try:
+            argv=shlex.split(starts[0].strip(),posix=True)
+        except ValueError as exc:
+            raise StateError("migration-native-service",
+                             "invalid effective argv syntax") from exc
+        from .state_account_migration_admission import CANDIDATE_PYTHON
+        expected=[CANDIDATE_PYTHON,"-m",
+                  "zog.host_install.state_account_migration_launcher"]
+        if (argv==expected
+                and values["User"]==values["Group"]=="root"
+                and values["SupplementaryGroups"]==""
+                and set(values["ReadWritePaths"].split()) == {
+                    "/state/host-discover/identity",
+                    "/var/lib/host-discover/credentials"}):
+            return "after"
+        try:
+            legacy=_legacy_argv(" ".join(argv))
+        except (StateError,ValueError):
+            legacy=None
+        if (legacy is not None
+                and values["User"]==values["Group"]=="host-discover"
+                and values["SupplementaryGroups"]=="archive-consumers"):
+            return "before"
+        raise StateError("migration-native-service",
+                         "effective service is neither original nor selected FD launcher")
+
     def _read_record(self, path, expected):
         """Refuse unexpected canonical migration file content and metadata."""
         file=self.path(path)
@@ -491,6 +538,8 @@ class NativeStageBackend:
 
     def state(self,stage):
         require(stage in STAGES,"migration-stage","unreviewed stage")
+        if stage=="systemd-daemon-reloaded" and self.root==Path("/"):
+            return self._effective_service_state()
         if stage in ACCOUNT_COMMANDS or stage in (
                 "service-stopped","systemd-daemon-reloaded","service-restored"):
             return self.probe.stage_state(stage,self.plan)
@@ -761,6 +810,16 @@ class NativeStageBackend:
             self.runner.run(stage,rollback=rollback)
         elif stage in ("service-stopped","systemd-daemon-reloaded",
                        "service-restored"):
+            if self.root==Path("/") and stage=="service-restored" and not rollback:
+                require(self._effective_service_state()=="after",
+                        "migration-native-service",
+                        "service start requires effective retained FD launcher")
+            if self.root==Path("/") and stage=="systemd-daemon-reloaded" and rollback:
+                # Reverse the override and reload as one journaled intent;
+                # service-start may not select a cached FD supervisor.
+                override=self.path(self.DROPIN)
+                if override.exists():
+                    self._write_bytes(self.DROPIN,self.target_dropin,remove=True)
             self.probe.transition(stage,rollback=rollback)
         elif stage in FILE_OWNERS:
             self._chown_stage(stage,not rollback)
