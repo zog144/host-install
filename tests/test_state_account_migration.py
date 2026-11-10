@@ -58,7 +58,7 @@ def fixture():
         "account_snapshot":{
             "users":{"host-discover":{
                 "uid":991,"gid":991,"home":"/home/host-discover",
-                "shell":"/sbin/nologin","groups":["archive-consumers"]}},
+                "shell":"/sbin/nologin","groups":[]}},
             "groups":{"host-discover":991,"archive-consumers":990},
             "uid_index":{"991":"host-discover","1000":"ec2-user"},
             "gid_index":{"991":"host-discover","990":"archive-consumers",
@@ -519,4 +519,25 @@ def test_retained_legacy_role_origin_files_in_closed_source_inventory(attack):
             row["file_inventory"])
         return
     with pytest.raises(StateError,match="migration-inventory"):
+        review(row)
+
+
+def test_retained_service_systemd_grants_archive_without_nss_membership():
+    """Original Host has empty NSS groups despite effective systemd grant."""
+    row=fixture()
+    user=row["account_snapshot"]["users"]["host-discover"]
+    assert user == {"uid":991,"gid":991,"home":"/home/host-discover",
+                    "shell":"/sbin/nologin","groups":[]}
+    assert b"SupplementaryGroups=archive-consumers" in row["unit_bytes"]
+    assert review(row)["status"]=="SOURCE_REVIEW_NATIVE_CONSUMER_HOLD"
+
+
+@pytest.mark.parametrize("foreign_membership", (
+    ["archive-consumers"], ["host-control"], ["foreign"],
+    ["archive-consumers", "host-control"],
+))
+def test_retained_legacy_nss_membership_substitution_denied(foreign_membership):
+    row=fixture()
+    row["account_snapshot"]["users"]["host-discover"]["groups"]=foreign_membership
+    with pytest.raises(StateError):
         review(row)
