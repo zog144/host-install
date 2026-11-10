@@ -433,3 +433,46 @@ def test_original_path_descriptor_is_independently_opened(
         assert result["key_inode"] == ino(legacy / "identity.pem")
     finally:
         os.close(fd)
+
+
+def test_original_key_completion_can_be_issued_at_durable_prestart_intent(
+        retained):
+    """Launcher must have key receipt before start, not after service start."""
+    plan,moved,evidence,*_ = retained
+    intent = m.service_start_intent(plan)
+    (evidence/"transaction.json").write_bytes(canonical(intent))
+    handles=[]
+    try:
+        for file in ("original.json","transaction.json"):
+            handles.append(os.open(evidence/file,os.O_RDONLY|os.O_NOFOLLOW))
+        handles.append(os.open(moved,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW))
+        with pytest.raises(StateError):
+            c.completion_from_observed_fds(
+                plan=plan, original_witness_fd=handles[0],
+                journal_fd=handles[1],identity_fd=handles[2],
+                identity_directory=str(moved),
+                expected_uid=0,expected_gid=0)
+        receipt=c.completion_from_observed_fds(
+            plan=plan, original_witness_fd=handles[0],
+            journal_fd=handles[1],identity_fd=handles[2],
+            identity_directory=str(moved),
+            expected_uid=0,expected_gid=0, prestart=True)
+        assert receipt["journal_sha256"] == hashlib.sha256(
+            canonical(intent)).hexdigest()
+    finally:
+        for fd in handles: os.close(fd)
+    invalid={**intent, "active":None}
+    (evidence/"transaction.json").write_bytes(canonical(invalid))
+    with pytest.raises(StateError):
+        handles=[]
+        try:
+            for file in ("original.json","transaction.json"):
+                handles.append(os.open(evidence/file,os.O_RDONLY|os.O_NOFOLLOW))
+            handles.append(os.open(moved,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW))
+            c.completion_from_observed_fds(
+                plan=plan, original_witness_fd=handles[0],
+                journal_fd=handles[1],identity_fd=handles[2],
+                identity_directory=str(moved),
+                expected_uid=0,expected_gid=0, prestart=True)
+        finally:
+            for fd in handles: os.close(fd)
