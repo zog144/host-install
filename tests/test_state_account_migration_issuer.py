@@ -171,12 +171,13 @@ def test_protected_journal_publication_is_atomic_same_byte_retry(tmp_path):
         with lock(fd, ".admission.lock"):
             issued = issuer._publish_records(
                 fd, selected["migration_id"], selection=selected, bundle=bundle, admission=result,
+                file_inventory=observed["source_inputs"]["file_inventory"],
                 witness=_witness(result))
         assert issued["native_execution_enabled"] is False
         tx = parent / selected["migration_id"]
         assert set(x.name for x in tx.iterdir()) == {
             "plan.json", "admission.json", "bundle.json",
-            "operator-selection.json",
+            "operator-selection.json", "source-inventory.json",
             "original.json", "transaction.json"}
         assert all(x.stat().st_uid == 0 and
                    x.stat().st_mode & 0o777 == 0o600 for x in tx.iterdir())
@@ -185,6 +186,7 @@ def test_protected_journal_publication_is_atomic_same_byte_retry(tmp_path):
         with lock(fd, ".admission.lock"):
             again = issuer._publish_records(
                 fd, selected["migration_id"], selection=selected, bundle=bundle, admission=result,
+                file_inventory=observed["source_inputs"]["file_inventory"],
                 witness=_witness(result))
         assert again["admission_sha256"] == issued["admission_sha256"]
         changed = _witness(result)
@@ -193,6 +195,7 @@ def test_protected_journal_publication_is_atomic_same_byte_retry(tmp_path):
             with pytest.raises(StateError):
                 issuer._publish_records(
                     fd, selected["migration_id"], selection=selected, bundle=bundle, admission=result,
+                file_inventory=observed["source_inputs"]["file_inventory"],
                     witness=changed)
     finally:
         os.close(fd)
@@ -218,11 +221,13 @@ def test_interrupted_original_publication_restarts_only_same_bytes(
             with pytest.raises(Crash):
                 issuer._publish_records(
                     fd, selected["migration_id"], selection=selected, bundle=bundle,
-                    admission=result, witness=_witness(result),
+                    admission=result,
+                    file_inventory=observed["source_inputs"]["file_inventory"], witness=_witness(result),
                     checkpoint=crash)
         with lock(fd, ".admission.lock"):
             issuer._publish_records(
                 fd, selected["migration_id"], selection=selected, bundle=bundle, admission=result,
+                file_inventory=observed["source_inputs"]["file_inventory"],
                 witness=_witness(result))
         assert decode((tmp_path / "migrations" / selected["migration_id"] /
                        "transaction.json").read_bytes()) == (
@@ -241,12 +246,14 @@ def test_second_migration_and_foreign_entry_never_adopted(tmp_path):
         with lock(fd, ".admission.lock"):
             issuer._publish_records(
                 fd, selected["migration_id"], selection=selected, bundle=bundle, admission=result,
+                file_inventory=observed["source_inputs"]["file_inventory"],
                 witness=_witness(result))
         with lock(fd, ".admission.lock"):
             with pytest.raises(StateError):
                 issuer._publish_records(
                     fd, "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
                     selection=selected, bundle=bundle,
+                    file_inventory=observed["source_inputs"]["file_inventory"],
                     admission={**result, "plan": {
                         **result["plan"],
                         "migration_id": "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"}},
@@ -256,7 +263,8 @@ def test_second_migration_and_foreign_entry_never_adopted(tmp_path):
             with pytest.raises(StateError):
                 issuer._publish_records(
                     fd, selected["migration_id"], selection=selected, bundle=bundle,
-                    admission=result, witness=_witness(result))
+                    admission=result,
+                    file_inventory=observed["source_inputs"]["file_inventory"], witness=_witness(result))
     finally:
         os.close(fd)
 
