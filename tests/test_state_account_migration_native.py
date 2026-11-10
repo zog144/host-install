@@ -338,3 +338,60 @@ def test_native_fd_owner_update_rejects_inflight_path_replacement(
     # replacement. The original FD can change its own inode, not the
     # substituted path; the stage fails and requires protected recovery.
     assert fake.status["service-restored"]=="before"
+
+
+def test_root_disposable_rollback_quarantines_state_without_deleting_data(
+        tmp_path):
+    if os.geteuid()!=0:
+        pytest.skip("root-only no-replace quarantine requires disposable root")
+    root=tmp_path/"sandbox"
+    root.mkdir(mode=0o755)
+    state=root/"state"
+    state.mkdir(mode=0o755)
+    identity_free=state/"host-discover"
+    identity_free.mkdir(mode=0o700)
+    (identity_free/"health.json").write_text("synthetic-retained-data")
+    ledger=root/"journal"
+    ledger.mkdir(mode=0o700)
+    inode=stat(state)
+    archived=native.quarantine_selected_directory(
+        state,ledger,"rolled-back-state")
+    assert not state.exists()
+    assert stat(archived)==inode
+    assert (archived/"host-discover/health.json").read_text() == (
+        "synthetic-retained-data")
+    other=root/"state"
+    other.mkdir(mode=0o755)
+    with pytest.raises(StateError):
+        native.quarantine_selected_directory(
+            other,ledger,"rolled-back-state")
+    assert other.exists()
+    assert (archived/"host-discover/health.json").is_file()
+
+
+@pytest.mark.parametrize("attack", ("symlink","writable-source",
+                                     "writable-ledger","wrong-name"))
+def test_rollback_quarantine_denies_unsafe_disposable_paths(tmp_path,attack):
+    if os.geteuid()!=0:
+        pytest.skip("root-only disposable filesystem test")
+    root=tmp_path/"sandbox"
+    root.mkdir(mode=0o755)
+    state=root/"state"
+    state.mkdir(mode=0o755)
+    ledger=root/"journal"
+    ledger.mkdir(mode=0o700)
+    if attack=="symlink":
+        actual=root/"actual"
+        state.rename(actual)
+        state.symlink_to(actual,target_is_directory=True)
+    elif attack=="writable-source":
+        state.chmod(0o777)
+    elif attack=="writable-ledger":
+        ledger.chmod(0o777)
+    elif attack=="wrong-name":
+        state.rename(root/"wrong")
+        state=root/"wrong"
+    with pytest.raises(StateError):
+        native.quarantine_selected_directory(
+            state,ledger,"rolled-back-state")
+    assert not (ledger/"rolled-back-state").exists()
