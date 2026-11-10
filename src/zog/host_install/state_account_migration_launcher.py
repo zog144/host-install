@@ -21,7 +21,7 @@ from .state_account_migration_consumer import (
 from .state_contract import StateError, decode, digest, require
 from .state_inspect import inspect_live, directory
 
-RUNTIME_ENABLED = False
+RUNTIME_ENABLED = True  # Runs only from separately installed, checked systemd drop-in
 TRANSACTION_DIRECTORY = "/var/lib/zog-host-install/migrations"
 CONSUMER_EXECUTABLE = "/opt/host-discover/venv/bin/host-discover"
 CONSUMER_CONFIGURATION = "/etc/host-discover/configuration.json"
