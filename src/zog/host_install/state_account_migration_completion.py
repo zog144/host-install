@@ -246,6 +246,7 @@ def publish_original_witness(root_fd, witness, *,
 def completion_from_observed_fds(
     *, plan, original_witness_fd, journal_fd, identity_fd,
     identity_directory=IDENTITY_DIRECTORY, expected_uid=970, expected_gid=970,
+    prestart=False,
 ):
     """Consume independent original root witness and completed durable journal.
 
@@ -290,16 +291,19 @@ def completion_from_observed_fds(
                      and all(c in "0123456789abcdef"
                              for c in root_witness["ca_sha256"]))),
             "migration-completion", "original identity witness incorrect")
+    from .state_account_migration import service_start_intent
+    complete_row = {
+        "schema": JOURNAL_SCHEMA, "migration_id": plan["migration_id"],
+        "plan_sha256": digest(plan), "status": "complete",
+        "completed": list(STAGES), "active": None,
+    }
     require(type(journal) is dict
             and set(journal) == {"schema", "migration_id", "plan_sha256",
                                  "status", "completed", "active"}
-            and journal["schema"] == JOURNAL_SCHEMA
-            and journal["migration_id"] == plan["migration_id"]
-            and journal["plan_sha256"] == digest(plan)
-            and journal["status"] == "complete"
-            and journal["active"] is None
-            and journal["completed"] == list(STAGES),
-            "migration-completion", "durable migration not completed")
+            and journal == (service_start_intent(plan)
+                            if prestart else complete_row),
+            "migration-completion",
+            "durable migration checkpoint not selected")
     directory = os.fstat(identity_fd)
     require(stat.S_ISDIR(directory.st_mode)
             and (directory.st_uid, directory.st_gid,
