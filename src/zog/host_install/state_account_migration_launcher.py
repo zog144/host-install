@@ -159,6 +159,10 @@ def reviewed_launcher_dropin_template():
         "[Service]\n"
         "User=root\n"
         "Group=root\n"
+        # Do not inherit the former service's archive-consumers systemd
+        # supplementary grant into the privileged FD supervisor. The
+        # unprivileged child gets exact target groups via Popen(extra_groups).
+        "SupplementaryGroups=\n"
         "ExecStart=\n"
         "ExecStart=@PINNED_HOST_INSTALL_PYTHON312@ -m "
         "zog.host_install.state_account_migration_launcher\n"
