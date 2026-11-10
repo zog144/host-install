@@ -570,6 +570,12 @@ class NativeStageBackend:
         require(stage in STAGES,"migration-stage","unreviewed stage")
         if stage=="systemd-daemon-reloaded" and self.root==Path("/"):
             return self._effective_service_state()
+        if stage=="service-restored" and self.root==Path("/"):
+            # A resumed legacy 0.3.3 daemon on rollback is NOT the migrated
+            # FD-backed service, regardless of the still-retained journal
+            # completion history. Keep restart reconciliation unambiguous.
+            if self._effective_service_state()=="before":
+                return "before"
         if stage in ACCOUNT_COMMANDS or stage in (
                 "service-disabled","service-stopped",
                 "systemd-daemon-reloaded","service-restored"):
