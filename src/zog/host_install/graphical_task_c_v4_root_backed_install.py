@@ -8,7 +8,7 @@ Historical v3 two-filesystem selection remains an entirely separate API.
 from __future__ import annotations
 
 from . import graphical_task_c_v3_install_freeze as previous
-from .state_contract import validate as validate_state
+from .state_contract import validate as validate_state, StateError
 from . import graphical_readonly_trust_broker_install as broker
 
 SCHEMA = "zog-task-c-root-backed-three-owner-disabled-install-v4"
@@ -190,7 +190,10 @@ def review_disabled_root_backed(
         hold()
     _validate_root_units(owner_service, owner_socket, broker_service,
                          broker_socket, verifier_service)
-    validate_state(state_bundle)
+    try:
+        validate_state(state_bundle)
+    except (StateError, ValueError, KeyError, TypeError):
+        hold()
     selected_state = state_bundle["bootstrap"]["state"]
     backend = selected_state.get("storage_backend", "mounted-volume")
     if (selection["state_backend"] != backend
