@@ -192,6 +192,7 @@ def test_service_autostart_disabled_before_stop_and_reenabled_after_receipt(
     assert values["ActiveState"]=="active"
     assert probe.stage_state("service-restored",{})=="after"
     assert probe.stage_state("service-disabled",{})=="after"
+    assert probe.stage_state("service-stopped",{})=="after"
     journal["status"]="rolling-back"
     journal["active"]="service-restored"
     probe.transition("service-restored",rollback=True)
