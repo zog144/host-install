@@ -513,6 +513,11 @@ class MigrationJournal:
                     "migration-recovery","rolled-back state changed")
                 row["status"]="rolling-back"
                 self._save(row)
+                # Persistently prevent systemd autostart while reverting any
+                # identity/account or canonical STATE change, including after
+                # an interrupted service-stop/disable pair.
+                if self.require_root:
+                    self.backend.ensure_rollback_autostart_fence()
                 for stage in reversed(STAGES):
                     state=self.backend.state(stage)
                     require(state in ("before","after"),"migration-recovery",
