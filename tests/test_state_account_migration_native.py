@@ -118,7 +118,7 @@ def test_all_native_account_opcodes_are_explicit_and_reversible():
 def test_production_host_native_adapter_requires_exact_native_observer():
     if os.geteuid()!=0:
         pytest.skip("root-only production gate")
-    with pytest.raises(StateError,match="migration-native-observer"):
+    with pytest.raises(StateError,match="migration-native-consumer"):
         native.NativeStageBackend(
             {"schema":migration.SCHEMA},
             filesystem_root="/",probe=SyntheticNSS(),
