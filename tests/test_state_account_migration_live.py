@@ -153,3 +153,26 @@ def test_exact_legacy_cli_equals_forms_supported():
         + " --destinations=" + live.LEGACY_DESTINATIONS
     )
     assert live._legacy_argv(value) == live.LEGACY_ARGV
+
+
+def test_equivalent_existing_cli_order_is_not_a_new_service(monkeypatch):
+    command = (live.OLD_EXE + " --destinations " +
+               live.LEGACY_DESTINATIONS + " --configuration " +
+               live.LEGACY_CONFIG)
+    assert live._legacy_argv(command) == live.LEGACY_ARGV
+    alternate = (b"[Service]\nExecStart=\nExecStart=" +
+                 command.encode() + b"\n")
+    observe(monkeypatch, source=alternate,
+            published=UNIT.replace(OVERRIDE, alternate),
+            effective=EFFECTIVE.replace(ARGUMENTS, command))
+    _, status = live._service()
+    assert status["enabled"] is True
+
+
+def test_extra_or_duplicate_cli_options_deny():
+    for extra in (
+        " --configuration " + live.LEGACY_CONFIG,
+        " --once", " --managed-state", " --configuration",
+    ):
+        with pytest.raises(StateError):
+            live._legacy_argv(ARGUMENTS + extra)
