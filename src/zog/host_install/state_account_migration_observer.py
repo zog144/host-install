@@ -134,7 +134,8 @@ class NativeNSSSystemdObserver:
             if stage=="service-disabled":
                 if enabled=="disabled":
                     return "after"
-                if (("service-restored" in completed
+                if ((("service-restored" in completed
+                       or active=="service-restored")
                      and not (rolling and active=="service-disabled"))
                     or (record is not None
                         and record["status"]=="complete")):
