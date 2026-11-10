@@ -472,25 +472,35 @@ class MigrationJournal:
             self._save(row)
         return fd,row
 
-    def _observed_prefix(self):
-        # An observed migration must be a contiguous prefix of completed
-        # stages. Independent or rearranged changes cannot be reconciled by
-        # blindly replaying the remaining commands.
-        seen_before=False
-        for stage in STAGES:
-            value=self.backend.state(stage)
-            require(value in ("before","after"),"migration-recovery",
-                    "unexpected stage evidence")
-            if value=="before":
-                seen_before=True
-            else:
-                require(not seen_before,"migration-recovery",
-                        "non-contiguous migration stages")
+    def _observed_prefix(self, row):
+        """Prove contiguous stage state, with one journal-pinned rollback gap.
+
+        If rollback crashes after removing the new systemd override but before
+        daemon-reload, systemd still caches the selected FD launcher. This
+        inversion is safe only while the durable rollback intent is exactly
+        'systemd-daemon-reloaded'; retry must reload before legacy service start.
+        """
+        values=[self.backend.state(stage) for stage in STAGES]
+        require(all(value in ("before","after") for value in values),
+                "migration-recovery","unexpected stage evidence")
+        if values==(["after"]*values.count("after")+
+                    ["before"]*values.count("before")):
+            return
+        path=STAGES.index("systemd-path-switched")
+        reload=STAGES.index("systemd-daemon-reloaded")
+        require(row["status"]=="rolling-back"
+                and row["active"]=="systemd-daemon-reloaded"
+                and reload==path+1
+                and values[:path]==["after"]*path
+                and values[path:reload+1]==["before","after"]
+                and values[reload+1:]==["before"]*(len(STAGES)-reload-1),
+                "migration-recovery",
+                "non-contiguous migration evidence not owned by rollback intent")
 
     def execute(self, *, rollback=False, checkpoint=lambda phase:None):
         fd,row=self._open()
         try:
-            self._observed_prefix()
+            self._observed_prefix(row)
             require(not (row["status"]=="rolling-back" and not rollback)
                     and not (row["status"]=="rolled-back" and not rollback),
                     "migration-direction", "rollback cannot become a new apply")
