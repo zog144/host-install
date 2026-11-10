@@ -74,7 +74,12 @@ def _systemctl(*args):
                           env={"PATH": "/usr/bin:/bin", "LANG": "C"})
     require(proc.returncode == 0 and 0 < len(proc.stdout) <= 65536,
             "migration-systemd", "systemd effective observation unavailable")
-    return proc.stdout.decode("utf-8", "strict").strip()
+    # systemctl show --value emits a single property whose record newline
+    # should be trimmed. In contrast, systemctl cat emits the source unit and
+    # drop-in *bytes*: stripping its final newline makes a valid, root-owned
+    # drop-in fail the exact inclusion check and changes unit_sha256.
+    decoded = proc.stdout.decode("utf-8", "strict")
+    return decoded if args[:1] == ("cat",) else decoded.strip()
 
 
 LEGACY_CONFIG = "/etc/host-discover/configuration.json"
