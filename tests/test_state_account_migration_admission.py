@@ -48,7 +48,7 @@ def test_admission_binds_existing_identity_bundle_and_runtime_without_activation
     assert plan["consumer_selection_sha256"] == digest(CONSUMER_SELECTION)
     assert plan["status"] == "SOURCE_REVIEW_NATIVE_CONSUMER_HOLD"
     assert a.initial_journal(selected)["completed"] == []
-    assert not launcher.RUNTIME_ENABLED
+    assert launcher.RUNTIME_ENABLED is True  # Source opt-in; no installed unit/transaction
     assert a.CANDIDATE_EXECUTABLE in launcher.selected_beacon_argv(
         4, 5, plan["public_fingerprint"], runtime=selected["runtime"])
     unit = launcher.render_selected_launcher_dropin(selected)
@@ -101,7 +101,7 @@ def test_disposable_admission_publication_is_exclusive_and_protected(tmp_path):
     assert (folder/"transaction.json").stat().st_mode & 0o777 == 0o600
     with pytest.raises(StateError):
         a.publish_disposable_admission(folder, selected, disposable=True)
-    assert not launcher.RUNTIME_ENABLED
+    assert launcher.RUNTIME_ENABLED is True  # Source opt-in; no installed unit/transaction
     other = tmp_path / "unselected"
     other.mkdir(mode=0o700)
     with pytest.raises(StateError):
