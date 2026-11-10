@@ -218,12 +218,24 @@ def run_selected_once():
         root=directory(TRANSACTION_DIRECTORY)
         try:
             metadata(root,0,0,0o700)
-            entries=os.listdir(root)
-            require(len(entries)==1 and
-                    __import__("zog.host_install.state_account_migration",
-                               fromlist=["_uuid"])._uuid(entries[0]),
-                    "migration-launcher","exactly one approved transaction required")
-            migration_id=entries[0]
+            entries=set(os.listdir(root))
+            # The admission issuer holds a permanent root-owned flock inode
+            # at this parent. It must not be mistaken for another transaction.
+            require(".admission.lock" in entries,
+                    "migration-launcher", "protected issuer owner lock absent")
+            guard=os.open(".admission.lock",os.O_RDONLY|os.O_NOFOLLOW|
+                          os.O_NONBLOCK,dir_fd=root)
+            try:
+                metadata(guard,0,0,0o600,False)
+            finally:os.close(guard)
+            transactions=entries- {".admission.lock"}
+            require(len(transactions)==1 and
+                    all(__import__("zog.host_install.state_account_migration",
+                                   fromlist=["_uuid"])._uuid(name)
+                        for name in transactions),
+                    "migration-launcher",
+                    "exactly one approved transaction required")
+            migration_id=next(iter(transactions))
             folder=os.open(migration_id,
                            os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,
                            dir_fd=root)
