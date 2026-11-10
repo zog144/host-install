@@ -52,7 +52,9 @@ ACCOUNT_COMMANDS = {
         ["userdel","box-control"]),
     "host-discover-supplementary-groups-updated": (
         ["usermod","-G","archive-consumers,host-control","host-discover"],
-        ["usermod","-G","archive-consumers","host-discover"]),
+        # Restore actual original NSS membership: none. The old service's
+        # archive-consumers access came from systemd, not /etc/group.
+        ["usermod","-G","","host-discover"]),
     "box-control-supplementary-groups-updated": (
         ["usermod","-G","archive-consumers","box-control"],
         ["usermod","-G","","box-control"]),
