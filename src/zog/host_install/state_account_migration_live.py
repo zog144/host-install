@@ -7,6 +7,7 @@ import grp
 import os
 import pwd
 import re
+import shlex
 import stat
 import subprocess
 import hashlib
@@ -76,6 +77,85 @@ def _systemctl(*args):
     return proc.stdout.decode("utf-8", "strict").strip()
 
 
+LEGACY_CONFIG = "/etc/host-discover/configuration.json"
+LEGACY_DESTINATIONS = "/var/lib/host-discover/beacon-destinations.json"
+DROPIN_DIRECTORY = "/etc/systemd/system/host-discover.service.d"
+LEGACY_ARGV = (
+    OLD_EXE, "--configuration", LEGACY_CONFIG,
+    "--destinations", LEGACY_DESTINATIONS,
+)
+
+
+def _legacy_argv(command):
+    """Accept only the retained daemon, configuration and destination options.
+
+    Both 'option value' and 'option=value' are accepted as systemd ExecStart
+    source spelling. No unreviewed enrollment/migration mode or extra flag.
+    """
+    try:
+        args = shlex.split(command, posix=True)
+    except ValueError as error:
+        raise ValueError("invalid systemd ExecStart quoting") from error
+    require(args and args[0] == OLD_EXE,
+            "migration-systemd", "legacy daemon executable changed")
+    normalized = [args[0]]
+    for arg in args[1:]:
+        matched = False
+        for option in ("--configuration", "--destinations"):
+            if arg.startswith(option + "="):
+                normalized.extend((option, arg[len(option)+1:]))
+                matched = True
+                break
+        if not matched:
+            normalized.append(arg)
+    require(tuple(normalized) == LEGACY_ARGV,
+            "migration-systemd",
+            "legacy configuration/destinations arguments changed")
+    return tuple(normalized)
+
+
+def _effective_argv(exec_start):
+    """Read systemd's resolved argv[] field, rather than trust file text."""
+    matches = re.findall(r"argv\[\]=(.*?)(?=\s+;\s+|\s*})",
+                         exec_start, flags=re.S)
+    require(len(matches) == 1, "migration-systemd",
+            "one unambiguous effective ExecStart required")
+    return _legacy_argv(matches[0].strip())
+
+
+def _accepted_existing_dropin(path):
+    """Inspect the retained, root-controlled override; do not forbid it."""
+    require(type(path) is str
+            and path.startswith(DROPIN_DIRECTORY + "/")
+            and path.endswith(".conf")
+            and re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", path.rsplit("/", 1)[1]),
+            "migration-systemd", "unselected systemd drop-in location")
+    # _read_file uses openat with NOFOLLOW, validates the entire root-owned
+    # ancestry and refuses writable, linked or nonregular entries.
+    source = _read_file(path, size_limit=8192)
+    try:
+        lines = source.decode("utf-8", "strict").splitlines()
+    except UnicodeError as error:
+        raise ValueError("invalid drop-in encoding") from error
+    section = None
+    entries = []
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith(("#", ";")):
+            continue
+        if line == "[Service]":
+            section = "Service"
+            continue
+        require(section == "Service" and line.startswith("ExecStart="),
+                "migration-systemd", "drop-in contains unreviewed directives")
+        entries.append(line[len("ExecStart="):].strip())
+    require(len(entries) == 2 and entries[0] == "",
+            "migration-systemd",
+            "expected one explicit service ExecStart reset and replacement")
+    _legacy_argv(entries[1])
+    return source
+
+
 def _service():
     fields = ("ActiveState", "UnitFileState", "User", "Group",
               "SupplementaryGroups", "ReadWritePaths", "DropInPaths",
@@ -87,15 +167,25 @@ def _service():
             and values["UnitFileState"] == "enabled"
             and values["User"] == values["Group"] == "host-discover"
             and values["SupplementaryGroups"] == "archive-consumers"
-            and values["DropInPaths"] == ""
             and values["NeedDaemonReload"] == "no"
-            and OLD_EXE in values["ExecStart"]
             and all(path in values["ReadWritePaths"] for path in
                     ("/var/lib/host-discover/identity",
                      "/var/lib/host-discover/credentials")),
             "migration-systemd", "retained service selection changed")
-    return (_systemctl("cat", "host-discover.service").encode("utf-8"),
-            {"active": True, "enabled": True})
+    effective = _effective_argv(values["ExecStart"])
+    paths = values["DropInPaths"].split()
+    require(len(paths) <= 1, "migration-systemd",
+            "unknown additional systemd override")
+    approved = None
+    if paths:
+        approved = _accepted_existing_dropin(paths[0])
+    unit = _systemctl("cat", "host-discover.service").encode("utf-8")
+    if approved is not None:
+        require(approved in unit, "migration-systemd",
+                "effective systemd unit does not match retained drop-in bytes")
+    require(effective == LEGACY_ARGV,
+            "migration-systemd", "legacy effective service argv altered")
+    return unit, {"active": True, "enabled": True}
 
 
 def _accounts():
