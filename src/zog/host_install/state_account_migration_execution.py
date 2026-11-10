@@ -261,7 +261,7 @@ def main(argv=None):
             "migration_id":args.migration_id,
             "admission_sha256":digest(result["admission"]),
             "native_activation_enabled":result["native_activation_enabled"],
-            "source_hold":"persistent reboot/start fence and native installed-byte acceptance pending",
+            "source_hold":"reboot/recovery native acceptance and exact installed-byte attestation pending",
         }
     else:
         result=execute(args.migration_id,
