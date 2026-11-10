@@ -7,6 +7,9 @@ on:
       - src/zog/host_install/graphical_task_c_v3_install_freeze.py
       - src/zog/host_install/graphical_protected_storage_admission.py
       - tests/test_graphical_task_c_v3_install_freeze.py
+      - src/zog/host_install/graphical_task_c_v4_root_backed_install.py
+      - src/zog/host_install/systemd/root-backed/**
+      - tests/test_graphical_task_c_v4_root_backed_install.py
       - tests/test_graphical_protected_storage_admission.py
       - .github/workflows/graphical-v3-three-owner-install-freeze.yml
 permissions:
@@ -26,13 +29,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: zog144/root-control
-          ref: 935e2764c227b0d8036015d9d11e7419b3afd5e0
+          ref: f2c765cc38a666b60a09729cd16ab63102ca1dd5
           path: companions/root-control
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: zog144/host-deploy
-          ref: 95ff98327ed9730774fdaa5d6f588ac8c63b8ad6
+          ref: b21da4c9b4d20362b8af31226064a7f8040004a1
           path: companions/host-deploy
           persist-credentials: false
       - uses: actions/setup-python@v5
@@ -43,9 +46,13 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}/tests:${{ github.workspace }}/companions/root-control/src:${{ github.workspace }}/companions/root-control/tests:${{ github.workspace }}/companions/host-deploy/src:${{ github.workspace }}/companions/host-deploy/tests
         run: |
-          test "$(git -C companions/root-control rev-parse HEAD)" = 935e2764c227b0d8036015d9d11e7419b3afd5e0
-          test "$(git -C companions/host-deploy rev-parse HEAD)" = 95ff98327ed9730774fdaa5d6f588ac8c63b8ad6
-          python -m pytest -q -rs tests/test_graphical_task_c_v3_install_freeze.py             tests/test_graphical_registry_storage_installation.py             tests/test_graphical_protected_storage_admission.py             companions/root-control/tests/test_graphical_task_c_backend_observation.py             companions/root-control/tests/test_graphical_task_c_local_identity.py             companions/host-deploy/tests/test_graphics_owner_trust_v3_install.py             companions/host-deploy/tests/test_graphics_owner_trust_v3_backend_observation.py
+          test "$(git -C companions/root-control rev-parse HEAD)" = f2c765cc38a666b60a09729cd16ab63102ca1dd5
+          test "$(git -C companions/host-deploy rev-parse HEAD)" = b21da4c9b4d20362b8af31226064a7f8040004a1
+          python -m pytest -q -rs tests/test_graphical_task_c_v3_install_freeze.py             tests/test_graphical_registry_storage_installation.py             tests/test_graphical_protected_storage_admission.py             companions/root-control/tests/test_graphical_task_c_backend_observation.py             companions/root-control/tests/test_graphical_task_c_local_identity.py             companions/host-deploy/tests/test_graphics_owner_trust_v3_install.py             companions/host-deploy/tests/test_graphics_owner_trust_v3_backend_observation.py \
+            tests/test_graphical_task_c_v4_root_backed_install.py \
+            companions/host-deploy/tests/test_graphics_owner_trust_v4_root_backed.py \
+            companions/root-control/tests/test_graphical_task_c_root_backed_storage.py \
+            companions/root-control/tests/test_graphical_s3_installation_checkpoint.py
       - name: Build pinned, uninstalled component wheels and verify wheel RECORD
         env:
           PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}/tests:${{ github.workspace }}/companions/root-control/src:${{ github.workspace }}/companions/root-control/tests:${{ github.workspace }}/companions/host-deploy/src:${{ github.workspace }}/companions/host-deploy/tests
