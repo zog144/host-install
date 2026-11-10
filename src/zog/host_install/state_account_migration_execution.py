@@ -198,7 +198,8 @@ def execute(migration_id, *, rollback=False, expected_admission_sha256):
             credentials=observed["admission"]["credential_inodes"]
             root=Path(TRANSACTION_DIRECTORY)/migration_id
             probe=NativeNSSSystemdObserver(
-                journal_stage_reader=lambda: _read_completed(root))
+                journal_stage_reader=lambda: _read_completed(root),
+                journal_record_reader=lambda: _read_journal_record(root))
             backend=NativeStageBackend(
                 plan,probe=probe,command_runner=RootCommandRunner(),
                 initial_config=observed["original_configuration"],
@@ -222,6 +223,16 @@ def _selected_file_inventory(plan, observed):
             "migration-native-selection",
             "original inventory does not match protected admission")
     return inventory
+
+
+def _read_journal_record(root):
+    from .state_account_migration_completion import _read_protected
+    fd=os.open(root/"transaction.json",
+               os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+    try:
+        return decode(_read_protected(fd,size=65536))
+    finally:
+        os.close(fd)
 
 
 def _read_completed(root):
