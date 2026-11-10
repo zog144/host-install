@@ -24,6 +24,9 @@ from .state_account_migration_consumer import verify_consumer_selection, CONSUME
 SCHEMA = "zog-host-registry-directory-state-account-migration-v1"
 JOURNAL_SCHEMA = "zog-host-registry-state-account-journal-v1"
 STAGES = (
+    # Persistently disable autostart before stopping the old daemon. Otherwise
+    # a reboot midway through account/identity changes could restart 0.3.3.
+    "service-disabled",
     "service-stopped",
     "archive-consumers-gid-updated",
     "host-discover-group-gid-updated",
