@@ -227,3 +227,35 @@ def test_real_systemctl_reader_does_not_false_reject_retained_dropin(monkeypatch
     assert data == UNIT
     assert OVERRIDE in data
     assert status == {"active": True, "enabled": True}
+
+
+def test_live_nss_snapshot_does_not_infer_membership_from_systemd(monkeypatch):
+    """The service's SupplementaryGroups does not populate grp.gr_mem."""
+    from types import SimpleNamespace
+    accounts = [
+        SimpleNamespace(pw_name="host-discover", pw_uid=991, pw_gid=991,
+                        pw_dir="/home/host-discover", pw_shell="/sbin/nologin"),
+        SimpleNamespace(pw_name="ec2-user", pw_uid=1000, pw_gid=1000,
+                        pw_dir="/home/ec2-user", pw_shell="/bin/bash"),
+    ]
+    groups = [
+        SimpleNamespace(gr_name="host-discover", gr_gid=991, gr_mem=[]),
+        SimpleNamespace(gr_name="archive-consumers", gr_gid=990, gr_mem=[]),
+        SimpleNamespace(gr_name="ec2-user", gr_gid=1000, gr_mem=[]),
+    ]
+    monkeypatch.setattr(live.pwd, "getpwall", lambda: accounts)
+    monkeypatch.setattr(live.grp, "getgrall", lambda: groups)
+    actual = live._accounts()
+    assert actual["users"]["host-discover"] == {
+        "uid": 991, "gid": 991, "home": "/home/host-discover",
+        "shell": "/sbin/nologin", "groups": [],
+    }
+    assert actual["groups"] == {"host-discover":991, "archive-consumers":990}
+    assert all(str(number) not in actual["uid_index"]
+               and str(number) not in actual["gid_index"]
+               for number in (970, 971, 972, 973))
+    # Effective systemd grant is independently proved by the service reader;
+    # it must never be manufactured in the NSS record.
+    opened = observe(monkeypatch)
+    assert live._service()[1] == {"active": True, "enabled": True}
+    assert opened == [PATH]
