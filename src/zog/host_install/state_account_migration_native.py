@@ -123,8 +123,8 @@ class NativeStageBackend:
                  command_runner=None, initial_config=None,
                  original_identity_inodes=None,
                  original_credential_inodes=None, selected_file_inventory=None,
-                 selected_admission=None, journal_root=None,
-                 allow_disposable=False):
+                 selected_admission=None, selected_bundle=None,
+                 journal_root=None, allow_disposable=False):
         require(os.geteuid()==0,"root-required","native adapter needs root")
         root=Path(filesystem_root).absolute()
         if root==Path("/"):
@@ -200,6 +200,17 @@ class NativeStageBackend:
         self.original_identity_inodes=original_identity_inodes
         self.original_credential_inodes=original_credential_inodes
         self.credential_files=frozenset(names)
+        self.selected_bundle=selected_bundle
+        if root == Path("/"):
+            from .state_contract import validate
+            require(type(selected_bundle) is dict
+                    and type(selected_admission) is dict
+                    and digest(selected_bundle) == plan["bundle_sha256"]
+                    and selected_admission.get("bundle_sha256") ==
+                        digest(selected_bundle),
+                    "migration-native-bundle",
+                    "source-authenticated canonical bundle required")
+            validate(selected_bundle)
         self.journal_root = (
             Path(journal_root) if journal_root is not None else None)
         if root == Path("/"):
