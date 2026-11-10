@@ -176,3 +176,54 @@ def test_extra_or_duplicate_cli_options_deny():
     ):
         with pytest.raises(StateError):
             live._legacy_argv(ARGUMENTS + extra)
+
+
+def test_systemctl_cat_preserves_final_newline_from_subprocess(monkeypatch):
+    """The real subprocess path must not strip the retained drop-in's LF."""
+    from types import SimpleNamespace
+    calls = []
+    def run(command, **kwargs):
+        calls.append(tuple(command))
+        if command[1] == "cat":
+            data = UNIT
+        else:
+            data = b"active\n"
+        return SimpleNamespace(returncode=0, stdout=data, stderr=b"")
+    monkeypatch.setattr(live.subprocess, "run", run)
+    assert live._systemctl("cat", "host-discover.service").encode() == UNIT
+    assert live._systemctl("show", "host-discover.service",
+                           "--property=ActiveState", "--value") == "active"
+    assert UNIT.endswith(b"\n")
+    assert len(calls) == 2
+
+
+def test_real_systemctl_reader_does_not_false_reject_retained_dropin(monkeypatch):
+    """End-to-end native observer uses untrimmed cat, normalized show."""
+    from types import SimpleNamespace
+    values = {
+        "ActiveState": "active", "UnitFileState": "enabled",
+        "User": "host-discover", "Group": "host-discover",
+        "SupplementaryGroups": "archive-consumers",
+        "ReadWritePaths": (
+            "/var/lib/host-discover/identity "
+            "/var/lib/host-discover/credentials"
+        ),
+        "DropInPaths": PATH, "ExecStart": EFFECTIVE,
+        "NeedDaemonReload": "no",
+    }
+    def run(command, **kwargs):
+        if command[1] == "cat":
+            data = UNIT
+        else:
+            field = command[3].removeprefix("--property=")
+            data = (values[field] + "\n").encode()
+        return SimpleNamespace(returncode=0, stdout=data, stderr=b"")
+    monkeypatch.setattr(live.subprocess, "run", run)
+    def file_source(path, *, size_limit=65536, required_mode=None):
+        assert path == PATH
+        return OVERRIDE
+    monkeypatch.setattr(live, "_read_file", file_source)
+    data, status = live._service()
+    assert data == UNIT
+    assert OVERRIDE in data
+    assert status == {"active": True, "enabled": True}
