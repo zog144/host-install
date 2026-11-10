@@ -128,13 +128,17 @@ def select_runtime(executable, interpreter, executable_sha256,
         require(item.exists(), "migration-runtime", "candidate file absent")
         resolved = item.resolve(strict=True)
         venv_root = (root / CANDIDATE_ROOT.lstrip("/")).resolve()
-        # The venv's python3.12 is often a symlink to the protected host
-        # interpreter; only that exact root-owned system path is admissible.
+        # The selected Python 3.12 or a shebang alias may resolve to the
+        # protected system interpreter. Every alias is still checked for
+        # ownership, mode and the *selected* Python SHA-256 below.
         system_python = root / "usr/bin/python3.12"
+        python_names = {
+            CANDIDATE_PYTHON, CANDIDATE_ROOT + "/bin/python",
+            CANDIDATE_ROOT + "/bin/python3",
+        }
         require(resolved.is_file() and (
                     resolved.is_relative_to(venv_root)
-                    or (path == CANDIDATE_PYTHON and
-                        resolved == system_python)),
+                    or (path in python_names and resolved == system_python)),
                 "migration-runtime",
                 "candidate executable or Python target outside selection")
         if resolved == system_python:
@@ -157,9 +161,10 @@ def select_runtime(executable, interpreter, executable_sha256,
         return [s.st_dev, s.st_ino]
     executable_inode = verify(executable, executable_sha256)
     interpreter_inode = verify(interpreter, interpreter_sha256)
-    # The selected console-script must actually invoke that same interpreter.
-    # A matching script SHA-256 alone does not prevent a foreign shebang from
-    # launching an unreviewed environment.
+    # The selected console-script must use only an allowed venv interpreter.
+    # Same resolved path is sufficient but not necessary: a separately
+    # installed, root-owned venv/bin/python can have a different inode yet
+    # exactly the reviewed python3.12 executable bytes.
     script = root / executable.lstrip("/")
     with script.open("rb") as fp:
         shebang = fp.readline(256)
@@ -172,10 +177,14 @@ def select_runtime(executable, interpreter, executable_sha256,
         raise StateError("migration-runtime", "invalid shebang encoding") from exc
     allowed_python = {CANDIDATE_PYTHON, CANDIDATE_ROOT + "/bin/python",
                       CANDIDATE_ROOT + "/bin/python3"}
-    require(selected_python in allowed_python
-            and (root / selected_python.lstrip("/")).resolve(strict=True) ==
-                (root / interpreter.lstrip("/")).resolve(strict=True),
+    require(selected_python in allowed_python,
             "migration-runtime", "candidate script bypasses selected Python")
+    # Recheck the actual shebang target, not only the configured Python path.
+    # This validates its protected ancestry, owner/group/mode, bounded
+    # resolution (venv or the exact selected system Python) and SHA-256.
+    # Never accept a merely similar path, reported version or caller assertion.
+    if selected_python != interpreter:
+        verify(selected_python, interpreter_sha256)
     return {
         "schema": RUNTIME_SCHEMA,
         "consumer_selection_sha256": digest(CONSUMER_SELECTION),
