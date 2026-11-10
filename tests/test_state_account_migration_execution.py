@@ -88,3 +88,17 @@ def test_root_executor_does_not_mutate_while_native_gates_held():
         executor.execute(
             "11111111-1111-4111-8111-111111111111",
             expected_admission_sha256="a"*64)
+
+
+def test_package_declares_separate_admission_and_native_executor_entrypoints():
+    import tomllib
+    from pathlib import Path
+    root=Path(__file__).resolve().parents[1]
+    metadata=tomllib.loads((root/"pyproject.toml").read_text())
+    scripts=metadata["project"]["scripts"]
+    assert scripts["host-install-registry-migration-admit"] == (
+        "zog.host_install.state_account_migration_issuer:main")
+    assert scripts["host-install-registry-migration-execute"] == (
+        "zog.host_install.state_account_migration_execution:main")
+    assert scripts["host-install-registry-migration-admit"] != scripts[
+        "host-install-registry-migration-execute"]
