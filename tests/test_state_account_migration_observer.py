@@ -141,3 +141,63 @@ def test_legacy_systemd_group_grant_is_not_an_nss_membership(monkeypatch):
     groups["archive-consumers"].gr_mem=[]
     assert probe.stage_state(
         "host-discover-supplementary-groups-updated",{})=="before"
+
+
+def test_service_autostart_disabled_before_stop_and_reenabled_after_receipt(
+        monkeypatch):
+    """Durable enablement fence survives a reboot across all account stages."""
+    values={"ActiveState":"active","UnitFileState":"enabled",
+            "NeedDaemonReload":"no"}
+    calls=[]
+    def run(argv,**kwargs):
+        calls.append(tuple(argv))
+        if argv[0]=="systemctl" and argv[1]=="show":
+            field=argv[3].split("=",1)[1]
+            return SimpleNamespace(
+                returncode=0,stdout=(values[field]+"\n").encode(),stderr=b"")
+        if argv[1]=="disable":
+            values["UnitFileState"]="disabled"
+        elif argv[1]=="enable":
+            values["UnitFileState"]="enabled"
+        elif argv[1]=="stop":
+            values["ActiveState"]="inactive"
+        elif argv[1]=="start":
+            values["ActiveState"]="active"
+        else:
+            raise AssertionError(argv)
+        return SimpleNamespace(returncode=0,stdout=b"",stderr=b"")
+    monkeypatch.setattr(observer.subprocess,"run",run)
+    journal={"status":"applying","active":None,"completed":[]}
+    probe=observer.NativeNSSSystemdObserver(
+        journal_record_reader=lambda:dict(journal),
+        journal_stage_reader=lambda:journal["completed"])
+    assert probe.stage_state("service-disabled",{})=="before"
+    assert probe.stage_state("service-restored",{})=="before"
+    probe.transition("service-disabled")
+    assert values["ActiveState"]=="active"  # No downtime before boot fence.
+    assert values["UnitFileState"]=="disabled"
+    assert probe.stage_state("service-disabled",{})=="after"
+    probe.transition("service-stopped")
+    assert probe.stage_state("service-stopped",{})=="after"
+    assert calls.index(("systemctl","disable","host-discover.service")) < (
+        calls.index(("systemctl","stop","host-discover.service")))
+    journal["completed"]=["service-disabled","service-stopped"]
+    journal["active"]="service-restored"
+    probe.transition("service-restored")
+    assert values["UnitFileState"]=="enabled"
+    assert values["ActiveState"]=="active"
+    assert probe.stage_state("service-restored",{})=="after"
+    assert probe.stage_state("service-disabled",{})=="after"
+    journal["status"]="rolling-back"
+    journal["active"]="service-restored"
+    probe.transition("service-restored",rollback=True)
+    assert values["UnitFileState"]=="disabled"
+    assert values["ActiveState"]=="inactive"
+    assert probe.stage_state("service-restored",{})=="before"
+    journal["active"]="service-stopped"
+    probe.transition("service-stopped",rollback=True)
+    assert values["ActiveState"]=="active"
+    journal["active"]="service-disabled"
+    probe.transition("service-disabled",rollback=True)
+    assert values["UnitFileState"]=="enabled"
+    assert probe.stage_state("service-disabled",{})=="before"
