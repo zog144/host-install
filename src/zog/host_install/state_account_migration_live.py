@@ -98,20 +98,31 @@ def _legacy_argv(command):
         raise ValueError("invalid systemd ExecStart quoting") from error
     require(args and args[0] == OLD_EXE,
             "migration-systemd", "legacy daemon executable changed")
-    normalized = [args[0]]
-    for arg in args[1:]:
-        matched = False
-        for option in ("--configuration", "--destinations"):
-            if arg.startswith(option + "="):
-                normalized.extend((option, arg[len(option)+1:]))
-                matched = True
-                break
-        if not matched:
-            normalized.append(arg)
-    require(tuple(normalized) == LEGACY_ARGV,
-            "migration-systemd",
-            "legacy configuration/destinations arguments changed")
-    return tuple(normalized)
+    required = {
+        "--configuration": LEGACY_CONFIG,
+        "--destinations": LEGACY_DESTINATIONS,
+    }
+    seen = {}
+    index = 1
+    while index < len(args):
+        item = args[index]
+        key, separator, embedded = item.partition("=")
+        require(key in required and key not in seen,
+                "migration-systemd", "extra or duplicate legacy daemon flag")
+        if separator:
+            value = embedded
+        else:
+            require(index + 1 < len(args),
+                    "migration-systemd", "missing legacy daemon option value")
+            index += 1
+            value = args[index]
+        require(value == required[key],
+                "migration-systemd", "legacy daemon option value changed")
+        seen[key] = value
+        index += 1
+    require(seen == required,
+            "migration-systemd", "legacy configuration/destinations missing")
+    return LEGACY_ARGV
 
 
 def _effective_argv(exec_start):
