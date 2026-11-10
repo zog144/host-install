@@ -606,6 +606,67 @@ class NativeStageBackend:
         require(path.read_bytes()==new,
                 "migration-native-config","config switch not durable")
 
+    def _rollback_storage_stage(self, stage):
+        """Quarantine precisely selected root-backed storage, never delete data.
+
+        After identity is restored to its original path, preserve all new
+        STATE data in the protected transaction as rollback evidence.
+        Original canonical config is likewise moved aside, not overwritten
+        or recursively removed. Unrecognized ownership/marker/entries deny.
+        """
+        require(self.root==Path("/") and NATIVE_ACTIVATION_ENABLED
+                and stage in ("state-layout-prepared",
+                              "canonical-configuration-published")
+                and self.journal_root is not None,
+                "migration-native-rollback-hold",
+                "root-only selected rollback storage required")
+        require(self._storage_state(stage)=="after",
+                "migration-native-rollback",
+                "selected storage not in complete after state")
+        if stage=="state-layout-prepared":
+            source=self.path("/state")
+            require(not (source/"host-discover/identity").exists()
+                    and source.is_dir() and not source.is_symlink(),
+                    "migration-native-rollback",
+                    "retained identity must be restored before STATE quarantine")
+            destination="rolled-back-state"
+            parent=self.path("/")
+            original_name="state"
+        else:
+            source=self.path("/etc/zog/host-install")
+            destination="rolled-back-configuration"
+            parent=self.path("/etc/zog")
+            original_name="host-install"
+            expected={"accounts.json","installation.json",
+                      "bootstrap.json",".host-install.lock"}
+            require(set(os.listdir(source)) <= expected and
+                    expected- {".host-install.lock"} <= set(os.listdir(source)),
+                    "migration-native-rollback",
+                    "unrecognized canonical configuration cannot be quarantined")
+        target=self.journal_root/destination
+        require(not target.exists() and not target.is_symlink()
+                and source.stat().st_dev==self.journal_root.stat().st_dev,
+                "migration-native-rollback",
+                "rollback evidence destination already exists or foreign device")
+        srcfd=os.open(parent,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+        dstfd=os.open(self.journal_root,
+                      os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+        try:
+            require((os.fstat(dstfd).st_uid,os.fstat(dstfd).st_gid,
+                     stat.S_IMODE(os.fstat(dstfd).st_mode))==(0,0,0o700),
+                    "migration-native-rollback",
+                    "protected rollback evidence parent changed")
+            _noreplace(srcfd,original_name,dstfd,destination)
+            os.fsync(srcfd)
+            os.fsync(dstfd)
+        finally:
+            os.close(dstfd)
+            os.close(srcfd)
+        require(target.is_dir() and not target.is_symlink()
+                and target.stat().st_dev==self.journal_root.stat().st_dev,
+                "migration-native-rollback",
+                "selected rollback evidence not preserved")
+
     def prepare_service_start(self, row):
         """Publish original-key completion from the durably committed intent.
 
@@ -673,9 +734,10 @@ class NativeStageBackend:
             self._chown_stage(stage,not rollback)
         elif stage in ("canonical-configuration-published",
                          "state-layout-prepared") and self.root==Path("/"):
-            require(not rollback,"migration-native-rollback-hold",
-                    "reversal of canonical STATE needs protected proof of emptiness")
-            self._apply_storage_stage(stage)
+            if rollback:
+                self._rollback_storage_stage(stage)
+            else:
+                self._apply_storage_stage(stage)
         elif stage=="identity-moved":
             self._move(rollback)
         elif stage=="configuration-path-switched":
