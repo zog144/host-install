@@ -1,0 +1,23 @@
+# Disabled-by-default read-only validation of v4 signed local directory identity.
+# No mount/format/repair, no S3 credentials, no SSM send.
+[Unit]
+Description=Verify root-backed Task C local protected storage before owner/broker
+After=local-fs.target
+Before=zog-graphical-owner.service zog-graphical-trust.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/opt/zog/graphical-owner/venv/bin/python3 -I -m zog.root_control.graphical_task_c_root_storage_verify
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateDevices=yes
+PrivateTmp=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+ReadOnlyPaths=/etc/zog/graphical-owner
+ReadOnlyPaths=/var/lib/zog-graphical-owner-ledger
+ReadOnlyPaths=/var/lib/zog-graphical-owner-authority
