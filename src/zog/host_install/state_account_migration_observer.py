@@ -94,8 +94,11 @@ class NativeNSSSystemdObserver:
                 else "conflict")
         if stage=="host-discover-supplementary-groups-updated":
             members=_members("host-discover")
+            # The original NSS membership is empty. systemd independently
+            # grants archive-consumers to the legacy running service; do not
+            # confuse its SupplementaryGroups with usermod/secondary NSS.
             return _state(members,
-                          frozenset({"archive-consumers"}),
+                          frozenset(),
                           frozenset({"archive-consumers","host-control"}))
         if stage=="box-control-supplementary-groups-updated":
             return _state(_members("box-control"),
