@@ -174,3 +174,67 @@ def test_bundle_builder_denies_reused_or_unselected_identifiers():
     bad = dict(inputs, registry_origin="http://untrusted.invalid")
     with pytest.raises(StateError):
         a.assemble_migration_bundle(BASE, **bad)
+
+
+def _separate_python_entrypoint(tmp_path):
+    """Disposable root-owned files with matching bytes but *different* inodes."""
+    root = tmp_path / "root"
+    bin_dir = root / a.CANDIDATE_ROOT.lstrip("/") / "bin"
+    bin_dir.mkdir(parents=True)
+    alias = a.CANDIDATE_ROOT + "/bin/python"
+    script = bin_dir / "host-discover"
+    script.write_bytes(("#!" + alias + "\n").encode() + b"exit 0\n")
+    selected = bin_dir / "python3.12"
+    shebang_python = bin_dir / "python"
+    python_bytes = b"synthetic exact native python interpreter image\n"
+    selected.write_bytes(python_bytes)
+    shebang_python.write_bytes(python_bytes)
+    for file in (script, selected, shebang_python):
+        file.chmod(0o755)
+    script_hash = hashlib.sha256(script.read_bytes()).hexdigest()
+    interpreter_hash = hashlib.sha256(python_bytes).hexdigest()
+    return root, script, selected, shebang_python, script_hash, interpreter_hash
+
+
+def test_separate_root_owned_byte_identical_venv_python_is_accepted(tmp_path):
+    if os.geteuid() != 0:
+        pytest.skip("root-owned disposable selection required")
+    root, script, selected, alias, script_hash, python_hash = (
+        _separate_python_entrypoint(tmp_path))
+    assert selected.stat().st_ino != alias.stat().st_ino
+    assert hashlib.sha256(alias.read_bytes()).hexdigest() == python_hash
+    result = a.select_runtime(
+        a.CANDIDATE_EXECUTABLE, a.CANDIDATE_PYTHON,
+        script_hash, python_hash, fs_root=str(root), disposable=True)
+    assert result["interpreter_inode"] == [
+        selected.stat().st_dev, selected.stat().st_ino]
+    assert result["interpreter_sha256"] == python_hash
+
+
+@pytest.mark.parametrize("attack", (
+    "alias-changed-bytes", "alias-group-writable",
+    "alias-symlink-outside-candidate", "foreign-shebang",
+))
+def test_separate_shebang_python_must_be_independently_protected(
+        tmp_path, attack):
+    if os.geteuid() != 0:
+        pytest.skip("root-owned disposable selection required")
+    root, script, selected, alias, script_hash, python_hash = (
+        _separate_python_entrypoint(tmp_path))
+    if attack == "alias-changed-bytes":
+        alias.write_bytes(b"different interpreter bytes")
+    elif attack == "alias-group-writable":
+        alias.chmod(0o775)
+    elif attack == "alias-symlink-outside-candidate":
+        foreign = root / "foreign-python"
+        foreign.write_bytes(selected.read_bytes())
+        foreign.chmod(0o755)
+        alias.unlink()
+        alias.symlink_to(foreign)
+    elif attack == "foreign-shebang":
+        script.write_bytes(b"#!/usr/bin/python3\nexit 0\n")
+        script_hash = hashlib.sha256(script.read_bytes()).hexdigest()
+    with pytest.raises(StateError):
+        a.select_runtime(
+            a.CANDIDATE_EXECUTABLE, a.CANDIDATE_PYTHON,
+            script_hash, python_hash, fs_root=str(root), disposable=True)
