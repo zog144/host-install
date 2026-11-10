@@ -1,0 +1,155 @@
+"""Verify the retained registry Host's existing systemd drop-in is not a false HOLD.
+
+These source tests never access or alter the real systemd manager, live beacon,
+privileged account database or /state. File ancestry is independently guarded
+by state_account_migration_live._read_file.
+"""
+import pytest
+
+from zog.host_install import state_account_migration_live as live
+from zog.host_install.state_contract import StateError
+
+
+PATH = "/etc/systemd/system/host-discover.service.d/registries.conf"
+OVERRIDE = (
+    "[Service]\n"
+    "ExecStart=\n"
+    "ExecStart=" + live.OLD_EXE
+    + " --configuration " + live.LEGACY_CONFIG
+    + " --destinations " + live.LEGACY_DESTINATIONS + "\n"
+).encode()
+UNIT = (
+    "# /usr/lib/systemd/system/host-discover.service\n"
+    "[Unit]\nDescription=Retained host-discover\n[Service]\n"
+    "User=host-discover\nGroup=host-discover\n"
+    "SupplementaryGroups=archive-consumers\n"
+    "ReadWritePaths=/var/lib/host-discover/identity /var/lib/host-discover/credentials\n"
+    "# " + PATH + "\n"
+).encode() + OVERRIDE
+ARGUMENTS = " ".join(live.LEGACY_ARGV)
+EFFECTIVE = "{ path=" + live.OLD_EXE + " ; argv[]=" + ARGUMENTS + " ; ignore_errors=no ; }"
+
+
+def observe(monkeypatch, *, dropins=PATH, source=OVERRIDE,
+            effective=EFFECTIVE, published=UNIT,
+            active="active", extra=None):
+    values = {
+        "ActiveState": active,
+        "UnitFileState": "enabled",
+        "User": "host-discover",
+        "Group": "host-discover",
+        "SupplementaryGroups": "archive-consumers",
+        "ReadWritePaths": (
+            "/var/lib/host-discover/identity "
+            "/var/lib/host-discover/credentials"
+        ),
+        "DropInPaths": dropins,
+        "ExecStart": effective,
+        "NeedDaemonReload": "no",
+    }
+    if extra:
+        values.update(extra)
+
+    def systemctl(*args):
+        if args[:2] == ("cat", "host-discover.service"):
+            return published.decode()
+        assert args[:2] == ("show", "host-discover.service")
+        assert args[2].startswith("--property=")
+        return values[args[2][len("--property="):]]
+    opened = []
+    def selected_source(path, *, size_limit=65536, required_mode=None):
+        opened.append(path)
+        assert size_limit == 8192
+        assert path == PATH
+        return source
+    monkeypatch.setattr(live, "_systemctl", systemctl)
+    monkeypatch.setattr(live, "_read_file", selected_source)
+    return opened
+
+
+def test_existing_root_controlled_legacy_dropin_preserves_beacon(monkeypatch):
+    opened = observe(monkeypatch)
+    unit, state = live._service()
+    assert state == {"active": True, "enabled": True}
+    assert opened == [PATH]
+    assert unit == UNIT
+    assert OVERRIDE in unit
+    assert live.LEGACY_ARGV == live._effective_argv(EFFECTIVE)
+
+
+def test_legacy_service_without_dropin_still_accepted(monkeypatch):
+    opened = observe(monkeypatch, dropins="")
+    _, state = live._service()
+    assert state["active"]
+    assert opened == []
+
+
+@pytest.mark.parametrize("foreign_path", (
+    "/run/systemd/system/host-discover.service.d/registries.conf",
+    "/etc/systemd/system/other.service.d/registries.conf",
+    "/etc/systemd/system/host-discover.service.d/../override.conf",
+    "/etc/systemd/system/host-discover.service.d/override.service",
+    "/etc/systemd/system/host-discover.service.d/malicious space.conf",
+))
+def test_dropin_must_be_in_selected_persistent_service_directory(
+        monkeypatch, foreign_path):
+    observe(monkeypatch, dropins=foreign_path)
+    with pytest.raises(StateError):
+        live._service()
+
+
+@pytest.mark.parametrize("bad_source", (
+    b"[Service]\nExecStart=/usr/bin/other --configuration original\n",
+    b"[Service]\nExecStart=\nExecStart=/usr/bin/other\n",
+    b"[Service]\nExecStart=\nExecStart=/usr/bin/true\n",
+    b"[Service]\nExecStart=\nExecStart=/usr/bin/env " + OVERRIDE.split(b"ExecStart=")[-1],
+    OVERRIDE + b"User=root\n",
+    OVERRIDE + b"ReadWritePaths=/tmp\n",
+    OVERRIDE + b"Environment=AUTH=alternate\n",
+    OVERRIDE + b"[Unit]\nRequires=other.service\n",
+    OVERRIDE + b"ExecStart=\n",
+))
+def test_altered_or_privilege_changing_dropin_denied(monkeypatch, bad_source):
+    observe(monkeypatch, source=bad_source)
+    with pytest.raises((StateError, ValueError)):
+        live._service()
+
+
+@pytest.mark.parametrize("effective", (
+    "{ path=/usr/bin/true ; argv[]=/usr/bin/true ; ignore_errors=no ; }",
+    "{ path=" + live.OLD_EXE + " ; argv[]=" + live.OLD_EXE
+        + " --configuration /tmp/foreign.json --destinations "
+        + live.LEGACY_DESTINATIONS + " ; ignore_errors=no ; }",
+    "{ path=" + live.OLD_EXE + " ; argv[]=" + ARGUMENTS
+        + " --once ; ignore_errors=no ; }",
+    "{ path=" + live.OLD_EXE + " ; argv[]=" + ARGUMENTS
+        + " ; ignore_errors=no ; } { path=" + live.OLD_EXE
+        + " ; argv[]=" + ARGUMENTS + " ; ignore_errors=no ; }",
+))
+def test_effective_execstart_must_still_match_original(monkeypatch, effective):
+    observe(monkeypatch, effective=effective)
+    with pytest.raises(StateError):
+        live._service()
+
+
+def test_approved_file_must_appear_in_systemctl_cat(monkeypatch):
+    observe(monkeypatch, published=UNIT.replace(OVERRIDE, b""))
+    with pytest.raises(StateError):
+        live._service()
+
+
+def test_extra_dropin_or_service_mutation_denied(monkeypatch):
+    observe(monkeypatch, dropins=PATH + " " + PATH)
+    with pytest.raises(StateError):
+        live._service()
+    observe(monkeypatch, extra={"User": "root"})
+    with pytest.raises(StateError):
+        live._service()
+
+
+def test_exact_legacy_cli_equals_forms_supported():
+    value = (
+        live.OLD_EXE + " --configuration=" + live.LEGACY_CONFIG
+        + " --destinations=" + live.LEGACY_DESTINATIONS
+    )
+    assert live._legacy_argv(value) == live.LEGACY_ARGV
