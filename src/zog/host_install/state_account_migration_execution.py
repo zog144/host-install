@@ -250,7 +250,7 @@ def main(argv=None):
             "migration_id":args.migration_id,
             "admission_sha256":digest(result["admission"]),
             "native_activation_enabled":result["native_activation_enabled"],
-            "source_hold":"safe canonical STATE rollback and native acceptance pending",
+            "source_hold":"persistent reboot/start fence and native installed-byte acceptance pending",
         }
     else:
         result=execute(args.migration_id,
