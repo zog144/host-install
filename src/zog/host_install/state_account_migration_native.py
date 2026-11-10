@@ -358,6 +358,36 @@ class NativeStageBackend:
             changes.append(pair)
         return ("after" if all(x==after for x in changes) else "before")
 
+    def ensure_rollback_autostart_fence(self):
+        """Persist reboot hold before undoing any account or identity stage.
+
+        Called only after MigrationJournal has durably marked rolling-back,
+        under both root transaction locks. If a reboot interrupts this
+        command, the root FD launcher denies non-applying journals.
+        """
+        require(self.root==Path("/") and NATIVE_ACTIVATION_ENABLED,
+                "migration-native-hold",
+                "source-selected native rollback fence required")
+        from .state_account_migration_live import _systemctl
+        enabled=_systemctl("show","host-discover.service",
+                           "--property=UnitFileState","--value")
+        require(enabled in ("enabled","disabled"),
+                "migration-native-service","unknown unit enablement")
+        if enabled=="enabled":
+            result=subprocess.run(
+                ("/usr/bin/systemctl","disable","host-discover.service"),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                timeout=45,check=False,
+                env={"PATH":"/usr/bin:/bin","LANG":"C"})
+            require(result.returncode==0,
+                    "migration-native-service",
+                    "cannot durably disable service during rollback")
+        require(_systemctl("show","host-discover.service",
+                           "--property=UnitFileState","--value")=="disabled",
+                "migration-native-service",
+                "reboot hold not persistent")
+
     def _effective_service_state(self):
         """Compare actual systemd manager argv/identity, not just unit bytes.
 
@@ -541,7 +571,8 @@ class NativeStageBackend:
         if stage=="systemd-daemon-reloaded" and self.root==Path("/"):
             return self._effective_service_state()
         if stage in ACCOUNT_COMMANDS or stage in (
-                "service-stopped","systemd-daemon-reloaded","service-restored"):
+                "service-disabled","service-stopped",
+                "systemd-daemon-reloaded","service-restored"):
             return self.probe.stage_state(stage,self.plan)
         if stage in ("canonical-configuration-published",
                      "state-layout-prepared") and self.root==Path("/"):
@@ -808,8 +839,8 @@ class NativeStageBackend:
                 "migration-native-stage","step state not selected")
         if stage in ACCOUNT_COMMANDS:
             self.runner.run(stage,rollback=rollback)
-        elif stage in ("service-stopped","systemd-daemon-reloaded",
-                       "service-restored"):
+        elif stage in ("service-disabled","service-stopped",
+                       "systemd-daemon-reloaded","service-restored"):
             if self.root==Path("/") and stage=="service-restored" and not rollback:
                 require(self._effective_service_state()=="after",
                         "migration-native-service",
