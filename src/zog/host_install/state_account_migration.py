@@ -47,6 +47,42 @@ STAGES = (
     "systemd-daemon-reloaded",
     "service-restored",
 )
+def service_start_intent(plan):
+    """Deterministic durable pre-start checkpoint for the retained FD launcher.
+
+    The final service stage cannot require a completed journal *before*
+    systemd starts the launcher; that would deadlock the migration. The
+    protected owner must durably commit this intent and publish a verified
+    original-identity completion receipt before requesting service start.
+    """
+    require(type(plan) is dict and plan.get("schema") == SCHEMA
+            and _uuid(plan.get("migration_id")),
+            "migration-recovery", "reviewed plan required for start intent")
+    return {
+        "schema": JOURNAL_SCHEMA, "migration_id": plan["migration_id"],
+        "plan_sha256": digest(plan), "status": "applying",
+        "completed": list(STAGES[:-1]), "active": STAGES[-1],
+    }
+
+
+def validate_service_start_journal(plan, row, receipt_journal_sha256):
+    """Accept only the durable start intent or its exact completed successor.
+
+    A rolling-back/rolled-back, skipped, reverted or foreign journal may
+    never unlock the service. The receipt pins the immutable pre-start intent,
+    so the later post-start commit does not invalidate reboot/relaunch.
+    """
+    intent = service_start_intent(plan)
+    complete = {**intent, "status": "complete", "active": None,
+                "completed": list(STAGES)}
+    require(type(row) is dict and row in (intent, complete)
+            and type(receipt_journal_sha256) is str
+            and receipt_journal_sha256 ==
+                hashlib.sha256(canonical(intent)).hexdigest(),
+            "migration-launcher", "uncommitted or altered service start")
+    return "starting" if row == intent else "complete"
+
+
 LEGACY_UID = 991
 LEGACY_GID = 991
 LEGACY_ARCHIVE_GID = 990
