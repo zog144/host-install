@@ -69,8 +69,7 @@ def validate_relaunch_fds(context, plan_fd, journal_fd, completion_fd,
             and journal["schema"]==JOURNAL_SCHEMA
             and journal["migration_id"]==plan["migration_id"]
             and journal["plan_sha256"]==digest(plan)
-            and journal["status"]=="complete" and journal["active"] is None
-            and journal["completed"]==list(STAGES),
+            and journal["status"] in ("applying", "complete"),
             "migration-launcher","migration not durably completed")
     require(type(receipt) is dict and
             receipt.get("schema")==COMPLETION_SCHEMA
@@ -81,11 +80,20 @@ def validate_relaunch_fds(context, plan_fd, journal_fd, completion_fd,
             and receipt.get("fingerprint")==plan["public_fingerprint"]
             and receipt.get("registry_origin")==plan["registry_origin"]
             and receipt.get("plan_sha256")==digest(plan)
-            and receipt.get("journal_sha256")==
-                hashlib.sha256(journal_bytes).hexdigest()
             and receipt.get("uid")==expected_uid and
                 receipt.get("gid")==expected_gid,
             "migration-launcher","foreign or incomplete root receipt")
+    from .state_account_migration import validate_service_start_journal
+    # The receipt can be published at the durable prestart intent while the
+    # service is inactive. The completed journal is its exact successor. Old
+    # completed-only receipts remain accepted for source fixture compatibility.
+    if not (journal["status"]=="complete"
+            and journal["active"] is None
+            and journal["completed"]==list(STAGES)
+            and receipt["journal_sha256"] ==
+                hashlib.sha256(journal_bytes).hexdigest()):
+        validate_service_start_journal(
+            plan, journal, receipt["journal_sha256"])
     actual=os.fstat(identity_fd)
     require(stat.S_ISDIR(actual.st_mode)
             and (actual.st_uid,actual.st_gid,stat.S_IMODE(actual.st_mode))==
