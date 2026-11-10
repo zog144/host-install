@@ -53,9 +53,15 @@ def _members(name):
 class NativeNSSSystemdObserver:
     """Root-only read-only view, never itself authorizing an account change."""
 
-    def __init__(self, *, journal_stage_reader=None):
+    def __init__(self, *, journal_stage_reader=None,
+                 journal_record_reader=None):
         require(os.geteuid()==0,"root-required","native NSS observer requires root")
         self._journal_stage_reader=journal_stage_reader
+        self._journal_record_reader=journal_record_reader
+
+    def _record(self):
+        return (self._journal_record_reader()
+                if self._journal_record_reader is not None else None)
 
     def _systemctl(self,field):
         require(field in ("ActiveState","UnitFileState","NeedDaemonReload"),
@@ -103,19 +109,55 @@ class NativeNSSSystemdObserver:
         if stage=="box-control-supplementary-groups-updated":
             return _state(_members("box-control"),
                           frozenset(),frozenset({"archive-consumers"}))
-        if stage in ("service-stopped","service-restored"):
+        if stage in ("service-disabled","service-stopped",
+                     "service-restored"):
             status=self._systemctl("ActiveState")
-            require(status in ("active","inactive"),
-                    "migration-service","service failure/transition needs review")
-            if stage=="service-restored":
-                return _state(status,"inactive","active")
-            # Once the service has been restored, the earlier stop is a
-            # protected historical milestone. Read-only journal reader must
-            # also confirm that later restoration completed.
-            if status=="active" and self._journal_stage_reader is not None:
-                completed=self._journal_stage_reader()
-                if "service-restored" in completed:return "after"
-            return _state(status,"active","inactive")
+            enabled=self._systemctl("UnitFileState")
+            require(status in ("active","inactive")
+                    and enabled in ("enabled","disabled"),
+                    "migration-service",
+                    "unknown original service state or autostart fence")
+            record=self._record()
+            if record is not None:
+                require(type(record) is dict
+                        and record.get("status") in (
+                            "applying","complete","rolling-back","rolled-back")
+                        and type(record.get("completed")) is list,
+                        "migration-service",
+                        "protected journal history required")
+            completed=(record["completed"] if record is not None
+                       else self._journal_stage_reader()
+                            if self._journal_stage_reader is not None else [])
+            rolling=(record is not None and
+                     record["status"]=="rolling-back")
+            active=(record.get("active") if record is not None else None)
+            if stage=="service-disabled":
+                if enabled=="disabled":
+                    return "after"
+                if (("service-restored" in completed
+                     and not (rolling and active=="service-disabled"))
+                    or (record is not None
+                        and record["status"]=="complete")):
+                    return "after"  # Historical autostart fence was completed.
+                return "before"
+            if stage=="service-stopped":
+                if (status=="active" and
+                    "service-restored" in completed and
+                    not (rolling and active=="service-stopped")):
+                    return "after"  # Historical stop before FD relaunch.
+                return _state(status,"active","inactive")
+            # The old enabled 0.3.3 daemon must not appear as a completed
+            # retained-FD service-restored stage in an initial transaction.
+            if record is not None and not (
+                    "systemd-daemon-reloaded" in completed
+                    or active=="service-restored"
+                    or record["status"]=="complete"):
+                return "before"
+            if status=="active" and enabled=="enabled":
+                return "after"
+            if status=="active" and enabled=="disabled" and rolling:
+                return "after"  # Interrupted stop/disable; replay must stop.
+            return "before"
         if stage=="systemd-daemon-reloaded":
             value=self._systemctl("NeedDaemonReload")
             require(value in ("yes","no"),"migration-service",
@@ -129,17 +171,30 @@ class NativeNSSSystemdObserver:
                          "only account and service source probes supported")
 
     def transition(self,stage,*,rollback=False):
-        require(stage in ("service-stopped","service-restored",
-                          "systemd-daemon-reloaded"),
+        require(stage in ("service-disabled","service-stopped",
+                          "service-restored","systemd-daemon-reloaded"),
                 "migration-service","unreviewed service operation")
+        commands=[]
         if stage=="systemd-daemon-reloaded":
-            action=["systemctl","daemon-reload"]
+            commands=[["systemctl","daemon-reload"]]
+        elif stage=="service-disabled":
+            commands=[["systemctl","enable" if rollback else "disable",
+                       "host-discover.service"]]
+        elif stage=="service-stopped":
+            commands=[["systemctl","start" if rollback else "stop",
+                       "host-discover.service"]]
+        elif rollback:
+            commands=[["systemctl","stop","host-discover.service"],
+                      ["systemctl","disable","host-discover.service"]]
         else:
-            target_active=(stage=="service-restored") != rollback
-            action=["systemctl","start" if target_active else "stop",
-                    "host-discover.service"]
-        result=subprocess.run(
-            action, stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,timeout=45,check=False)
-        require(result.returncode==0,
+            commands=[["systemctl","enable","host-discover.service"],
+                      ["systemctl","start","host-discover.service"]]
+        for action in commands:
+            result=subprocess.run(
+                action, stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,timeout=45,check=False)
+            require(result.returncode==0,
+                    "migration-service",
+                    "systemd transition failed; reconcile committed journal")
+
                 "migration-service","systemd command failed; reconcile transaction")
