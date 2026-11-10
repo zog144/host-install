@@ -114,8 +114,8 @@ def test_launcher_denies_foreign_source_installation_or_rollback(
         os.close(ctx.fd)
 
 
-def test_launcher_unit_is_selected_but_not_installable_or_enabled():
-    assert launcher.RUNTIME_ENABLED is False
+def test_launcher_unit_is_selected_and_requires_native_inspection(monkeypatch):
+    assert launcher.RUNTIME_ENABLED is True
     unit=launcher.reviewed_launcher_dropin_template()
     assert b"User=root" in unit and b"Group=root" in unit
     assert b"ExecStart=" in unit and b"@PINNED_HOST_INSTALL_PYTHON312@" in unit
@@ -127,7 +127,8 @@ def test_launcher_unit_is_selected_but_not_installable_or_enabled():
     assert b"state_account_migration_launcher" in actual
     with pytest.raises(StateError):
         launcher.render_launcher_dropin("/usr/bin/python3")
-    with pytest.raises(StateError):
+    monkeypatch.setattr(launcher.os,"geteuid",lambda:1000)
+    with pytest.raises(StateError,match="root-required|migration-native-hold"):
         launcher.run_selected_once()
 
 
