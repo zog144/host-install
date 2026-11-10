@@ -309,11 +309,141 @@ class NativeStageBackend:
             changes.append(pair)
         return ("after" if all(x==after for x in changes) else "before")
 
+    def _read_record(self, path, expected):
+        """Refuse unexpected canonical migration file content and metadata."""
+        file=self.path(path)
+        if not file.exists():
+            return False
+        info=file.lstat()
+        require(stat.S_ISREG(info.st_mode) and info.st_uid==info.st_gid==0
+                and stat.S_IMODE(info.st_mode)==0o444
+                and info.st_nlink==1 and file.read_bytes()==expected,
+                "migration-native-record", "canonical record substituted")
+        return True
+
+    def _storage_state(self,stage):
+        """Observe real canonical storage, independently of synthetic probes."""
+        require(self.root==Path("/") and self.selected_bundle is not None,
+                "migration-native-storage", "real selected bundle required")
+        from .state_provision import layout_record
+        b=self.selected_bundle
+        if stage=="canonical-configuration-published":
+            directory=self.path("/etc/zog/host-install")
+            if not directory.exists():
+                return "before"
+            require(directory.is_dir() and not directory.is_symlink(),
+                    "migration-native-storage", "foreign canonical directory")
+            # A partial durable publication remains BEFORE and the guarded
+            # publisher must resume only exact original record bytes.
+            for name in ("accounts", "installation", "bootstrap"):
+                p=directory/(name+".json")
+                if p.exists():
+                    self._read_record(
+                        "/etc/zog/host-install/"+name+".json",
+                        canonical(b[name]))
+            expected={name+".json" for name in (
+                "accounts", "installation", "bootstrap")}
+            present=set(os.listdir(directory))
+            require(present <= expected |
+                    {".host-install.lock"} |
+                    {".pending."+name for name in expected},
+                    "migration-native-storage", "foreign configuration entry")
+            return ("after" if expected <= present else "before")
+        state=self.path("/state")
+        if not state.exists():
+            return "before"
+        require(state.is_dir() and not state.is_symlink()
+                and (state.stat().st_uid,state.stat().st_gid,
+                     stat.S_IMODE(state.stat().st_mode)) == (0,0,0o755)
+                and state.stat().st_dev==self.path("/").stat().st_dev,
+                "migration-native-storage", "foreign directory-backed STATE")
+        marker=state/".zog-state.json"
+        if marker.exists():
+            self._read_record("/state/.zog-state.json",
+                              canonical(b["marker"]))
+        prepared=state/".zog-prepared.json"
+        if not prepared.exists():
+            # A journaled, interrupted layout is still BEFORE. prepare_tree
+            # will independently reject unrelated directories, marker data
+            # and unsafe paths when retried.
+            return "before"
+        self._read_record("/state/.zog-prepared.json",
+                          layout_record(b,"zog-state-prepared"))
+        from .state_inspect import inspect_live
+        with inspect_live() as context:
+            require(context.bundle==b,
+                    "migration-native-storage",
+                    "STATE installation differs from approved bundle")
+        return "after"
+
+    def _active_journal_fd(self):
+        """Open only root-owned committed transaction journal at fixed path."""
+        require(self.root==Path("/") and self.journal_root is not None,
+                "migration-native-journal",
+                "only selected native transaction may publish storage")
+        expected=self.path(
+            "/var/lib/zog-host-install/migrations/"+self.plan["migration_id"])
+        require(self.journal_root==expected
+                and expected.is_dir() and not expected.is_symlink()
+                and (expected.stat().st_uid,expected.stat().st_gid,
+                     stat.S_IMODE(expected.stat().st_mode))==(0,0,0o700),
+                "migration-native-journal", "wrong protected transaction path")
+        from .state_account_migration_completion import _read_protected
+        fd=os.open(expected/"transaction.json",
+                   os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+        try:
+            _read_protected(fd,size=65536)
+            return fd
+        except BaseException:
+            os.close(fd)
+            raise
+
+    def _apply_storage_stage(self,stage):
+        require(self.root==Path("/") and NATIVE_ACTIVATION_ENABLED
+                and stage in ("canonical-configuration-published",
+                              "state-layout-prepared"),
+                "migration-native-hold",
+                "native storage publishers require protected activation")
+        journal_fd=self._active_journal_fd()
+        try:
+            if stage=="canonical-configuration-published":
+                from .state_account_migration_storage import (
+                    publish_migration_configuration,
+                )
+                publish_migration_configuration(
+                    self.selected_bundle,self.plan,journal_fd)
+            else:
+                from .state_account_migration_storage import (
+                    prepare_migration_layout,
+                )
+                from .state_provision import (
+                    ensure_directory_mountpoint,open_volume,
+                )
+                from .state_inspect import _mount,load_configuration,directory
+                bundle=load_configuration()
+                require(bundle==self.selected_bundle
+                        and _mount(bundle).get("backend")=="root-directory",
+                        "migration-native-storage",
+                        "foreign root-backed STATE selection")
+                root_fd=directory("/")
+                try:
+                    ensure_directory_mountpoint(root_fd)
+                finally: os.close(root_fd)
+                with open_volume() as context:
+                    prepare_migration_layout(
+                        context,self.plan["state_volume_id"],
+                        self.plan,journal_fd)
+        finally:
+            os.close(journal_fd)
+
     def state(self,stage):
         require(stage in STAGES,"migration-stage","unreviewed stage")
         if stage in ACCOUNT_COMMANDS or stage in (
                 "service-stopped","systemd-daemon-reloaded","service-restored"):
             return self.probe.stage_state(stage,self.plan)
+        if stage in ("canonical-configuration-published",
+                     "state-layout-prepared") and self.root==Path("/"):
+            return self._storage_state(stage)
         if stage in FILE_OWNERS:
             return self._status_files(stage)
         if stage=="identity-moved":
@@ -541,6 +671,11 @@ class NativeStageBackend:
             self.probe.transition(stage,rollback=rollback)
         elif stage in FILE_OWNERS:
             self._chown_stage(stage,not rollback)
+        elif stage in ("canonical-configuration-published",
+                         "state-layout-prepared") and self.root==Path("/"):
+            require(not rollback,"migration-native-rollback-hold",
+                    "reversal of canonical STATE needs protected proof of emptiness")
+            self._apply_storage_stage(stage)
         elif stage=="identity-moved":
             self._move(rollback)
         elif stage=="configuration-path-switched":
