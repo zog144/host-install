@@ -38,7 +38,8 @@ from .state_io import lock
 
 TRANSACTION_FILES = frozenset({
     "bundle.json", "plan.json", "admission.json",
-    "operator-selection.json", "original.json", "transaction.json",
+    "operator-selection.json", "source-inventory.json", "original.json",
+    "transaction.json",
     ".transaction.lock", "retained-legacy-completion.json",
     ".pending.retained-legacy-completion.json", ".transaction.pending",
 })
@@ -68,13 +69,15 @@ def review_protected_transaction(parent_fd, migration_id):
         _protected_dir(root,expected_device=os.fstat(parent_fd).st_dev)
         entries=set(os.listdir(root))
         required={"bundle.json","plan.json","admission.json",
-                  "operator-selection.json","original.json","transaction.json"}
+                  "operator-selection.json","source-inventory.json",
+                  "original.json","transaction.json"}
         require(required <= entries and entries <= TRANSACTION_FILES,
                 "migration-native-selection", "foreign transaction entries")
         b=_read_selected(root,"bundle.json")
         plan=_read_selected(root,"plan.json")
         admission=_read_selected(root,"admission.json")
         operator=_read_selected(root,"operator-selection.json")
+        file_inventory=_read_selected(root,"source-inventory.json")
         witness=_read_selected(root,"original.json")
         journal=_read_selected(root,"transaction.json")
         validate(b)
@@ -95,6 +98,10 @@ def review_protected_transaction(parent_fd, migration_id):
                 and witness.get("host_uuid")==plan.get("host_uuid")
                 and witness.get("fingerprint")==plan.get("public_fingerprint")
                 and witness.get("registry_origin")==plan.get("registry_origin")
+                and digest(file_inventory)==plan.get(
+                    "file_inventory_metadata_sha256")
+                and digest(file_inventory)==operator.get(
+                    "file_inventory_sha256")
                 and journal.get("migration_id")==migration_id
                 and journal.get("plan_sha256")==digest(plan),
                 "migration-native-selection", "foreign admission or original evidence")
@@ -108,7 +115,8 @@ def review_protected_transaction(parent_fd, migration_id):
         return {
             "bundle":b, "plan":plan, "admission":admission,
             "operator":operator, "witness":witness,
-            "journal":journal, "folder":migration_id,
+            "journal":journal, "file_inventory":file_inventory,
+            "folder":migration_id,
         }
     finally:
         os.close(root)
@@ -206,12 +214,14 @@ def execute(migration_id, *, rollback=False, expected_admission_sha256):
 
 
 def _selected_file_inventory(plan, observed):
-    # The source-only plan records the inventory metadata hash, but the issuer
-    # does NOT currently publish the original complete inventory itself.
-    # Refuse to infer it from filename/inode witnesses or current target tree.
-    from .state_contract import StateError
-    raise StateError("migration-native-source-hold",
-                     "protected full original inventory record not published")
+    inventory=observed["file_inventory"]
+    require(type(inventory) is dict
+            and digest(inventory)==plan["file_inventory_metadata_sha256"]
+            and digest(inventory)==observed["operator"][
+                "file_inventory_sha256"],
+            "migration-native-selection",
+            "original inventory does not match protected admission")
+    return inventory
 
 
 def _read_completed(root):
@@ -240,7 +250,7 @@ def main(argv=None):
             "migration_id":args.migration_id,
             "admission_sha256":digest(result["admission"]),
             "native_activation_enabled":result["native_activation_enabled"],
-            "source_hold":"original inventory and safe canonical rollback pending",
+            "source_hold":"safe canonical STATE rollback and native acceptance pending",
         }
     else:
         result=execute(args.migration_id,
