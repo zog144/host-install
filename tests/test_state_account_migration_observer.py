@@ -13,7 +13,7 @@ def rows(monkeypatch):
     }
     groups={
         "archive-consumers":SimpleNamespace(
-            gr_name="archive-consumers",gr_gid=990,gr_mem=["host-discover"]),
+            gr_name="archive-consumers",gr_gid=990,gr_mem=[]),
         "host-discover":SimpleNamespace(
             gr_name="host-discover",gr_gid=991,gr_mem=[]),
     }
@@ -58,8 +58,17 @@ def test_membership_transition_exact_and_extra_groups_denied(monkeypatch):
     probe=observer.NativeNSSSystemdObserver()
     assert probe.stage_state(
         "host-discover-supplementary-groups-updated",{})=="before"
+    # A lone archive-consumers NSS membership was never the original
+    # service state; it must not be mistaken for a valid migration stage.
+    groups["archive-consumers"].gr_mem=["host-discover"]
+    assert probe.stage_state(
+        "host-discover-supplementary-groups-updated",{})=="conflict"
+    groups["archive-consumers"].gr_mem=[]
     groups["host-control"]=SimpleNamespace(
         gr_name="host-control",gr_gid=973,gr_mem=["host-discover"])
+    assert probe.stage_state(
+        "host-discover-supplementary-groups-updated",{})=="conflict"
+    groups["archive-consumers"].gr_mem=["host-discover"]
     assert probe.stage_state(
         "host-discover-supplementary-groups-updated",{})=="after"
     groups["foreign"]=SimpleNamespace(
@@ -118,3 +127,17 @@ def test_native_probe_denies_nonroot_and_unrecognized_stage(monkeypatch):
     monkeypatch.setattr(observer.os,"geteuid",lambda:1000)
     with pytest.raises(StateError,match="root-required"):
         observer.NativeNSSSystemdObserver()
+
+
+def test_legacy_systemd_group_grant_is_not_an_nss_membership(monkeypatch):
+    _, groups=rows(monkeypatch)
+    probe=observer.NativeNSSSystemdObserver()
+    assert groups["archive-consumers"].gr_mem == []
+    assert probe.stage_state(
+        "host-discover-supplementary-groups-updated",{})=="before"
+    groups["archive-consumers"].gr_mem=["host-discover"]
+    assert probe.stage_state(
+        "host-discover-supplementary-groups-updated",{})=="conflict"
+    groups["archive-consumers"].gr_mem=[]
+    assert probe.stage_state(
+        "host-discover-supplementary-groups-updated",{})=="before"
