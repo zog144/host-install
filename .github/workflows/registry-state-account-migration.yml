@@ -91,4 +91,4 @@ jobs:
             companions/host-discover/tests/test_retained_legacy_migration.py
       - if: always()
         run: |
-          echo 'Source and disposable root-capable tests only. No live Host, /state, account database, IAM, SSM, beacon, or Task C service was modified. Root-local admission command is not run on CI; production account/STATE/service executor and launcher remain disabled.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Source and disposable root-capable tests only. No live Host, /state, account database, IAM, SSM, beacon, or Task C service was modified. Root-local admission and native executor are not run against the Host by CI; source opt-in requires a separately approved existing root transaction, exact digest and selected systemd unit. Native installation/attestation remains Work-only.' >> "$GITHUB_STEP_SUMMARY"
