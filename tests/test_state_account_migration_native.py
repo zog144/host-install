@@ -99,6 +99,12 @@ def journal(tmp_path,backend):
 
 
 def test_all_native_account_opcodes_are_explicit_and_reversible():
+    assert native.exact_command(
+        "host-discover-supplementary-groups-updated") == (
+            "usermod", "-G", "archive-consumers,host-control", "host-discover")
+    assert native.exact_command(
+        "host-discover-supplementary-groups-updated", rollback=True) == (
+            "usermod", "-G", "", "host-discover")
     assert set(native.ACCOUNT_COMMANDS)<set(migration.STAGES)
     for stage in native.ACCOUNT_COMMANDS:
         forward=native.exact_command(stage)
