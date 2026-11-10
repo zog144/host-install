@@ -568,6 +568,21 @@ class NativeStageBackend:
 
     def state(self,stage):
         require(stage in STAGES,"migration-stage","unreviewed stage")
+        if stage in ("service-disabled","service-stopped") and self.root==Path("/"):
+            # After crash near the very end of rollback, the old 0.3.3 unit
+            # may already be active/enabled while the rolling-back journal
+            # still carries historical forward-stage completion. Never
+            # re-disable it just because that history has not been cleared.
+            record=self.probe._record()
+            if (record is not None
+                    and record.get("status")=="rolling-back"
+                    and self._effective_service_state()=="before"):
+                from .state_account_migration_live import _systemctl
+                if (_systemctl("show","host-discover.service",
+                               "--property=ActiveState","--value")=="active"
+                    and _systemctl("show","host-discover.service",
+                                   "--property=UnitFileState","--value")=="enabled"):
+                    return "before"
         if stage=="systemd-daemon-reloaded" and self.root==Path("/"):
             return self._effective_service_state()
         if stage=="service-restored" and self.root==Path("/"):
