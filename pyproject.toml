@@ -15,6 +15,7 @@ license-files = ["LICENSE", "LICENSES/*.txt", "THIRD-PARTY-NOTICES.md"]
 [project.scripts]
 host-install = "zog.host_install.cli:main"
 host-install-registry-migration-admit = "zog.host_install.state_account_migration_issuer:main"
+host-install-registry-migration-execute = "zog.host_install.state_account_migration_execution:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
