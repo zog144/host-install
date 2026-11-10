@@ -515,6 +515,14 @@ class MigrationJournal:
                         row.update(status="applying",active=stage)
                         self._save(row)
                         checkpoint("apply-before:"+stage)
+                        # The final service cannot start until its retained
+                        # key completion FD is available. Persist the exact
+                        # start intent first, then give the protected native
+                        # backend the chance to publish that receipt. A
+                        # resumed attempt repeats only the same-byte receipt.
+                        if stage == STAGES[-1] and hasattr(
+                                self.backend, "prepare_service_start"):
+                            self.backend.prepare_service_start(row)
                         self.backend.apply(stage)
                         require(self.backend.state(stage)=="after",
                                 "migration-recovery","stage postcondition failed")
