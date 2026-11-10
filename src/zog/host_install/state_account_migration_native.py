@@ -331,8 +331,12 @@ class NativeStageBackend:
             directory=self.path("/etc/zog/host-install")
             if not directory.exists():
                 return "before"
-            require(directory.is_dir() and not directory.is_symlink(),
-                    "migration-native-storage", "foreign canonical directory")
+            require(directory.is_dir() and not directory.is_symlink()
+                    and (directory.stat().st_uid,directory.stat().st_gid,
+                         stat.S_IMODE(directory.stat().st_mode))==(0,0,0o755)
+                    and directory.stat().st_dev==self.path("/").stat().st_dev,
+                    "migration-native-storage",
+                    "foreign owner, mount or canonical directory")
             # A partial durable publication remains BEFORE and the guarded
             # publisher must resume only exact original record bytes.
             for name in ("accounts", "installation", "bootstrap"):
