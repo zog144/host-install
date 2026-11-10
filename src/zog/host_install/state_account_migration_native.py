@@ -19,7 +19,7 @@ from .state_account_migration import (
 )
 from .state_contract import StateError, canonical, digest, require
 
-NATIVE_ACTIVATION_ENABLED = False
+NATIVE_ACTIVATION_ENABLED = True  # Explicit root-local transaction only; never automatic
 
 ACCOUNT_COMMANDS = {
     "archive-consumers-gid-updated": (
