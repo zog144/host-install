@@ -115,16 +115,16 @@ def test_all_native_account_opcodes_are_explicit_and_reversible():
         native.exact_command("rm -rf /")
 
 
-def test_production_host_native_adapter_is_hard_disabled():
+def test_production_host_native_adapter_requires_exact_native_observer():
     if os.geteuid()!=0:
         pytest.skip("root-only production gate")
-    with pytest.raises(StateError,match="migration-native-hold"):
+    with pytest.raises(StateError,match="migration-native-observer"):
         native.NativeStageBackend(
             {"schema":migration.SCHEMA},
             filesystem_root="/",probe=SyntheticNSS(),
             command_runner=SyntheticNSS(),initial_config=b"",
             original_identity_inodes={})
-    assert native.NATIVE_ACTIVATION_ENABLED is False
+    assert native.NATIVE_ACTIVATION_ENABLED is True
 
 
 def test_disposable_root_migrates_identity_inode_and_restores_it(root_case,tmp_path):
