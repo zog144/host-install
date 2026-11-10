@@ -349,14 +349,31 @@ class MigrationJournal:
         self.plan=plan
         self.backend=backend
         self.require_root=require_root
-        require(not require_root,"migration-consumer-hold",
-                "No native executor exists until host-discover can retain the "
-                "original legacy key under canonical STATE")
         require(type(plan) is dict and plan.get("schema")==SCHEMA
                 and _uuid(plan.get("migration_id")) and
                 plan.get("status")=="SOURCE_REVIEW_NATIVE_CONSUMER_HOLD",
                 "migration-journal", "exact reviewed plan required")
-        require(not require_root or os.geteuid()==0,"root-required","migration journal requires root")
+        if require_root:
+            from .state_account_migration_native import (
+                NativeStageBackend,NATIVE_ACTIVATION_ENABLED,
+            )
+            require(os.geteuid()==0 and NATIVE_ACTIVATION_ENABLED
+                    and type(backend) is NativeStageBackend
+                    and backend.root==Path("/")
+                    and backend.plan==plan
+                    and backend.journal_root==self.root
+                    and self.root==Path(
+                        "/var/lib/zog-host-install/migrations") /
+                        plan["migration_id"],
+                    "migration-consumer-hold",
+                    "root journal requires exact installed protected executor")
+            # Never create an unauthenticated migration by merely selecting
+            # a directory; the root-only admission issuer must already have
+            # published the initial plan and transaction.
+            require((self.root/"transaction.json").is_file()
+                    and (self.root/"plan.json").is_file(),
+                    "migration-journal",
+                    "root execution requires existing admitted transaction")
 
     def _files(self):
         info=self.root.lstat()
@@ -447,6 +464,8 @@ class MigrationJournal:
                     and row["active"] in (None,*STAGES),
                     "migration-journal","foreign, changed or conflicting transaction")
         else:
+            require(not self.require_root,"migration-journal",
+                    "root transaction never creates its own initial journal")
             row={"schema":JOURNAL_SCHEMA,"migration_id":self.plan["migration_id"],
                  "plan_sha256":digest(self.plan),"status":"applying",
                  "completed":[],"active":None}
