@@ -128,6 +128,7 @@ def _accepted_existing_dropin(path):
     require(type(path) is str
             and path.startswith(DROPIN_DIRECTORY + "/")
             and path.endswith(".conf")
+            and all(segment not in (".", "..", "") for segment in path[1:].split("/"))
             and re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", path.rsplit("/", 1)[1]),
             "migration-systemd", "unselected systemd drop-in location")
     # _read_file uses openat with NOFOLLOW, validates the entire root-owned
