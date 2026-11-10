@@ -129,3 +129,49 @@ def test_launcher_unit_is_selected_but_not_installable_or_enabled():
         launcher.render_launcher_dropin("/usr/bin/python3")
     with pytest.raises(StateError):
         launcher.run_selected_once()
+
+
+def test_launcher_accepts_committed_prestart_then_complete_without_new_receipt(
+        retained, monkeypatch):
+    """Selected original key works before systemd start and after journal commit."""
+    from zog.host_install import state_account_migration as migration
+    plan,moved,evidence,ctx,openall,_ = runtime(retained, monkeypatch)
+    intent = migration.service_start_intent(plan)
+    (evidence/"transaction.json").write_bytes(canonical(intent))
+    handles = []
+    try:
+        handles = [
+            os.open(evidence/"original.json",os.O_RDONLY|os.O_NOFOLLOW),
+            os.open(evidence/"transaction.json",os.O_RDONLY|os.O_NOFOLLOW),
+            os.open(moved,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW),
+        ]
+        receipt = complete.completion_from_observed_fds(
+            plan=plan, original_witness_fd=handles[0],
+            journal_fd=handles[1], identity_fd=handles[2],
+            identity_directory=str(moved),
+            expected_uid=0,expected_gid=0,prestart=True)
+    finally:
+        for fd in handles: os.close(fd)
+    (evidence/complete.COMPLETION_FILE).write_bytes(canonical(receipt))
+    for status in ("applying","complete"):
+        if status=="complete":
+            completed={**intent, "status":"complete", "active":None,
+                       "completed":list(migration.STAGES)}
+            (evidence/"transaction.json").write_bytes(canonical(completed))
+        fds=openall()
+        try:
+            outcome=launcher.validate_relaunch_fds(
+                ctx,*fds,expected_uid=0,expected_gid=0)
+            assert outcome["status"]=="reviewed-retained-identity-relaunch"
+        finally:
+            for fd in fds: os.close(fd)
+    (evidence/"transaction.json").write_bytes(canonical(
+        {**intent, "status":"rolling-back"}))
+    fds=openall()
+    try:
+        with pytest.raises(StateError):
+            launcher.validate_relaunch_fds(
+                ctx,*fds,expected_uid=0,expected_gid=0)
+    finally:
+        for fd in fds: os.close(fd)
+        os.close(ctx.fd)
