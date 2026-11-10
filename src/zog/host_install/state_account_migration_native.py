@@ -123,7 +123,8 @@ class NativeStageBackend:
                  command_runner=None, initial_config=None,
                  original_identity_inodes=None,
                  original_credential_inodes=None, selected_file_inventory=None,
-                 selected_admission=None, allow_disposable=False):
+                 selected_admission=None, journal_root=None,
+                 allow_disposable=False):
         require(os.geteuid()==0,"root-required","native adapter needs root")
         root=Path(filesystem_root).absolute()
         if root==Path("/"):
@@ -199,6 +200,14 @@ class NativeStageBackend:
         self.original_identity_inodes=original_identity_inodes
         self.original_credential_inodes=original_credential_inodes
         self.credential_files=frozenset(names)
+        self.journal_root = (
+            Path(journal_root) if journal_root is not None else None)
+        if root == Path("/"):
+            from .state_account_migration_launcher import TRANSACTION_DIRECTORY
+            require(self.journal_root == Path(TRANSACTION_DIRECTORY) /
+                    plan["migration_id"],
+                    "migration-native-journal",
+                    "root backend must select exact protected journal")
         self.original_config=initial_config
         self.target_config=changed_configuration(initial_config)
         if selected_admission is None:
@@ -455,6 +464,55 @@ class NativeStageBackend:
         finally:os.close(d)
         require(path.read_bytes()==new,
                 "migration-native-config","config switch not durable")
+
+    def prepare_service_start(self, row):
+        """Publish original-key completion from the durably committed intent.
+
+        This runs only while MigrationJournal owns the transaction lock. The
+        receipt is already present when systemd starts the FD bridge, avoiding
+        a circular dependency on a completed service-restored stage.
+        """
+        from .state_account_migration import service_start_intent
+        from .state_account_migration_completion import (
+            completion_from_observed_fds, publish_completion,
+        )
+        require(self.root == Path("/") and NATIVE_ACTIVATION_ENABLED
+                and self.journal_root is not None
+                and row == service_start_intent(self.plan),
+                "migration-native-hold",
+                "protected prestart journal intent required")
+        path=self.journal_root
+        require(path.is_dir() and not path.is_symlink()
+                and os.stat(path).st_uid==0
+                and stat.S_IMODE(os.stat(path).st_mode)==0o700,
+                "migration-native-journal",
+                "protected transaction directory not selected")
+        identity=self.path(DESTINATION)
+        require(identity.is_dir() and not identity.is_symlink()
+                and [identity.stat().st_dev,identity.stat().st_ino] ==
+                    self.original_identity_inodes["directory"],
+                "migration-native-witness",
+                "original identity not present under STATE")
+        folder=os.open(path,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+        opened=[]
+        try:
+            for name in ("original.json","transaction.json"):
+                opened.append(os.open(name,os.O_RDONLY|os.O_NOFOLLOW|
+                                      os.O_NONBLOCK,dir_fd=folder))
+            opened.append(os.open(identity,
+                                  os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW))
+            receipt=completion_from_observed_fds(
+                plan=self.plan,
+                original_witness_fd=opened[0],
+                journal_fd=opened[1],identity_fd=opened[2],
+                prestart=True)
+            result=publish_completion(folder,receipt)
+            require(result["status"]=="completion-published",
+                    "migration-native-witness",
+                    "missing durable prestart completion")
+        finally:
+            for fd in reversed(opened):os.close(fd)
+            os.close(folder)
 
     def apply(self,stage):
         self._act(stage,False)
