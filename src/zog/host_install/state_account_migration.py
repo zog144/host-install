@@ -178,7 +178,9 @@ def _accounts(snapshot):
     expected_user = {
         "uid":LEGACY_UID,"gid":LEGACY_GID,
         "home":"/home/host-discover","shell":"/sbin/nologin",
-        "groups":["archive-consumers"],
+        # The retained service gets archive-consumers via systemd
+        # SupplementaryGroups=archive-consumers, NOT NSS group membership.
+        "groups":[],
     }
     require(users.get("host-discover") == expected_user
             and "box-control" not in users
