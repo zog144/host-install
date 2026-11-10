@@ -4,6 +4,8 @@ on:
     branches: [regular/registry-directory-state-account-migration-20261108]
   pull_request:
     paths:
+      - src/zog/host_install/state_account_migration_execution.py
+      - tests/test_state_account_migration_execution.py
       - src/zog/host_install/state_account_migration_issuer.py
       - src/zog/host_install/state_account_migration_live.py
       - tests/test_state_account_migration_live.py
@@ -72,6 +74,7 @@ jobs:
         run: |
           sudo --preserve-env=PYTHONPATH "${{ env.pythonLocation }}/bin/python" -m pytest -q -rs \
             tests/test_state_account_migration_live.py \
+            tests/test_state_account_migration_execution.py \
             tests/test_state_account_migration_issuer.py \
             tests/test_state_account_migration_admission.py \
             tests/test_state_account_migration_completion.py \
