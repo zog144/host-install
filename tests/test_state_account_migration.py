@@ -541,3 +541,33 @@ def test_retained_legacy_nss_membership_substitution_denied(foreign_membership):
     row["account_snapshot"]["users"]["host-discover"]["groups"]=foreign_membership
     with pytest.raises(StateError):
         review(row)
+
+
+def test_rollback_gap_only_for_committed_systemd_reload_intent():
+    """Removed override / cached old manager selection is one recoverable gap."""
+    class Observed:
+        def __init__(self, values):self.values=values
+        def state(self, stage):return self.values[STAGES.index(stage)]
+    from zog.host_install.state_account_migration import (
+        STAGES, MigrationJournal,
+    )
+    from types import SimpleNamespace
+    path=STAGES.index("systemd-path-switched")
+    reload=STAGES.index("systemd-daemon-reloaded")
+    states=(["after"]*path+["before","after"]+
+            ["before"]*(len(STAGES)-reload-1))
+    holder=SimpleNamespace(backend=Observed(states))
+    allowed={"status":"rolling-back","active":"systemd-daemon-reloaded"}
+    MigrationJournal._observed_prefix(holder,allowed)
+    for foreign in (
+        {"status":"applying","active":"systemd-daemon-reloaded"},
+        {"status":"rolling-back","active":None},
+        {"status":"complete","active":None},
+    ):
+        with pytest.raises(StateError):
+            MigrationJournal._observed_prefix(holder,foreign)
+    mutated=list(states)
+    mutated[reload+1]="after"
+    holder.backend=Observed(mutated)
+    with pytest.raises(StateError):
+        MigrationJournal._observed_prefix(holder,allowed)
