@@ -64,8 +64,8 @@ The following is a native **staging** procedure, not an instruction to
 enable or start the gateway. Work should pin all repository checkouts to
 approved immutable commits, verify package provenance and normal installed
 files, and adjust the pinned source SHAs if newer source integration is
-accepted. Examples below use the three-owner source selections observed
-during this handoff. Do not confuse the installed Host's 0.14.9 legacy
+accepted. Examples below pin the **actual three-source disposable installation PASS**
+selections from the November 11 host-install CI run 43079772086. Do not confuse the installed Host's 0.14.9 legacy
 host-install environment with this newly packaged installer.
 
 ```sh
@@ -78,9 +78,9 @@ sudo git clone https://github.com/zog144/root-control.git "$SRC/root-control"
 sudo git clone https://github.com/zog144/host-deploy.git "$SRC/host-deploy"
 
 # Review/record these exact candidate heads before staging.
-sudo git -C "$SRC/host-install" checkout --detach 3178ff445849630e05ab9a1ab4f04acc5893dfd2
+sudo git -C "$SRC/host-install" checkout --detach beee7227bdf2e9f1162df4b87e604ea901ec99d7
 sudo git -C "$SRC/root-control" checkout --detach 6a545931a79e3f700dbf769b8a87fe33f9a6e620
-sudo git -C "$SRC/host-deploy" checkout --detach e25feb749d091e698cd01ad0bc7079250709978f
+sudo git -C "$SRC/host-deploy" checkout --detach a28df09b070d81ae3369ade969302f52d0a2d749
 
 # Use the already observed retained candidate's Python 3.12 executable,
 # subject to Work's ordinary root ownership, executable and hash inspection.
