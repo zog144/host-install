@@ -133,14 +133,25 @@ def prepared_layout(c):
             'layout-not-prepared', 'durably completed STATE layout required')
 
 
-def prepare_tree(c, initialize_volume=None, checkpoint=lambda _: None, *, service_ids=(970, 970, 971, 971)):
-    """Internal trusted-context helper; service_ids override is only for fixtures."""
+def prepare_tree(c, initialize_volume=None, checkpoint=lambda _: None, *,
+                 service_ids=(970, 970, 971, 971),
+                 _verified_migration_stage=False):
+    """Internal trusted-context helper.
+
+    _verified_migration_stage may be set ONLY by a root-only migration adapter
+    that checked the local, protected transaction journal at this exact step.
+    Normal fresh/upgrade callers cannot select it.
+    """
     b = c.bundle['bootstrap']
     c.recheck()
     marker = raw(c.fd, '.zog-state.json', mode=0o444, links=(1, 2))
     if marker is None:
-        require(initialize_volume == b['state']['state_volume_id'] and b['mode'] == 'fresh',
-                'volume-initialization-required', 'explicit volume ID required on a fresh unmarked filesystem')
+        require(initialize_volume == b['state']['state_volume_id'] and
+                (b['mode'] == 'fresh' or (
+                    b['mode'] == 'migration' and _verified_migration_stage is True
+                    and c.bundle['installation']['operation'] == 'migration')),
+                'volume-initialization-required',
+                'fresh initialization or verified explicit migration stage required')
         names = set(os.listdir(c.fd))
         require(names <= {'lost+found', '.host-install.lock', '.pending..zog-state.json',
                           '.zog-preparation.json', '.pending..zog-preparation.json'},
