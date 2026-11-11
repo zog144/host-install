@@ -23,7 +23,10 @@ does **not** authorize a Task C operation or any AWS SSM send.
 
 - Installer: `zog.host_install.task_c_local_install`
 - Console script: `host-install-task-c`, with mutually exclusive
-  `--plan` (read-only) and `--stage` (install, but no activation).
+  `--plan` (read-only), `--stage` (install, but no activation) and
+  `--inspect-state` (optional read-only use of host-install's real live
+  `state_inspect.inspect_live()` descriptor after canonical STATE exists).
+  Missing /state does **not** block ordinary software staging.
 - Python software: ordinary `pip install` of checked-out host-install,
   root-control and host-deploy repositories into **one** venv,
   `/opt/zog/task-c/venv`. Its normal `pip check` must pass.
@@ -113,6 +116,10 @@ sudo "$INSTALLER" --stage \
   --python "$PYTHON"
 
 sudo /opt/zog/task-c/venv/bin/python -m pip check
+
+# OPTIONAL only once canonical /state is available; not required for stage.
+# sudo "$INSTALLER" --inspect-state
+
 sudo systemctl cat zog-task-c-owner.service zog-task-c-owner.socket
 sudo systemctl cat zog-task-c-trust.service zog-task-c-trust.socket
 sudo systemctl is-active zog-task-c-owner.service || true
@@ -143,6 +150,9 @@ another SSM processor as part of staging.
   to supply S3 keys, extra disks, or signed storage approval.
 - No `WantedBy`, `[Install]`, `systemctl enable/start`, SSM call,
   signing service, new enrollment or storage command occurs in the installer.
+- `--inspect-state` uses host-install's own live, rechecked STATE
+  descriptor/marker/account/topology reader, not an installation signature;
+  it reports local installation/STATE IDs without granting control.
 - A future operation must still check actual Host identity/STATE with
   host-install's live descriptor inspector and ordinary OS peer credentials,
   approve the specific operation, durably claim it locally before sending,
