@@ -1,33 +1,149 @@
-# Task C trusted-Host direct SSM — one-service installation handoff
-
-2026-11-11 · Source review candidate only · **No native SSM command or service activation**
+# Trusted-Host Task C — ordinary installation handoff (2026-11-11)
 
 ## Selected architecture
 
-The November 11 decision supersedes the Task C dedicated S3 and signed-establishment v3/v4 designs. The trusted `host-registry` administrator, installed gateway process and ordinary root filesystem are within the trust boundary. No independent anti-rollback service, external S3 history, operator/installer signer, external anchor, mounted disk or separate AWS reader/writer role is required for the newly selected Task C local gateway.
+The existing `host-registry` administrator, root filesystem and locally
+installed services are trusted. The selected Task C runtime is the **existing
+host-deploy gateway**, with a durable local send-once record and fixed SSM
+operation selection. There is **no additional owner daemon, trust/history
+broker, socket service, S3 authority or signed installer**. Historical
+v3/v4 owner/broker/S3 modules remain *unselected* compatibility source only.
 
-**Only one Task C submission service is selected:** `zog-task-c-gateway.service`, running the existing `host-deploy-gateway` command as root in its ordinary application venv, under the existing Host AWS IAM role. This intentionally does **not** install a new `task_c_local_service`, a separate trust daemon or any owner/broker sockets. Legacy experimental v3/v4 source modules may remain in repositories for historical review but are unselected and must not be installed as active Task C senders.
+Do not require operator-signed storage establishment, signed installation
+commits, a new registered Host key/registrar, S3 genesis/scope/anchor/Object
+Lock/high-water/retention, S3 IAM roles, extra EBS, separate mounts or
+separate filesystems. The trusted Host can keep normal software and its local
+journal under the existing root volume. There is **no automatic remote
+execution authority** merely from installing a Python package.
 
-The selected gateway `generic_pipeline.advance` validates an admitted GitHub-request-derived image-build binding, current compiler target, frozen task/source, recipe snapshot readback and generated fixed remote script. It fsyncs the per-request stage and an **exclusive local send-intent** before one `Host.submit_command` (`AWS-RunShellScript`). It retains the returned CommandId in a separate fsynced sidecar. Missing acknowledgement, changed or partial intent, cancellation and restart never permit an automatic resend. Read-only `Host.inspect_command` reconciles known CommandIds; explicit local uncertainty remains uncertain.
+## Exact selected source interfaces
 
-The gateway storage directory is `/var/lib/host-deploy-gateway` (mode 0700, root-owned in this native selection). The existing `generic-operation-send-intents` under it is ordinary local persistent state. A second local journal or new `/var/lib/zog-task-c` volume is **not** required. This is not an independent anti-rollback promise against the trusted Host administrator. Retain existing gateway request and command files across the change.
+- Installer: `zog.host_install.task_c_local_install`, executable
+  `host-install-task-c --plan|--stage|--inspect-state`.
+- Normal component source repositories: host-install, root-control,
+  host-deploy. One ordinary venv `/opt/zog/task-c/venv`; ordinary
+  `pip install`, `pip check`, import verification.
+- Active runtime **after separately authorized activation**:
+  `/opt/zog/task-c/venv/bin/host-deploy-gateway --state-directory
+  /var/lib/host-deploy-gateway run` (standard host-deploy entry point).
+- Selected root-control local journal interface:
+  `zog.root_control.task_c_trusted_host` (source present, not a second
+  owner daemon); gateway functions:
+  `zog.host_deploy.gateway.generic_pipeline`,
+  `zog.host_deploy.gateway.trusted_host_submission`,
+  `zog.host_deploy.gateway.graphics_operation_send_intent`.
+  The gateway's local send-intent directory is under the same
+  `/var/lib/host-deploy-gateway` application root.
+- Application state: `/var/lib/host-deploy-gateway`, root-owned,
+  mode 0700 on the existing root-backed filesystem.
+- One **disabled** systemd unit:
+  `/etc/systemd/system/zog-task-c-gateway.service`, fixed root user,
+  `StateDirectory=host-deploy-gateway`, `ProtectSystem=strict`,
+  `ReadWritePaths=/var/lib/host-deploy-gateway`. No `[Install]`,
+  `WantedBy`, listener socket, checkpoint credential, signer or mount unit.
+- `--inspect-state` optionally reads the actual installed host-install
+  `state_inspect.inspect_live()` context and rechecks its canonical
+  installation/STATE UUIDs, marker, account and backing topology. This
+  is read-only and **not needed to stage** the disabled software while
+  the retained registry Host's /state migration is unfinished.
 
-## Selected source installer and disabled systemd unit
+The standard gateway uses its existing Host AWS instance-role capabilities,
+not newly established S3 reader/writer roles. Request provenance, approved
+task/source, selected compiler target and exact server-generated SSM script
+are checked by host-deploy before a durable local send intent is written.
+The filesystem record prevents normal retry/restart duplicate sends, including
+after an uncertain SSM acknowledgement; it does **not** claim to defeat
+malicious administrator rollback. The source owner is responsible for
+operation authorization/revocation and fixed SSM target validation.
 
-- Installer: `zog.host_install.task_c_local_install`, console command `host-install-task-c`.
-- Inputs: ordinary checked-out host-install, host-deploy and root-control source trees, and a selected installed Python 3.12+ executable.
-- Installation: normal application `/opt/zog/task-c/venv`, `pip install` from those source trees, unconditional `pip check`, and imports of the actual `generic_pipeline`, `trusted_host_submission`, `graphics_operation_send_intent` and optional root-control local journal module. No signed artifact or new operator key is generated.
-- Disabled unit: `/etc/systemd/system/zog-task-c-gateway.service`. The unit selects `User=root`, `Group=root`, `StateDirectory=host-deploy-gateway`, `StateDirectoryMode=0700`, `ReadWritePaths=/var/lib/host-deploy-gateway`, `ProtectSystem=strict`, and the existing `host-deploy-gateway --state-directory ... run` entry point. There is no `[Install]` section. Installer does not start/enable the service.
-- Legacy `zog-task-c-owner*` and `zog-task-c-trust*` units are **not** part of this installation. The prior source-only handoff that requested nonexistent `task_c_local_service` and `task_c_local_trust_daemon` modules is superseded by this document.
+## Work installation — exact commands; no activation/SSM
 
-If the deployed gateway currently runs as `DynamicUser`, native Work must audit the existing request journal and retained identity, stop the old unit through normal service change control, and reconcile directory ownership **without deleting or resetting send intents or command records**. Do not run the old and new gateways concurrently. The source staging CLI does not perform the service cutover.
+The following is a native **staging** procedure, not an instruction to
+enable or start the gateway. Work should pin all repository checkouts to
+approved immutable commits, verify package provenance and normal installed
+files, and adjust the pinned source SHAs if newer source integration is
+accepted. Examples below use the three-owner source selections observed
+during this handoff. Do not confuse the installed Host's 0.14.9 legacy
+host-install environment with this newly packaged installer.
 
-## Native handoff (Work only)
+```sh
+set -euo pipefail
+SRC=/opt/zog/task-c/sources
+sudo install -d -m 0755 /opt/zog /opt/zog/task-c "$SRC"
 
-1. Read existing `host-registry` identity, gateway service and installed source versions. Confirm the compiler Host target and established AWS role/instance-profile permissions. No registrar or new signing keys.
-2. Pin exact Git revisions, install normal packages and run `pip check`. Verify new root-owned local gateway state directories and retain the existing send-intent/history files. No additional EBS disk or S3 resource.
-3. Stage disabled `zog-task-c-gateway.service` only. Do not enable it, run a second gateway, activate old owner/trust services or send SSM in this source operation.
-4. After separate native approval, prove the installed gateway is the sole Task C sender, uses the selected Host AWS identity and the fixed SSM document, cannot redirect to a foreign compiler target or arbitrary document, and can inspect known commands.
-5. Run bounded duplicate, crash/lost-ack, cancellation and reboot acceptance. A claim with no CommandId must remain uncertain; manual review is permitted but **no automatic retry**. Only then consider a separately authorized first Fonts submission.
+sudo git clone https://github.com/zog144/host-install.git "$SRC/host-install"
+sudo git clone https://github.com/zog144/root-control.git "$SRC/root-control"
+sudo git clone https://github.com/zog144/host-deploy.git "$SRC/host-deploy"
 
-**Disposition:** source-only normal installer and direct gateway mode. The old v3/v4 signed owner/broker/S3 architecture is not a prerequisite or approved runtime. Native installation/cutover remains **HOLD**.
+# Review/record these exact candidate heads before staging.
+sudo git -C "$SRC/host-install" checkout --detach 3178ff445849630e05ab9a1ab4f04acc5893dfd2
+sudo git -C "$SRC/root-control" checkout --detach 6a545931a79e3f700dbf769b8a87fe33f9a6e620
+sudo git -C "$SRC/host-deploy" checkout --detach e25feb749d091e698cd01ad0bc7079250709978f
+
+# Use the already observed retained candidate's Python 3.12 executable,
+# subject to Work's ordinary root ownership, executable and hash inspection.
+PYTHON=/opt/host-discover/candidates/retained-legacy-3fd8bd0-3d94f34-20261109/venv/bin/python3.12
+sudo test -x "$PYTHON"
+sudo "$PYTHON" -m venv /opt/zog/task-c/installer-venv
+sudo /opt/zog/task-c/installer-venv/bin/python -m pip install --no-cache-dir "$SRC/host-install"
+INSTALLER=/opt/zog/task-c/installer-venv/bin/host-install-task-c
+
+sudo "$INSTALLER" --plan \
+  --root-control-source "$SRC/root-control" \
+  --host-deploy-source "$SRC/host-deploy" \
+  --host-install-source "$SRC/host-install" \
+  --python "$PYTHON"
+
+# Installs normal repositories in a single venv and a disabled unit.
+# No S3, signer, EBS, mount, systemctl enable/start or AWS SSM call.
+sudo "$INSTALLER" --stage \
+  --root-control-source "$SRC/root-control" \
+  --host-deploy-source "$SRC/host-deploy" \
+  --host-install-source "$SRC/host-install" \
+  --python "$PYTHON"
+
+sudo /opt/zog/task-c/venv/bin/python -m pip check
+sudo systemctl cat zog-task-c-gateway.service
+sudo systemctl is-active zog-task-c-gateway.service || true
+sudo systemctl is-enabled zog-task-c-gateway.service || true
+
+# Optional ONLY after canonical /state exists and host-install has prepared it:
+# sudo "$INSTALLER" --inspect-state
+```
+
+For an existing source checkout, omit `git clone` and record the actual
+detached HEADs. Work must verify normal dependency installation, Python
+entrypoint, imported sources, systemd ownership/mode, local state directory
+and installed wheel metadata. Missing Python dependencies are resolved through
+the usual repositories/PyPI/wheels, **not** through a separate signing
+ceremony, S3 establishment or additional EBS.
+
+Never modify an existing active gateway or enable the new service during
+this Regular installation source task. If a deployed gateway is already
+running, inspect its InvocationID and service configuration before any future
+operator-authorized cutover. No Task C command or original SSM send is run
+by the staging command.
+
+## Source and native exit criteria
+
+- `--plan` reports no S3, signed approval, separate volume or SSM authority.
+- `--stage` produces status `software-and-disabled-units-staged`,
+  `native_runtime_started=false`, `ssm_authorized=false`.
+- The selected source modules import; normal `pip check` passes.
+- The single systemd gateway unit is ordinary, disabled, root-owned and
+  has no S3/approval signer/mount/listener dependencies.
+- `--inspect-state`, where available, reads the live canonical Host/STATE
+  evidence directly, without signed mapping or registrar.
+- Native operation acceptance remains distinct: exact local SSM target,
+  request approval/revocation, one durable pre-send intent, lost-ack no retry,
+  result inspection and systemd restart behavior must be verified by
+  root-control/host-deploy Work before turning on the actual gateway.
+
+Focused source tests:
+`.github/workflows/task-c-local-install.yml`, Python 3.12 and 3.13.
+The wheel build verifies the included service template. Old signed-v3/v4
+workflows remain historical source checks, not admission prerequisites of
+this selected installer.
+
+**No live Host installation, IAM, S3, SSM or systemd activation was
+performed by host-install Regular.**
