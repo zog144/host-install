@@ -1,0 +1,34 @@
+# Local Host Task C service; installation NEVER enables or starts it.
+[Unit]
+Description=Zog Task C local SSM operation owner
+Documentation=man:systemd.service(5)
+Requires=zog-task-c-owner.socket
+After=local-fs.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=root
+Group=root
+Sockets=zog-task-c-owner.socket
+ExecStart=/opt/zog/task-c/venv/bin/python -I -m zog.root_control.task_c_local_service
+NoNewPrivileges=yes
+UMask=0077
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+ReadOnlyPaths=/etc/zog/task-c
+ReadWritePaths=/var/lib/zog/task-c/owner
+StandardOutput=journal
+StandardError=journal
+# Uses the existing trusted Host AWS credential facilities when configured.
+# No S3, signed installer commit, S3 IAM role or separate mount requirement.
+# No [Install] section. Never activated by host-install staging.
