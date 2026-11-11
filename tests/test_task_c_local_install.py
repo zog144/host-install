@@ -10,7 +10,6 @@ from zog.host_install import task_c_local_install as selected
 def inputs(tmp_path):
     sources = {}
     for directory, package in (
-        ("root-control", "root_control"),
         ("host-deploy", "host_deploy"),
         ("host-install", "host_install"),
     ):
@@ -51,7 +50,6 @@ def test_source_selection_is_ordinary_local_repositories(tmp_path):
         "zog.host_deploy.gateway.generic_pipeline",
         "zog.host_deploy.gateway.trusted_host_submission",
         "zog.host_deploy.gateway.graphics_operation_send_intent",
-        "zog.root_control.task_c_trusted_host",
     ]
 
 
@@ -101,11 +99,12 @@ def test_normal_stage_creates_root_backed_data_and_disabled_units(
     assert any(command[1:3] == ("-m", "pip") and
                "install" in command for command in commands)
     assert any(command[1:4] == ("-m", "pip", "install")
-               and "--no-deps" in command for command in commands)
-    assert any(command[1:4] == ("-m", "pip", "install")
-               and any(item.startswith("boto3") for item in command)
+               and "--no-deps" not in command
+               and plan["host_deploy_source"] in command
+               and plan["host_install_source"] in command
                for command in commands)
-    assert not any("check" in command for command in commands)
+    assert any(command[1:4] == ("-m", "pip", "check")
+               for command in commands)
     assert any("-c" in command and
                "trusted_host_submission" in " ".join(command)
                for command in commands)
