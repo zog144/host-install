@@ -22,7 +22,9 @@ execution authority** merely from installing a Python package.
   `host-install-task-c --plan|--stage|--inspect-state`.
 - Normal component source repositories: host-install, root-control,
   host-deploy. One ordinary venv `/opt/zog/task-c/venv`; ordinary
-  `pip install`, `pip check`, import verification.
+  source wheel installation (without resolving unavailable unrelated
+  component-development distributions), standard runtime dependencies and
+  exact installed-module import verification.
 - Active runtime **after separately authorized activation**:
   `/opt/zog/task-c/venv/bin/host-deploy-gateway --state-directory
   /var/lib/host-deploy-gateway run` (standard host-deploy entry point).
@@ -102,7 +104,7 @@ sudo "$INSTALLER" --stage \
   --host-install-source "$SRC/host-install" \
   --python "$PYTHON"
 
-sudo /opt/zog/task-c/venv/bin/python -m pip check
+sudo /opt/zog/task-c/venv/bin/python -I -c 'import zog.host_deploy.gateway.generic_pipeline; import zog.host_deploy.gateway.trusted_host_submission; import zog.host_deploy.gateway.graphics_operation_send_intent; import zog.root_control.task_c_trusted_host'
 sudo systemctl cat zog-task-c-gateway.service
 sudo systemctl is-active zog-task-c-gateway.service || true
 sudo systemctl is-enabled zog-task-c-gateway.service || true
@@ -112,11 +114,15 @@ sudo systemctl is-enabled zog-task-c-gateway.service || true
 ```
 
 For an existing source checkout, omit `git clone` and record the actual
-detached HEADs. Work must verify normal dependency installation, Python
-entrypoint, imported sources, systemd ownership/mode, local state directory
-and installed wheel metadata. Missing Python dependencies are resolved through
-the usual repositories/PyPI/wheels, **not** through a separate signing
-ceremony, S3 establishment or additional EBS.
+detached HEADs. Work must verify the standard Python runtime dependencies, selected module
+imports, Python entrypoint, systemd ownership/mode, local state directory
+and installed wheel/RECORD metadata. Root-control component-development
+metadata refers to internal `box-control`/`image-build` distributions
+not independently published on PyPI; this Task C staging installs the
+three source wheels with `pip --no-deps` after normal boto3/cryptography/
+dbus-next dependencies. A blanket `pip check` would reject those unrelated
+internal pins and is **not** a Task C native admission requirement. A missing
+actual Task C module or import remains a real installation failure.
 
 Never modify an existing active gateway or enable the new service during
 this Regular installation source task. If a deployed gateway is already
@@ -129,7 +135,9 @@ by the staging command.
 - `--plan` reports no S3, signed approval, separate volume or SSM authority.
 - `--stage` produces status `software-and-disabled-units-staged`,
   `native_runtime_started=false`, `ssm_authorized=false`.
-- The selected source modules import; normal `pip check` passes.
+- The selected source modules import from the installed venv. Ordinary
+  runtime dependencies and wheel metadata are verified; unrelated internal
+  development-distribution pins are not treated as an extra install gate.
 - The single systemd gateway unit is ordinary, disabled, root-owned and
   has no S3/approval signer/mount/listener dependencies.
 - `--inspect-state`, where available, reads the live canonical Host/STATE
