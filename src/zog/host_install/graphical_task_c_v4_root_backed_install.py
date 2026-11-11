@@ -15,7 +15,7 @@ SCHEMA = "zog-task-c-root-backed-three-owner-disabled-install-v4"
 PLAN_SCHEMA = "zog-task-c-root-backed-directory-plan-v2"
 STATUS = "ROOT_BACKED_THREE_OWNER_SOURCE_ONLY_NATIVE_DISABLED"
 ROOT_HEAD = "f2c765cc38a666b60a09729cd16ab63102ca1dd5"
-GATEWAY_HEAD = "b21da4c9b4d20362b8af31226064a7f8040004a1"
+GATEWAY_HEAD = "7cf4dd4a5e1967035d724462ba3ddff10f8fbefa"
 # The independently reviewed host-install STATE source, not the mutable
 # candidate PR head, is pinned here. New versioned source bytes are also
 # validated using STATE_SOURCES and wheel RECORD.
