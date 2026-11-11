@@ -2,8 +2,8 @@
 
 Installs local repository packages into one application venv and stages *disabled*
 systemd units. This module never enables/starts a socket, service or SSM command.
-Local root owns the installation. The root-control/host-deploy local runtime
-modules must exist before unit files are published.
+Local root owns the installation. Exactly one trusted-Host gateway service
+is selected; there is no broker, no second owner and no S3 authority.
 
 Historical signed v3/v4 migration modules are deliberately not imported.
 """
@@ -19,21 +19,17 @@ import subprocess
 
 SCHEMA = "zog-task-c-local-installation-v1"
 MODULES = (
-    "zog.root_control.task_c_local_service",
-    "zog.host_deploy.gateway.task_c_local_trust_daemon",
+    "zog.host_deploy.gateway.generic_pipeline",
+    "zog.host_deploy.gateway.trusted_host_submission",
+    "zog.host_deploy.gateway.graphics_operation_send_intent",
+    "zog.root_control.task_c_trusted_host",
 )
 VENVDIR = "/opt/zog/task-c/venv"
 DATA_DIRS = (
-    "/var/lib/zog/task-c",
-    "/var/lib/zog/task-c/owner",
-    "/var/lib/zog/task-c/trust",
-    "/etc/zog/task-c",
+    "/var/lib/host-deploy-gateway",
 )
 UNITS = (
-    "zog-task-c-owner.service",
-    "zog-task-c-owner.socket",
-    "zog-task-c-trust.service",
-    "zog-task-c-trust.socket",
+    "zog-task-c-gateway.service",
 )
 UNIT_DIR = "/etc/systemd/system"
 
@@ -182,8 +178,8 @@ def stage(plan, *, root=Path("/"), runner=subprocess.run):
                   plan["host_install_source"], plan["root_control_source"],
                   plan["host_deploy_source"]))
     _run(runner, (executable, "-m", "pip", "check"))
-    # Explicit simplified runtime selection: the historical S3-backed v3/v4
-    # modules do not satisfy this test and must not become the owner service.
+    # Require the actual trusted-Host gateway sender and durable local
+    # journal modules, not proposed owner/trust modules which do not exist.
     _run(runner, (executable, "-I", "-c",
                   "import importlib; "
                   + "; ".join("importlib.import_module(" + repr(m) + ")"
