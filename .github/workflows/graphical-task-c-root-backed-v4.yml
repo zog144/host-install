@@ -31,7 +31,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: zog144/host-deploy
-          ref: b21da4c9b4d20362b8af31226064a7f8040004a1
+          ref: 7cf4dd4a5e1967035d724462ba3ddff10f8fbefa
           path: companions/host-deploy
           persist-credentials: false
       - uses: actions/setup-python@v5
@@ -43,7 +43,7 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}/tests:${{ github.workspace }}/companions/root-control/src:${{ github.workspace }}/companions/root-control/tests:${{ github.workspace }}/companions/host-deploy/src:${{ github.workspace }}/companions/host-deploy/tests
         run: |
           test "$(git -C companions/root-control rev-parse HEAD)" = f2c765cc38a666b60a09729cd16ab63102ca1dd5
-          test "$(git -C companions/host-deploy rev-parse HEAD)" = b21da4c9b4d20362b8af31226064a7f8040004a1
+          test "$(git -C companions/host-deploy rev-parse HEAD)" = 7cf4dd4a5e1967035d724462ba3ddff10f8fbefa
           python -m pytest -q -rs \
             tests/test_graphical_task_c_v4_root_backed_install.py \
             companions/host-deploy/tests/test_graphics_owner_trust_v4_root_backed.py \
