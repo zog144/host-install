@@ -29,7 +29,7 @@ jobs:
         run: |
           host-install-task-c --help
           python -m compileall -q src/zog/host_install/task_c_local_install.py
-      - name: Verify all four disabled systemd templates are in ordinary wheel
+      - name: Verify one disabled root-backed gateway unit is in ordinary wheel
         run: |
           mkdir -p /tmp/task-c-wheel
           python -m pip wheel --no-deps . -w /tmp/task-c-wheel
@@ -40,13 +40,11 @@ jobs:
           assert len(wheels)==1, wheels
           with ZipFile(wheels[0]) as z:
               files=set(z.namelist())
-          expected={
-              'zog/host_install/systemd/task-c-local/zog-task-c-owner.service',
-              'zog/host_install/systemd/task-c-local/zog-task-c-owner.socket',
-              'zog/host_install/systemd/task-c-local/zog-task-c-trust.service',
-              'zog/host_install/systemd/task-c-local/zog-task-c-trust.socket',
-          }
-          assert expected <= files, expected - files
+          target='zog/host_install/systemd/task-c-local/zog-task-c-gateway.service'
+          assert target in files
+          assert not any(x.startswith('zog/host_install/systemd/task-c-local/zog-task-c-trust')
+                         or x.startswith('zog/host_install/systemd/task-c-local/zog-task-c-owner')
+                         for x in files)
           PY
       - name: Scope statement
         run: |
