@@ -226,7 +226,7 @@ def inspect_local_host_state():
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Stage local Task C Python software and disabled systemd units")
-     parser.add_argument("--host-deploy-source")
+    parser.add_argument("--host-deploy-source")
     parser.add_argument("--host-install-source")
     parser.add_argument("--python")
     action = parser.add_mutually_exclusive_group(required=True)
