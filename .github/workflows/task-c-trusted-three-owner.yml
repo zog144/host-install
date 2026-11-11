@@ -54,6 +54,10 @@ jobs:
           assert "trust" not in str(installer.UNITS)
           assert "owner" not in str(installer.UNITS)
           PY
-          python -m pytest -q -rs             tests/test_task_c_local_install.py             companions/host-deploy/tests/test_gateway_generic_pipeline.py             companions/host-deploy/tests/test_gateway_trusted_host_ssm.py
+          python -m pytest -q -rs \
+            tests/test_task_c_local_install.py \
+            companions/host-deploy/tests/test_gateway_generic_pipeline.py \
+            companions/host-deploy/tests/test_gateway_trusted_host_ssm.py
       - if: always()
-        run: echo 'Source-only: direct existing Host role, root-backed local intent, one disabled gateway unit; no S3, signer, EBS, broker, native SSM or Fonts dispatch.' >> "$GITHUB_STEP_SUMMARY"
+        run: |
+          echo 'Source-only: direct existing Host role, root-backed local intent, one disabled gateway unit; no S3, signer, EBS, broker, native SSM or Fonts dispatch.' >> "$GITHUB_STEP_SUMMARY"
