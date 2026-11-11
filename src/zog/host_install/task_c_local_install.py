@@ -201,23 +201,59 @@ def stage(plan, *, root=Path("/"), runner=subprocess.run):
             "ssm_authorized": False}
 
 
+
+def inspect_local_host_state():
+    """Read existing canonical Host/STATE identity, never issue a new identity.
+
+    This is a separate *optional* read-only step after /state preparation.
+    It is not a prerequisite to installing disabled Python software on a
+    retained Host whose existing /state migration is still underway.
+    """
+    from .state_inspect import inspect_live
+    with inspect_live() as context:
+        context.recheck()
+        bootstrap = context.bundle["bootstrap"]
+        state = bootstrap["state"]
+        result = {
+            "schema": "zog-task-c-local-host-state-observation-v1",
+            "status": "existing-local-installation-observed",
+            "installation_id": bootstrap["installation_id"],
+            "state_id": state["state_volume_id"],
+            "state_backend": state.get("storage_backend", "mounted-volume"),
+            "root_filesystem_uuid": state["filesystem_uuid"],
+            "expected_host_uuid": bootstrap["initialization"].get(
+                "expected_host_uuid"),
+            "ssm_authorized": False,
+        }
+        context.recheck()
+        return result
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Stage local Task C Python software and disabled systemd units")
-    parser.add_argument("--root-control-source", required=True)
-    parser.add_argument("--host-deploy-source", required=True)
-    parser.add_argument("--host-install-source", required=True)
-    parser.add_argument("--python", required=True)
+    parser.add_argument("--root-control-source")
+    parser.add_argument("--host-deploy-source")
+    parser.add_argument("--host-install-source")
+    parser.add_argument("--python")
     action = parser.add_mutually_exclusive_group(required=True)
     action.add_argument("--plan", action="store_true")
     action.add_argument("--stage", action="store_true")
+    action.add_argument("--inspect-state", action="store_true",
+                        help="read-only existing canonical installation/STATE")
     args = parser.parse_args(argv)
-    selected = source_plan(
-        root_control=args.root_control_source,
-        host_deploy=args.host_deploy_source,
-        host_install=args.host_install_source,
-        python=args.python)
-    result = stage(selected) if args.stage else selected
+    if args.inspect_state:
+        result = inspect_local_host_state()
+    else:
+        if any(not value for value in (
+                args.root_control_source, args.host_deploy_source,
+                args.host_install_source, args.python)):
+            parser.error("--plan/--stage require all three sources and --python")
+        selected = source_plan(
+            root_control=args.root_control_source,
+            host_deploy=args.host_deploy_source,
+            host_install=args.host_install_source,
+            python=args.python)
+        result = stage(selected) if args.stage else selected
     print(json.dumps(result, sort_keys=True))
     return 0
 
