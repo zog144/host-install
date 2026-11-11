@@ -100,8 +100,12 @@ def test_normal_stage_creates_root_backed_data_and_disabled_units(
         assert file.stat().st_mode & 0o777 == 0o644
     assert any(command[1:3] == ("-m", "pip") and
                "install" in command for command in commands)
-    assert any(command[1:4] == ("-m", "pip", "check")
+    assert any(command[1:4] == ("-m", "pip", "install")
+               and "--no-deps" in command for command in commands)
+    assert any(command[1:4] == ("-m", "pip", "install")
+               and any(item.startswith("boto3") for item in command)
                for command in commands)
+    assert not any("check" in command for command in commands)
     assert any("-c" in command and
                "trusted_host_submission" in " ".join(command)
                for command in commands)
