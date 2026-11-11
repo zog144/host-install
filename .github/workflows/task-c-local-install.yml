@@ -10,6 +10,51 @@ on:
   workflow_dispatch:
 
 jobs:
+  actual-repositories-disposable-stage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: host-install
+      - uses: actions/checkout@v4
+        with:
+          repository: zog144/root-control
+          ref: 6a545931a79e3f700dbf769b8a87fe33f9a6e620
+          path: root-control
+      - uses: actions/checkout@v4
+        with:
+          repository: zog144/host-deploy
+          ref: a28df09b070d81ae3369ade969302f52d0a2d749
+          path: host-deploy
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ordinary host-install component for local test
+        run: python -m pip install -e host-install
+      - name: Stage actual three repositories in a disposable tree (never activate)
+        run: |
+          python - <<'PY'
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+          from tempfile import TemporaryDirectory
+          from zog.host_install import task_c_local_install as local
+          plan=local.source_plan(
+              root_control="root-control",
+              host_deploy="host-deploy",
+              host_install="host-install",
+              python=os.path.realpath(sys.executable))
+          with TemporaryDirectory() as folder:
+              # A disposable root tests Python/package install, not actual
+              # systemd, IAM, S3 or SSM. No native production state is touched.
+              local.os.geteuid=lambda:0
+              result=local.stage(plan,root=Path(folder),
+                                 runner=subprocess.run)
+              assert result["ssm_authorized"] is False
+              assert (Path(folder)/"etc/systemd/system/zog-task-c-gateway.service").is_file()
+          PY
+
   stage-source:
     runs-on: ubuntu-latest
     strategy:
