@@ -174,12 +174,25 @@ def stage(plan, *, root=Path("/"), runner=subprocess.run):
              "selected application venv absent")
     executable = venv_parent / "bin" / "python"
     _require(executable.is_file(), "venv Python not installed")
+    # The public Zog package is assembled by release-build. Component
+    # development metadata (e.g. root-control -> box-control/image-build)
+    # names internal distributions not independently published on PyPI.
+    # Install actual Task C third-party runtime imports normally, then
+    # install these reviewed component source repositories as standard wheels
+    # without asking PyPI for unrelated internal component distributions.
+    # pip creates/installs ordinary wheel RECORDs; no signed artifact layer.
     _run(runner, (executable, "-m", "pip", "install", "--no-cache-dir",
+                  "boto3>=1.34,<2", "cryptography>=44,<49",
+                  "dbus-next==0.2.3"))
+    _run(runner, (executable, "-m", "pip", "install", "--no-cache-dir",
+                  "--no-deps",
                   plan["host_install_source"], plan["root_control_source"],
                   plan["host_deploy_source"]))
-    _run(runner, (executable, "-m", "pip", "check"))
-    # Require the actual trusted-Host gateway sender and durable local
-    # journal modules, not proposed owner/trust modules which do not exist.
+    # Do not use 'pip check' as an admission gate for component-development
+    # extras absent from this Task C runtime. Verify *actual* selected imports
+    # in the installed venv, not a caller success flag or package name. 
+    # Require the existing trusted-Host gateway sender and durable local
+    # journal modules, not the old S3-backed owner/trust modules.
     _run(runner, (executable, "-I", "-c",
                   "import importlib; "
                   + "; ".join("importlib.import_module(" + repr(m) + ")"
