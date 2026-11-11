@@ -178,3 +178,38 @@ def test_package_entrypoint_and_templates_included_in_normal_install():
         "zog.host_install.task_c_local_install:main")
     assert "systemd/task-c-local/*" in (
         metadata["tool"]["setuptools"]["package-data"]["zog.host_install"])
+
+
+def test_optional_local_host_inspection_reuses_canonical_reader(monkeypatch):
+    from zog.host_install import state_inspect
+    events = []
+    class OriginalState:
+        bundle = {"bootstrap":{
+            "installation_id": "original-installation",
+            "initialization": {"expected_host_uuid": "original-host"},
+            "state": {
+                "state_volume_id": "original-state",
+                "storage_backend": "root-directory",
+                "filesystem_uuid": "original-root-fs",
+            },
+        }}
+        def __enter__(self):
+            events.append("open")
+            return self
+        def recheck(self):
+            events.append("recheck")
+        def __exit__(self, *args):
+            events.append("close")
+    monkeypatch.setattr(state_inspect, "inspect_live", OriginalState)
+    observed=selected.inspect_local_host_state()
+    assert observed == {
+        "schema": "zog-task-c-local-host-state-observation-v1",
+        "status": "existing-local-installation-observed",
+        "installation_id": "original-installation",
+        "state_id": "original-state",
+        "state_backend": "root-directory",
+        "root_filesystem_uuid": "original-root-fs",
+        "expected_host_uuid": "original-host",
+        "ssm_authorized": False,
+    }
+    assert events == ["open", "recheck", "recheck", "close"]
