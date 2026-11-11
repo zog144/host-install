@@ -22,7 +22,6 @@ MODULES = (
     "zog.host_deploy.gateway.generic_pipeline",
     "zog.host_deploy.gateway.trusted_host_submission",
     "zog.host_deploy.gateway.graphics_operation_send_intent",
-    "zog.root_control.task_c_trusted_host",
 )
 VENVDIR = "/opt/zog/task-c/venv"
 DATA_DIRS = (
@@ -53,10 +52,9 @@ def _source(path, package):
     return path
 
 
-def source_plan(*, root_control, host_deploy, host_install, python):
+def source_plan(*, host_deploy, host_install, python):
     """Explicit, locally selected repositories; not a remote trust grant."""
     roots = (
-        _source(root_control, "root_control"),
         _source(host_deploy, "host_deploy"),
         _source(host_install, "host_install"),
     )
@@ -67,9 +65,8 @@ def source_plan(*, root_control, host_deploy, host_install, python):
              "selected installed Python executable must be an absolute file")
     return {
         "schema": SCHEMA,
-        "root_control_source": str(roots[0]),
-        "host_deploy_source": str(roots[1]),
-        "host_install_source": str(roots[2]),
+        "host_deploy_source": str(roots[0]),
+        "host_install_source": str(roots[1]),
         "python": str(python),
         "venv": VENVDIR,
         "data_directories": list(DATA_DIRS),
@@ -161,7 +158,6 @@ def stage(plan, *, root=Path("/"), runner=subprocess.run):
     _require(root.is_dir() and not root.is_symlink(), "invalid installation root")
     # Validate sources again rather than trusting a stale plan.
     approved = source_plan(
-        root_control=plan["root_control_source"],
         host_deploy=plan["host_deploy_source"],
         host_install=plan["host_install_source"],
         python=plan["python"])
@@ -174,23 +170,13 @@ def stage(plan, *, root=Path("/"), runner=subprocess.run):
              "selected application venv absent")
     executable = venv_parent / "bin" / "python"
     _require(executable.is_file(), "venv Python not installed")
-    # The public Zog package is assembled by release-build. Component
-    # development metadata (e.g. root-control -> box-control/image-build)
-    # names internal distributions not independently published on PyPI.
-    # Install actual Task C third-party runtime imports normally, then
-    # install these reviewed component source repositories as standard wheels
-    # without asking PyPI for unrelated internal component distributions.
-    # pip creates/installs ordinary wheel RECORDs; no signed artifact layer.
+    # Only the two component repositories used by the selected gateway are
+    # installed. Root-control's alternative journal remains source-tested,
+    # not an additional dependency or deployed SSM authority. Ordinary pip
+    # resolves the real host-deploy runtime requirements; verify with pip check.
     _run(runner, (executable, "-m", "pip", "install", "--no-cache-dir",
-                  "boto3>=1.34,<2", "cryptography>=44,<49",
-                  "dbus-next==0.2.3"))
-    _run(runner, (executable, "-m", "pip", "install", "--no-cache-dir",
-                  "--no-deps",
-                  plan["host_install_source"], plan["root_control_source"],
-                  plan["host_deploy_source"]))
-    # Do not use 'pip check' as an admission gate for component-development
-    # extras absent from this Task C runtime. Verify *actual* selected imports
-    # in the installed venv, not a caller success flag or package name. 
+                  plan["host_install_source"], plan["host_deploy_source"]))
+    _run(runner, (executable, "-m", "pip", "check"))
     # Require the existing trusted-Host gateway sender and durable local
     # journal modules, not the old S3-backed owner/trust modules.
     _run(runner, (executable, "-I", "-c",
@@ -240,8 +226,7 @@ def inspect_local_host_state():
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Stage local Task C Python software and disabled systemd units")
-    parser.add_argument("--root-control-source")
-    parser.add_argument("--host-deploy-source")
+     parser.add_argument("--host-deploy-source")
     parser.add_argument("--host-install-source")
     parser.add_argument("--python")
     action = parser.add_mutually_exclusive_group(required=True)
@@ -254,11 +239,10 @@ def main(argv=None):
         result = inspect_local_host_state()
     else:
         if any(not value for value in (
-                args.root_control_source, args.host_deploy_source,
-                args.host_install_source, args.python)):
-            parser.error("--plan/--stage require all three sources and --python")
+                args.host_deploy_source, args.host_install_source,
+                args.python)):
+            parser.error("--plan/--stage require host-deploy, host-install and --python")
         selected = source_plan(
-            root_control=args.root_control_source,
             host_deploy=args.host_deploy_source,
             host_install=args.host_install_source,
             python=args.python)
