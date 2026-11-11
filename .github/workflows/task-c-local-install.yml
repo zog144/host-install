@@ -18,11 +18,6 @@ jobs:
           path: host-install
       - uses: actions/checkout@v4
         with:
-          repository: zog144/root-control
-          ref: 6a545931a79e3f700dbf769b8a87fe33f9a6e620
-          path: root-control
-      - uses: actions/checkout@v4
-        with:
           repository: zog144/host-deploy
           ref: a28df09b070d81ae3369ade969302f52d0a2d749
           path: host-deploy
@@ -31,7 +26,7 @@ jobs:
           python-version: "3.12"
       - name: Install ordinary host-install component for local test
         run: python -m pip install -e host-install
-      - name: Stage actual three repositories in a disposable tree (never activate)
+      - name: Stage actual gateway repositories in a disposable tree (never activate)
         run: |
           python - <<'PY'
           import os
@@ -41,7 +36,6 @@ jobs:
           from tempfile import TemporaryDirectory
           from zog.host_install import task_c_local_install as local
           plan=local.source_plan(
-              root_control="root-control",
               host_deploy="host-deploy",
               host_install="host-install",
               python=os.path.realpath(sys.executable))
