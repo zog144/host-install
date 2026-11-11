@@ -48,39 +48,34 @@ def test_source_selection_is_ordinary_local_repositories(tmp_path):
     assert "checkpoint_reader_role" not in plan
     assert "anchor" not in plan
     assert plan["runtime_modules"] == [
-        "zog.root_control.task_c_local_service",
-        "zog.host_deploy.gateway.task_c_local_trust_daemon",
+        "zog.host_deploy.gateway.generic_pipeline",
+        "zog.host_deploy.gateway.trusted_host_submission",
+        "zog.host_deploy.gateway.graphics_operation_send_intent",
+        "zog.root_control.task_c_trusted_host",
     ]
 
 
-def test_disabled_service_templates_select_new_local_runtime_not_v3_v4():
+def test_disabled_gateway_template_selects_one_existing_direct_runtime():
     units = selected._units()
-    assert set(units) == set(selected.UNITS)
-    owner = units["zog-task-c-owner.service"].decode()
-    trust = units["zog-task-c-trust.service"].decode()
-    assert " -m zog.root_control.task_c_local_service" in owner
-    assert " -m zog.host_deploy.gateway.task_c_local_trust_daemon" in trust
-    assert "graphical_task_c_service" not in owner
-    for name, data in units.items():
-        text = data.decode()
-        lines = [v for v in text.splitlines()
-                 if v.strip() and not v.lstrip().startswith("#")]
-        assert not any(v.startswith((
-            "RequiresMountsFor=", "LoadCredential=",
-            "WantedBy=", "LoadCredentialEncrypted=",
-        )) for v in lines)
-        assert "[Install]" not in lines
-        assert "s3://" not in text.lower()
-        if name.endswith(".socket"):
-            assert "SocketUser=root" in lines
-            assert "SocketGroup=root" in lines
-            assert "SocketMode=0600" in lines
-            assert "Accept=no" in lines
-        else:
-            assert "User=root" in lines
-            assert "Group=root" in lines
-            assert "ProtectSystem=strict" in lines
-            assert "NoNewPrivileges=yes" in lines
+    assert set(units) == {"zog-task-c-gateway.service"}
+    text = units["zog-task-c-gateway.service"].decode()
+    lines = [v for v in text.splitlines()
+             if v.strip() and not v.lstrip().startswith("#")]
+    assert "User=root" in lines and "Group=root" in lines
+    assert "StateDirectory=host-deploy-gateway" in lines
+    assert "StateDirectoryMode=0700" in lines
+    assert "ReadWritePaths=/var/lib/host-deploy-gateway" in lines
+    assert "ExecStart=/opt/zog/task-c/venv/bin/host-deploy-gateway --state-directory /var/lib/host-deploy-gateway run" in lines
+    assert "NoNewPrivileges=yes" in lines
+    assert "ProtectSystem=strict" in lines
+    assert "[Install]" not in lines
+    assert "DynamicUser=yes" not in lines
+    assert not any(v.startswith(("RequiresMountsFor=", "LoadCredential=",
+                                 "WantedBy=")) for v in lines)
+    for forbidden in ("zog-task-c-trust", "zog-task-c-owner",
+                      "s3://", "broker-private.key"):
+        assert forbidden not in text
+
 
 
 def test_normal_stage_creates_root_backed_data_and_disabled_units(
@@ -108,7 +103,7 @@ def test_normal_stage_creates_root_backed_data_and_disabled_units(
     assert any(command[1:4] == ("-m", "pip", "check")
                for command in commands)
     assert any("-c" in command and
-               "task_c_local_service" in " ".join(command)
+               "trusted_host_submission" in " ".join(command)
                for command in commands)
     assert not any(word in command for command in commands
                    for word in ("start", "enable", "restart", "ssm",
