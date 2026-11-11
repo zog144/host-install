@@ -32,7 +32,12 @@ sudo install -d -m 0755 /opt/zog /opt/zog/task-c "$SRC"
 # Skip cloning if these reviewed source checkouts are already present.
 sudo git clone https://github.com/zog144/host-install.git "$SRC/host-install"
 sudo git clone https://github.com/zog144/host-deploy.git "$SRC/host-deploy"
-# For each checkout: git checkout --detach <reviewed exact SHA>.
+# Immutable source selections that passed the current exact-head CI; Work
+# must re-check installed bytes and ensure these commits remain approved.
+sudo git -C "$SRC/host-install" checkout --detach 0b52eb50073477a1de8504009004eb27d2caa54b
+sudo git -C "$SRC/host-deploy" checkout --detach a28df09b070d81ae3369ade969302f52d0a2d749
+sudo git -C "$SRC/host-install" rev-parse HEAD
+sudo git -C "$SRC/host-deploy" rev-parse HEAD
 
 # Work must verify this retained Python selection is still installed and usable.
 PYTHON=/opt/host-discover/candidates/retained-legacy-3fd8bd0-3d94f34-20261109/venv/bin/python3.12
