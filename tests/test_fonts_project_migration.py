@@ -78,7 +78,7 @@ def test_non_destructive_project_stage_commit_and_access(tmp_path):
 
 def test_existing_destination_and_pending_never_overwritten(tmp_path):
     root, _, old, target, _ = fixture(tmp_path)
-    target.parent.mkdir(parents=True)
+    migration._prepare_parent(root)
     target.mkdir()
     (target / "foreign").write_text("retained foreign")
     with pytest.raises(migration.MigrationHold, match="destination already exists"):
