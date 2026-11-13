@@ -73,8 +73,9 @@ value is configurable and no `chown`, sudo-run-as, `subprocess(user=...)`,
 getpwuid, `$USER` or `$HOME` selection exists in this helper.
 
 The migration **copies**, not moves or deletes, all regular content with
-SHA-256 inventories, timestamps and modes, preserving internal relative
-symlinks and in-tree hardlinks. Unexpected external hardlinks, escaping or
+SHA-256 inventories, timestamps and modes (and standard copied metadata),
+preserving internal relative symlinks and in-tree hardlinks. All copied
+files and directory entries are fsynced before atomic no-replace publication. Unexpected external hardlinks, escaping or
 absolute symlinks, special devices, set-id files, changed source bytes,
 a pre-existing destination or incomplete pending copy are explicit HOLDs.
 A HOLD leaves source and any partial stage intact for an administrator's
@@ -123,8 +124,9 @@ set -euo pipefail
 # Existing standard repository/Python installation, no new user or login home.
 sudo install -d -m 0755 /opt/zog /opt/zog/image-build-maintenance
 sudo git clone https://github.com/zog144/host-install.git /opt/zog/image-build-maintenance/host-install
-# Review and then select the exact approved commit:
-# sudo git -C /opt/zog/image-build-maintenance/host-install checkout --detach <SHA>
+# Reviewed immutable host-install migration source; Work still must
+# inspect the installed Git commit/package bytes before privileged use.
+sudo git -C /opt/zog/image-build-maintenance/host-install checkout --detach edc3078581dea15c63549ef456a8bc7833356a52
 # Stage the privileged tool only in a root-owned application directory;
 # never execute a root installer out of a writable /tmp path.
 sudo python3.12 -m venv /opt/zog/image-build-maintenance/venv
