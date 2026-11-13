@@ -126,7 +126,7 @@ sudo install -d -m 0755 /opt/zog /opt/zog/image-build-maintenance
 sudo git clone https://github.com/zog144/host-install.git /opt/zog/image-build-maintenance/host-install
 # Reviewed immutable host-install migration source; Work still must
 # inspect the installed Git commit/package bytes before privileged use.
-sudo git -C /opt/zog/image-build-maintenance/host-install checkout --detach edc3078581dea15c63549ef456a8bc7833356a52
+sudo git -C /opt/zog/image-build-maintenance/host-install checkout --detach 8d9463813c39ae9ad7538beae0afec778ca8da25
 # Stage the privileged tool only in a root-owned application directory;
 # never execute a root installer out of a writable /tmp path.
 sudo python3.12 -m venv /opt/zog/image-build-maintenance/venv
