@@ -162,3 +162,36 @@ def test_migration_cli_packaged_separately_from_task_c_gateway():
         "subprocess.Popen(", "subprocess.run(", "useradd ", "groupadd ",
         "shutil.rmtree("):
         assert forbidden not in source
+
+
+def test_atomic_no_replace_directory_publication_refuses_conflict(tmp_path):
+    staged = tmp_path / "pending"
+    dest = tmp_path / "destination"
+    staged.mkdir()
+    dest.mkdir()
+    (staged / "source").write_text("copy")
+    (dest / "foreign").write_text("preserve")
+    with pytest.raises(migration.MigrationHold, match="without replacement"):
+        migration._publish_no_replace(staged, dest)
+    assert (staged / "source").read_text() == "copy"
+    assert (dest / "foreign").read_text() == "preserve"
+
+
+def test_runtime_access_report_never_requires_opening_legacy_private_home(
+        tmp_path):
+    root, home, old, target, _ = fixture(tmp_path)
+    migration.operation("stage", root=root)
+    migration.operation("commit", root=root)
+    # Simulate private legacy home unavailable to this different
+    # process context. Only the separate native runtime's own EUID/EGID
+    # and destination DAC matter to the read-only access probe.
+    home.chmod(0o000)
+    try:
+        observed = migration.operation("verify-access", root=root)
+        assert observed["new_project"] == migration.NEW
+        assert observed["destination"]["effective_uid"] == os.geteuid()
+        assert observed["destination"]["effective_gid"] == os.getegid()
+        assert observed["destination"]["read_write_traverse"] is True
+        assert "old_project" not in observed
+    finally:
+        home.chmod(0o700)
