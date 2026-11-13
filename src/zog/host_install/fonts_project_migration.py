@@ -10,6 +10,7 @@ The old Project remains intact. No controller specification is rewritten.
 from __future__ import annotations
 
 import argparse
+import ctypes
 import hashlib
 import json
 import os
@@ -190,6 +191,23 @@ def _prepare_parent(root):
                     "private application directory mode differs")
 
 
+def _publish_no_replace(pending, target):
+    """Linux atomic directory rename that cannot replace an existing Project."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    func = getattr(libc, "renameat2", None)
+    require(func is not None, "Linux renameat2 required for safe publication")
+    func.argtypes = [ctypes.c_int, ctypes.c_char_p,
+                     ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+    func.restype = ctypes.c_int
+    at_fdcwd = -100
+    rename_noreplace = 1
+    result = func(at_fdcwd, os.fsencode(pending), at_fdcwd,
+                  os.fsencode(target), rename_noreplace)
+    require(result == 0,
+            "pending Project could not be published without replacement (errno " +
+            str(ctypes.get_errno()) + ")")
+
+
 def _access(dest):
     result = {"effective_uid": os.geteuid(), "effective_gid": os.getegid()}
     try:
@@ -276,7 +294,7 @@ def operation(action, *, root=Path("/")):
                 "staging ownership differs from executing context")
         # The trusted root administrator owns the parent. Never overwrite an
         # existing destination, and fsync the parent after the rename.
-        os.rename(pending, target)
+        _publish_no_replace(pending, target)
         fd = os.open(target.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:
             os.fsync(fd)
