@@ -220,6 +220,19 @@ def operation(action, *, root=Path("/")):
     source = _map(root, OLD)
     target = _map(root, NEW)
     pending = _map(root, PENDING)
+    if action == "verify-access":
+        # This check runs IN the corrected controller/worker's existing
+        # process context. Do not open its inaccessible legacy private home,
+        # switch UID/GID, or trust $USER/$HOME.
+        access = _access(target)
+        require(access.get("read_write_traverse", False),
+                "current process cannot access migrated application Project")
+        require(access.get("state_accessible", True),
+                "current process cannot write migrated Project state")
+        require(access.get("source_accessible", True),
+                "current process cannot read migrated Project source")
+        return {"schema": SCHEMA, "action": action, "new_project": NEW,
+                "destination": access, "ssm_authorized": False}
     _parents_secure(root, OLD, require_leaf=True)
     before = _tree(source)
     base = {"schema": SCHEMA, "action": action,
@@ -236,16 +249,6 @@ def operation(action, *, root=Path("/")):
     if action == "inspect":
         base["destination"] = _access(target)
         base["pending"] = pending.exists() or pending.is_symlink()
-        return base
-    if action == "verify-access":
-        access = _access(target)
-        require(access.get("read_write_traverse", False),
-                "current process cannot access migrated application Project")
-        require(access.get("state_accessible", True),
-                "current process cannot write migrated Project state")
-        require(access.get("source_accessible", True),
-                "current process cannot read migrated Project source")
-        base["destination"] = access
         return base
     require(action in ("stage", "commit", "verify"),
             "unknown Project migration action")
