@@ -125,10 +125,12 @@ sudo install -d -m 0755 /opt/zog /opt/zog/image-build-maintenance
 sudo git clone https://github.com/zog144/host-install.git /opt/zog/image-build-maintenance/host-install
 # Review and then select the exact approved commit:
 # sudo git -C /opt/zog/image-build-maintenance/host-install checkout --detach <SHA>
-python3.12 -m venv /tmp/zog-fonts-migration-venv
-/tmp/zog-fonts-migration-venv/bin/python -m pip install --no-cache-dir /opt/zog/image-build-maintenance/host-install
+# Stage the privileged tool only in a root-owned application directory;
+# never execute a root installer out of a writable /tmp path.
+sudo python3.12 -m venv /opt/zog/image-build-maintenance/venv
+sudo /opt/zog/image-build-maintenance/venv/bin/python -m pip install --no-cache-dir /opt/zog/image-build-maintenance/host-install
 
-MIGRATE=/tmp/zog-fonts-migration-venv/bin/host-install-fonts-project-migrate
+MIGRATE=/opt/zog/image-build-maintenance/venv/bin/host-install-fonts-project-migrate
 umask 077
 sudo "$MIGRATE" --inspect
 # Execute only after source/controller selection and filesystem backup review:
