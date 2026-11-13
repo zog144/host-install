@@ -269,9 +269,9 @@ def operation(action, *, root=Path("/")):
         access = _access(target)
         require(access.get("read_write_traverse", False),
                 "current process cannot access migrated application Project")
-        require(access.get("state_accessible", True),
+        require(access.get("state_accessible") is True,
                 "current process cannot write migrated Project state")
-        require(access.get("source_accessible", True),
+        require(access.get("source_accessible") is True,
                 "current process cannot read migrated Project source")
         return {"schema": SCHEMA, "action": action, "new_project": NEW,
                 "destination": access, "ssm_authorized": False}
