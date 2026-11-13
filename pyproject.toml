@@ -15,6 +15,7 @@ license-files = ["LICENSE", "LICENSES/*.txt", "THIRD-PARTY-NOTICES.md"]
 [project.scripts]
 host-install = "zog.host_install.cli:main"
 host-install-task-c = "zog.host_install.task_c_local_install:main"
+host-install-fonts-project-migrate = "zog.host_install.fonts_project_migration:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
