@@ -163,6 +163,9 @@ def _copy(source, dest, snapshot):
     copied = _tree(dest)
     require(copied["rows"] == snapshot["rows"],
             "staged Project content, mode or hardlink topology changed")
+    require(copied["ownership_counts"] ==
+            {f"{os.geteuid()}:{os.getegid()}": copied["entries"]},
+            "staged Project not owned throughout by executing process")
     return copied
 
 
@@ -281,6 +284,13 @@ def operation(action, *, root=Path("/")):
     after = _tree(target)
     require(after["rows"] == before["rows"],
             "published Project differs from retained source")
+    # No numeric user/worker binding is imported from the old controller.
+    # Every copied inode inherits the actual privileged migration process
+    # owner and group. Recheck after publication rather than asserting it.
+    require(after["ownership_counts"] ==
+            {f"{target.stat().st_uid}:{target.stat().st_gid}": after["entries"]},
+            "mixed destination owners; inspect previous migration")
+    base["destination_owners"] = after["ownership_counts"]
     require(_tree(source)["rows"] == before["rows"],
             "retained source changed since migration")
     base["destination"] = _access(target)
