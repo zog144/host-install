@@ -70,7 +70,8 @@ def _tree(path):
         owner_counts[owner] = owner_counts.get(owner, 0) + 1
         if stat.S_ISDIR(st.st_mode):
             rows.append({"path": rel, "type": "dir",
-                         "mode": None if rel == "." else mode})
+                         "mode": None if rel == "." else mode,
+                         "mtime_ns": st.st_mtime_ns})
             for name in sorted(os.listdir(p)):
                 require(name not in (".", "..") and "/" not in name,
                         "invalid directory entry")
@@ -122,7 +123,8 @@ def _tree(path):
                 elif part not in (".", ""):
                     parts.append(part)
             require(parts, "symlink to Project root unsupported")
-            rows.append({"path": rel, "type": "symlink", "target": target})
+            rows.append({"path": rel, "type": "symlink",
+                         "target": target, "mtime_ns": st.st_mtime_ns})
         else:
             raise MigrationHold("socket, device, fifo or unusual Project object: " + rel)
     walk(path, ".")
@@ -148,11 +150,13 @@ def _copy(source, dest, snapshot):
             for name in sorted(os.listdir(src)):
                 walk(src / name, dst / name,
                      name if rel == "." else rel + "/" + name)
-            # A copied private Project is accessible only to its current
-            # effective owner. Nested original directory modes are retained.
+            # Restore directory timestamps/ACL/xattrs after creating all
+            # children; the Project root alone is additionally private 0700.
+            shutil.copystat(src, dst, follow_symlinks=False)
             dst.chmod(0o700 if rel == "." else stat.S_IMODE(st.st_mode))
         elif stat.S_ISLNK(st.st_mode):
             os.symlink(os.readlink(src), dst)
+            shutil.copystat(src, dst, follow_symlinks=False)
         else:
             identity = (st.st_dev, st.st_ino)
             if identity in first_copies:
