@@ -115,15 +115,29 @@ def inspect_actual_mounts(plan):
             stats.append(st)
         except OSError:
             _hold()
+    # Local root-directory STATE is deliberately *not* a separate mount.
+    # Do not accept a caller's 'mounted' flag: host-install reopens the actual
+    # canonical configuration, marker and filesystem namespace in-process.
+    from .state_inspect import inspect_live
     try:
-        state=os.stat("/state")
-        if not os.path.ismount("/state"):
-            _hold()
-    except OSError:
+        with inspect_live() as context:
+            context.recheck()
+            selected = context.bundle["bootstrap"]["state"]
+            if (selected["filesystem_uuid"] != plan["state_fs_uuid"]
+                    or selected.get("storage_backend", "mounted-volume") not in (
+                        "mounted-volume", "root-directory")):
+                _hold()
+            backend = selected.get("storage_backend", "mounted-volume")
+            state = os.fstat(context.fd)
+            if (backend == "mounted-volume") != os.path.ismount("/state"):
+                _hold()
+            if len({state.st_dev, stats[0].st_dev, stats[1].st_dev}) != 3:
+                _hold()
+            context.recheck()
+    except (OSError, ValueError, KeyError, TypeError):
         _hold()
-    if len({state.st_dev,stats[0].st_dev,stats[1].st_dev}) != 3:
-        _hold()
-    return {**proposal,"status":"MOUNT_NAMESPACE_OBSERVED_NATIVE_IDENTITY_UNACCEPTED"}
+    return {**proposal,"status":"MOUNT_NAMESPACE_OBSERVED_NATIVE_IDENTITY_UNACCEPTED",
+            "state_backend":backend}
 
 def disabled_mount_unit_candidates(plan):
     """Render reviewer-readable exact mount unit candidate bytes; do not install.

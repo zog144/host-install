@@ -1,0 +1,91 @@
+name: Task C ordinary local installation source (no S3)
+on:
+  pull_request:
+    paths:
+      - "src/zog/host_install/task_c_local_install.py"
+      - "src/zog/host_install/systemd/task-c-local/**"
+      - "tests/test_task_c_local_install.py"
+      - "pyproject.toml"
+      - ".github/workflows/task-c-local-install.yml"
+  workflow_dispatch:
+
+jobs:
+  actual-repositories-disposable-stage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: host-install
+      - uses: actions/checkout@v4
+        with:
+          repository: zog144/host-deploy
+          ref: a28df09b070d81ae3369ade969302f52d0a2d749
+          path: host-deploy
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ordinary host-install component for local test
+        run: python -m pip install -e host-install
+      - name: Stage actual gateway repositories in a disposable tree (never activate)
+        run: |
+          python - <<'PY'
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+          from tempfile import TemporaryDirectory
+          from zog.host_install import task_c_local_install as local
+          plan=local.source_plan(
+              host_deploy="host-deploy",
+              host_install="host-install",
+              python=os.path.realpath(sys.executable))
+          with TemporaryDirectory() as folder:
+              # A disposable root tests Python/package install, not actual
+              # systemd, IAM, S3 or SSM. No native production state is touched.
+              local.os.geteuid=lambda:0
+              result=local.stage(plan,root=Path(folder),
+                                 runner=subprocess.run)
+              assert result["ssm_authorized"] is False
+              assert (Path(folder)/"etc/systemd/system/zog-task-c-gateway.service").is_file()
+          PY
+
+  stage-source:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install normal component development package and pytest
+        run: python -m pip install -e . pytest
+      - name: Source-only disposable staging and nonactivation regressions
+        run: python -m pytest -q tests/test_task_c_local_install.py
+      - name: Verify installable Python CLI
+        run: |
+          host-install-task-c --help
+          python -m compileall -q src/zog/host_install/task_c_local_install.py
+      - name: Verify one disabled root-backed gateway unit is in ordinary wheel
+        run: |
+          mkdir -p /tmp/task-c-wheel
+          python -m pip wheel --no-deps . -w /tmp/task-c-wheel
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          wheels=list(Path('/tmp/task-c-wheel').glob('host_install-*.whl'))
+          assert len(wheels)==1, wheels
+          with ZipFile(wheels[0]) as z:
+              files=set(z.namelist())
+          target='zog/host_install/systemd/task-c-local/zog-task-c-gateway.service'
+          assert target in files
+          assert not any(x.startswith('zog/host_install/systemd/task-c-local/zog-task-c-trust')
+                         or x.startswith('zog/host_install/systemd/task-c-local/zog-task-c-owner')
+                         for x in files)
+          PY
+      - name: Scope statement
+        run: |
+          echo "Source-only: neither production Host installation nor systemd socket/service activation nor AWS/SSM was executed." >> "$GITHUB_STEP_SUMMARY"
+          echo "S3, approval-signing and installer-signing are not prerequisites for this newly selected ordinary installation path." >> "$GITHUB_STEP_SUMMARY"

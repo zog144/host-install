@@ -1,0 +1,67 @@
+name: Task C v3 exact three-owner disabled installer source freeze
+on:
+  push:
+    branches: [regular/state-directory-runtime-integration-20261107]
+  pull_request:
+    paths:
+      - src/zog/host_install/graphical_task_c_v3_install_freeze.py
+      - src/zog/host_install/graphical_protected_storage_admission.py
+      - tests/test_graphical_task_c_v3_install_freeze.py
+      - src/zog/host_install/graphical_task_c_v4_root_backed_install.py
+      - src/zog/host_install/systemd/root-backed/**
+      - tests/test_graphical_task_c_v4_root_backed_install.py
+      - tests/test_graphical_protected_storage_admission.py
+      - .github/workflows/graphical-v3-three-owner-install-freeze.yml
+permissions:
+  contents: read
+jobs:
+  v3-exact-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: zog144/root-control
+          ref: f2c765cc38a666b60a09729cd16ab63102ca1dd5
+          path: companions/root-control
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: zog144/host-deploy
+          ref: 7cf4dd4a5e1967035d724462ba3ddff10f8fbefa
+          path: companions/host-deploy
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install 'pytest>=8,<10' 'cryptography>=44,<49' 'boto3>=1.34,<2'
+      - name: Verify reviewed exact root, gateway and STATE source selection
+        env:
+          PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}/tests:${{ github.workspace }}/companions/root-control/src:${{ github.workspace }}/companions/root-control/tests:${{ github.workspace }}/companions/host-deploy/src:${{ github.workspace }}/companions/host-deploy/tests
+        run: |
+          test "$(git -C companions/root-control rev-parse HEAD)" = f2c765cc38a666b60a09729cd16ab63102ca1dd5
+          test "$(git -C companions/host-deploy rev-parse HEAD)" = 7cf4dd4a5e1967035d724462ba3ddff10f8fbefa
+          python -m pytest -q -rs tests/test_graphical_task_c_v3_install_freeze.py             tests/test_graphical_registry_storage_installation.py             tests/test_graphical_protected_storage_admission.py             companions/root-control/tests/test_graphical_task_c_backend_observation.py             companions/root-control/tests/test_graphical_task_c_local_identity.py             companions/host-deploy/tests/test_graphics_owner_trust_v3_install.py             companions/host-deploy/tests/test_graphics_owner_trust_v3_backend_observation.py \
+            tests/test_graphical_task_c_v4_root_backed_install.py \
+            companions/host-deploy/tests/test_graphics_owner_trust_v4_root_backed.py \
+            companions/root-control/tests/test_graphical_task_c_root_backed_storage.py \
+            companions/root-control/tests/test_graphical_s3_installation_checkpoint.py
+      - name: Build pinned, uninstalled component wheels and verify wheel RECORD
+        env:
+          PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}/tests:${{ github.workspace }}/companions/root-control/src:${{ github.workspace }}/companions/root-control/tests:${{ github.workspace }}/companions/host-deploy/src:${{ github.workspace }}/companions/host-deploy/tests
+          V3_WHEEL_DIR: ${{ runner.temp }}/v3-wheels
+        run: |
+          python -m pip install 'setuptools>=80,<83' wheel
+          mkdir -p "$V3_WHEEL_DIR"
+          python -m pip wheel --no-deps --no-build-isolation -w "$V3_WHEEL_DIR"             . companions/root-control companions/host-deploy
+          python -m pytest -q -s tests/test_graphical_task_c_v3_install_freeze.py             -k test_built_wheels_have_exact_source_bytes_and_real_pep427_record
+      - if: always()
+        run: |
+          echo 'All v3 credentials, services, sockets, STATE and Task C native admission remain disabled. Wheel RECORD fixture verification is not attestation of an installed runtime.' >> "$GITHUB_STEP_SUMMARY"

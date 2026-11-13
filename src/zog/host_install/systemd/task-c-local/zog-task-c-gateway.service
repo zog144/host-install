@@ -1,0 +1,30 @@
+# Trusted host-registry Task C gateway; disabled until native review.
+# This is the one selected local SSM route, not a second owner or broker.
+[Unit]
+Description=Zog Task C trusted Host gateway (local durable SSM)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+EnvironmentFile=-/etc/host-deploy/gateway.env
+ExecStart=/opt/zog/task-c/venv/bin/host-deploy-gateway --state-directory /var/lib/host-deploy-gateway run
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+KillSignal=SIGTERM
+UMask=0077
+StateDirectory=host-deploy-gateway
+StateDirectoryMode=0700
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/host-deploy-gateway
+CapabilityBoundingSet=
+AmbientCapabilities=
+# No [Install], socket listener, S3/checkpoint/approval credentials or
+# alternate owner/trust service is provisioned by this candidate unit.
+# Work must stop/reconcile any pre-existing gateway before native selection.

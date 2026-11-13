@@ -1,0 +1,42 @@
+[Unit]
+Description=Protected Zog graphical operation claim and selected SSM sender
+Documentation=man:systemd.service(5)
+Requires=zog-graphical-owner-storage-verified.service
+After=zog-graphical-owner-storage-verified.service local-fs.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=root
+Group=root
+Sockets=zog-graphical-owner.socket
+ExecStart=/opt/zog/graphical-owner/venv/bin/python3 -I -m zog.root_control.graphical_task_c_service
+LoadCredential=aws-session.json:/var/lib/zog-graphical-owner-credential-source/aws-session.json
+LoadCredential=checkpoint-session.json:/var/lib/zog-graphical-owner-credential-source/checkpoint-session.json
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateIPC=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+UMask=0077
+ReadWritePaths=/var/lib/zog-owner-ledger
+CapabilityBoundingSet=
+AmbientCapabilities=
+# Root-backed v4 source-only unit: disabled; no Install section.
+# Read-only storage verifier must pass before process startup.
+# Two *different* explicit
+# checkpoint-S3 and SSM-role sessions must be attested. S3 is external,
+# never a writable local fake highwater mount. Source/STATE/authority not accepted.
+# The dedicated root-owned environment must use reviewed Python >=3.11 and
+# attested wheel/RECORD bytes; the host's /usr/bin/python3 may still be 3.9.

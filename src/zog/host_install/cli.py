@@ -8,7 +8,7 @@ from . import InstallError
 from .state_contract import StateError, decode, validate
 from .state_inspect import inspect_report
 from .state_probe import probe_live
-from .state_provision import stage_overlay, prepare_live
+from .state_provision import stage_overlay, prepare_live, prepare_directory_live
 from .non_resident import build_plan as build_non_resident_plan
 from . import state_device
 from .state_initialize import authorize_live, initialize_live
@@ -75,12 +75,15 @@ def main(argv=None):
     cmd.add_argument("--fresh-volume-id", required=True)
     cmd.add_argument("--ca-directory", type=Path)
     sub.add_parser("state-inspect", help="read-only inspection of canonical live STATE")
+    sub.add_parser("state-directory-inspect", help="read-only canonical root-directory STATE inspection")
     sub.add_parser("state-probe", help="explicit STATE write probe as UID/GID 970")
     cmd = sub.add_parser("state-stage", help="publish a new offline configuration overlay")
     cmd.add_argument("bundle", type=Path)
     cmd.add_argument("--output", type=Path, required=True)
     cmd.add_argument("--previous-bundle", type=Path)
     cmd.add_argument("--ca-directory", type=Path)
+    cmd = sub.add_parser("state-directory-prepare", help="prepare only an explicitly configured root-directory STATE")
+    cmd.add_argument("--state-volume-id", required=True, help="exact existing installation STATE UUID")
     cmd = sub.add_parser("state-prepare", help="provision directories only on verified live STATE")
     cmd.add_argument("--initialize-volume", help="explicit fresh volume UUID; never generates a key")
     cmd = sub.add_parser("state-authorize", help="explicit root-owned identity initialization authorization")
@@ -320,6 +323,8 @@ def main(argv=None):
                         with (args.ca_directory / (reg["registry_id"] + ".pem")).open("rb") as stream:
                             ca[reg["registry_id"]] = stream.read(65537)
             result = stage_overlay(bundle, args.output, previous, ca)
+        elif args.command == "state-directory-prepare":
+            result = prepare_directory_live(args.state_volume_id)
         elif args.command == "state-prepare":
             result = prepare_live(args.initialize_volume)
         elif args.command == "state-authorize":
@@ -360,6 +365,17 @@ def main(argv=None):
             result = {"status": "offline-records-valid", "control_authorized": False}
         elif args.command == "state-inspect":
             result = inspect_report()
+        elif args.command == "state-directory-inspect":
+            from .state_inspect import inspect_live
+            with inspect_live() as context:
+                if context.bundle['marker']['kind'] != 'zog-state-directory':
+                    raise StateError('state-backend', 'directory STATE not selected')
+                result = {'status': 'state-directory-verified',
+                          'backend': 'root-directory',
+                          'mount': context.mount,
+                          'installation_id': context.bundle['installation']['installation_id'],
+                          'state_volume_id': context.bundle['marker']['state_volume_id'],
+                          'identity_created': False, 'control_authorized': False}
         elif args.command == "state-probe":
             result = probe_live()
         elif args.command == "inspect":

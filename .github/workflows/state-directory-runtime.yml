@@ -1,0 +1,48 @@
+name: Opt-in root-directory STATE source and root-capable filesystem acceptance
+on:
+  push:
+    branches: [regular/state-directory-runtime-integration-20261107]
+  pull_request:
+    paths:
+      - src/zog/host_install/state_contract.py
+      - src/zog/host_install/state_inspect.py
+      - src/zog/host_install/state_provision.py
+      - src/zog/host_install/cli.py
+      - src/zog/host_install/state_gate.py
+      - src/zog/host_install/state_device.py
+      - src/zog/host_install/non_resident.py
+      - tests/test_non_resident.py
+      - tests/test_state_directory_runtime.py
+      - .github/workflows/state-directory-runtime.yml
+permissions:
+  contents: read
+jobs:
+  state-directory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.12','3.13']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install 'pytest>=8,<10' 'cryptography>=44,<49'
+      - name: Pure canonical STATE regression and opt-in backend checks
+        env:
+          PYTHONPATH: ${{ github.workspace }}/src
+        run: |
+          python -m pytest -q -rs tests/test_state_directory_runtime.py -k 'not root_capable'
+          sudo --preserve-env=PYTHONPATH ${{ env.pythonLocation }}/bin/python -m pytest -q -rs tests/test_state.py tests/test_state_provision.py tests/test_non_resident.py
+      - name: Root-capable disposable directory lifecycle acceptance
+        env:
+          PYTHONPATH: ${{ github.workspace }}/src
+          PYTHON: ${{ env.pythonLocation }}/bin/python
+        run: |
+          sudo --preserve-env=PYTHONPATH ${{ env.pythonLocation }}/bin/python -m pytest -q -rs tests/test_state_directory_runtime.py -k root_capable
+      - if: always()
+        run: echo 'Root-capable tests use disposable temporary directories only, not retained /state. No registry Host device or configuration was touched.' >> "$GITHUB_STEP_SUMMARY"

@@ -18,6 +18,7 @@ def build_plan(bundle):
     bootstrap = bundle['bootstrap']
     state = bootstrap['state']
     recorded = installation['installer_recorded']
+    directory_backend = state.get('storage_backend') == 'root-directory'
 
     files = []
     for name in ('accounts', 'installation', 'bootstrap'):
@@ -30,14 +31,31 @@ def build_plan(bundle):
             'sha256': digest(value),
         })
 
-    return {
-        'schema': PLAN_SCHEMA,
-        'kind': PLAN_KIND,
-        'installation_id': installation['installation_id'],
-        'installation_record_sha256': digest(installation),
-        'installation_mode': 'non-resident',
-        'host_os': recorded['host_os'],
-        'state': {
+    if directory_backend:
+        # /state lives on the deliberately retained external Host OS root.
+        # There is no state.mount unit or separate ext4 block device.
+        state_plan = {
+            'mount_point': '/state',
+            'storage_backend': 'root-directory',
+            'filesystem_type': 'directory',
+            'state_volume_id': state['state_volume_id'],
+            'root_partuuid': state['partition_partuuid'],
+            'root_filesystem_uuid': state['filesystem_uuid'],
+            'independent_volume': False,
+            'writable_root_required': True,
+            'root_filesystem_retention_required': True,
+            'nested_mounts_forbidden': True,
+        }
+        systemd_plan = {
+            'mount_unit': None,
+            'zog_service_ordering': {
+                'requires': [], 'after': [], 'binds_to': [],
+                'local_state_inspection_required': True,
+                'state_failure_blocks_zog_only': True,
+            },
+        }
+    else:
+        state_plan = {
             'mount_point': '/state',
             'filesystem_type': 'ext4',
             'state_volume_id': state['state_volume_id'],
@@ -47,18 +65,15 @@ def build_plan(bundle):
             'root_device_exclusion_required': True,
             'writable_mount_required': True,
             'nested_mounts_forbidden': True,
-        },
-        'configuration_files': files,
-        'systemd': {
+        }
+        systemd_plan = {
             'mount_unit': {
                 'name': 'state.mount',
                 'what': f"/dev/disk/by-partuuid/{state['partition_partuuid']}",
                 'where': '/state',
                 'type': 'ext4',
                 'options': ['rw', 'nodev', 'nosuid'],
-                'uid': 0,
-                'gid': 0,
-                'mode': '0644',
+                'uid': 0, 'gid': 0, 'mode': '0644',
                 'host_os_boot_required': False,
             },
             'zog_service_ordering': {
@@ -67,7 +82,18 @@ def build_plan(bundle):
                 'binds_to': ['state.mount'],
                 'state_failure_blocks_zog_only': True,
             },
-        },
+        }
+
+    return {
+        'schema': PLAN_SCHEMA,
+        'kind': PLAN_KIND,
+        'installation_id': installation['installation_id'],
+        'installation_record_sha256': digest(installation),
+        'installation_mode': 'non-resident',
+        'host_os': recorded['host_os'],
+        'state': state_plan,
+        'configuration_files': files,
+        'systemd': systemd_plan,
         'state_initialization': {
             'mounting_authorizes_identity': False,
             'authorization_id': bootstrap['initialization']['authorization_id'],
@@ -106,6 +132,25 @@ def validate_plan(plan):
                 'boot': 'externally-managed',
                 'root_filesystem': 'externally-managed',
             }, 'host-os-management', 'external host ownership required')
+    state, systemd = plan['state'], plan['systemd']
+    if state.get('storage_backend') == 'root-directory':
+        require(state['mount_point'] == '/state'
+                and state['filesystem_type'] == 'directory'
+                and state['independent_volume'] is False
+                and state['root_filesystem_retention_required'] is True
+                and state['writable_root_required'] is True
+                and state['nested_mounts_forbidden'] is True
+                and systemd.get('mount_unit') is None
+                and systemd.get('zog_service_ordering', {}).get(
+                    'local_state_inspection_required') is True
+                and all(systemd['zog_service_ordering'].get(k) == []
+                        for k in ('requires', 'after', 'binds_to')),
+                'state-backend', 'standalone directory STATE plan must not install a mount unit')
+    else:
+        require(state.get('storage_backend') is None and
+                state.get('filesystem_type') == 'ext4' and
+                systemd.get('mount_unit', {}).get('name') == 'state.mount',
+                'state-backend', 'mounted volume STATE plan expected')
     execution = plan['execution']
     require(execution == {
                 'plan_only': True,

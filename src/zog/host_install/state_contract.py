@@ -134,7 +134,15 @@ def validate(bundle):
     b, i, a, m = (bundle[k] for k in ('bootstrap', 'installation', 'accounts', 'marker'))
     # Canonical comparison deliberately distinguishes true from numeric 1.
     require(canonical(a) == canonical(ACCOUNTS), 'account-profile', 'unsupported fixed account mapping')
-    header(m, 'zog-state-volume', 'installation_id state_volume_id partition_partuuid filesystem_uuid account_profile')
+    require(type(m) is dict and type(m.get('schema')) is int,
+            'unsupported-schema', 'STATE marker')
+    directory_backend = m.get('schema') == 2
+    if directory_backend:
+        fields(m, 'schema kind installation_id state_volume_id partition_partuuid filesystem_uuid account_profile backing_root')
+        require(m['kind'] == 'zog-state-directory' and m['backing_root'] == '/',
+                'state-backend', 'directory STATE must bind to the verified host root filesystem')
+    else:
+        header(m, 'zog-state-volume', 'installation_id state_volume_id partition_partuuid filesystem_uuid account_profile')
     for key in ('installation_id', 'state_volume_id', 'partition_partuuid', 'filesystem_uuid'):
         identifier(m[key])
     require(m['account_profile'] == PROFILE, 'account-profile', 'marker profile')
@@ -197,8 +205,15 @@ def validate(bundle):
     require(b['mode'] in ('fresh', 'existing', 'migration', 'recovery'), 'installation-mode', 'bootstrap mode')
     require(b['installation_id'] == i['installation_id'] == m['installation_id'], 'record-binding', 'installation mismatch')
     s = b['state']
-    fields(s, 'mount_point identity_directory trust_directory control_directory filesystem_type partition_partuuid filesystem_uuid state_volume_id marker_sha256')
-    require(all(s[k] == v for k, v in PATHS.items()) and s['filesystem_type'] == 'ext4', 'state-path', 'fixed STATE layout required')
+    if directory_backend:
+        fields(s, 'mount_point identity_directory trust_directory control_directory filesystem_type partition_partuuid filesystem_uuid state_volume_id marker_sha256 storage_backend')
+        require(s['storage_backend'] == 'root-directory' and s['filesystem_type'] == 'directory'
+                and mode == 'non-resident',
+                'state-backend', 'directory STATE requires explicitly selected non-resident installation')
+    else:
+        fields(s, 'mount_point identity_directory trust_directory control_directory filesystem_type partition_partuuid filesystem_uuid state_volume_id marker_sha256')
+        require(s['filesystem_type'] == 'ext4', 'state-backend', 'volume STATE requires ext4')
+    require(all(s[k] == v for k, v in PATHS.items()), 'state-path', 'fixed STATE layout required')
     require(all(s[k] == m[k] for k in ('partition_partuuid', 'filesystem_uuid', 'state_volume_id')) and s['marker_sha256'] == digest(m), 'record-binding', 'STATE mismatch')
     ref = b['installation_record']
     fields(ref, 'path sha256')
@@ -213,7 +228,15 @@ def validate(bundle):
     if b['mode'] in ('migration', 'recovery'):
         require(init['expected_host_uuid'] is not None, 'identity-binding', 'recovery must name identity')
     regs = b['registries']
-    require(type(regs) is list and 1 <= len(regs) <= 32, 'registry', 'registry list required')
+    # A non-resident Host can be installed and recover without ever joining
+    # a Command Center. Managed enrollment is optional, not a boot authority.
+    # A standalone configuration has no registry and no remote-control grant.
+    require(type(regs) is list and len(regs) <= 32, 'registry', 'invalid registry list')
+    if not regs:
+        require(mode == 'non-resident' and b['control_authority'] is None,
+                'standalone-configuration',
+                'registry-free configuration requires non-resident installation and no control authority')
+        return bundle
     ids = set(); controls = []
     for reg in regs:
         fields(reg, 'registry_id origin role ca')

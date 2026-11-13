@@ -1,0 +1,45 @@
+name: Fonts Project non-destructive account-removal migration source
+on:
+  pull_request:
+    paths:
+      - "src/zog/host_install/fonts_project_migration.py"
+      - "tests/test_fonts_project_migration.py"
+      - "docs/host-install/FONTS-PROJECT-ACCOUNT-MIGRATION-2026-11-13.md"
+      - ".github/workflows/fonts-project-migration.yml"
+      - "pyproject.toml"
+  workflow_dispatch:
+
+jobs:
+  migration-source:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Ordinary host-install component and pytest
+        run: python -m pip install -e . pytest
+      - name: Disposable non-destructive project migration tests
+        run: python -m pytest -q tests/test_fonts_project_migration.py
+      - name: Check installed source console entry and build wheel
+        run: |
+          host-install-fonts-project-migrate --help
+          python -m compileall -q src/zog/host_install/fonts_project_migration.py
+          python -m pip wheel --no-deps . -w /tmp
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          wheels=list(Path('/tmp').glob('host_install-*.whl'))
+          assert len(wheels)==1
+          with ZipFile(wheels[0]) as z:
+              names=set(z.namelist())
+          assert 'zog/host_install/fonts_project_migration.py' in names
+          PY
+      - name: Nonactivation statement
+        run: |
+          echo "Only disposable local trees were copied; no live Host, compiler account, unit, SSM, build or queue mutated." >> "$GITHUB_STEP_SUMMARY"
+          echo "The migration preserves the original Project; historical controller identities must be explicitly retired by their owners." >> "$GITHUB_STEP_SUMMARY"

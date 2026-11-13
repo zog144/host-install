@@ -202,4 +202,55 @@ def prepare_tree(c, initialize_volume=None, checkpoint=lambda _: None, *, servic
 
 def prepare_live(initialize_volume=None):
     with open_volume() as c:
+        require(c.bundle['marker']['kind'] == 'zog-state-volume',
+                'state-backend', 'mounted STATE requires state-prepare')
         return prepare_tree(c, initialize_volume)
+
+
+def ensure_directory_mountpoint(root_fd):
+    """Create only the empty /state directory entry, anchored at verified root."""
+    require(os.geteuid() == 0, 'root-required', 'directory STATE setup requires root')
+    try:
+        os.mkdir('state', 0o755, dir_fd=root_fd)
+        os.fsync(root_fd)
+    except FileExistsError:
+        pass
+    fd = os.open('state', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                 dir_fd=root_fd)
+    try:
+        metadata(fd, 0, 0, 0o755)
+        require(os.fstat(fd).st_dev == os.fstat(root_fd).st_dev,
+                'nested-mount', '/state')
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def prepare_directory_live(initialize_state_id):
+    """Explicit root-only directory STATE preparation; no mount/device creation.
+
+    Existing generic layout publication is reused only after the canonical
+    configuration and root-block backing are verified. A preexisting unmarked
+    populated directory remains an unrecoverable hold, not an adoption path.
+    """
+    # Verify selected root storage before creating even the mountpoint.
+    # This explicit install command is the only path allowed to create /state.
+    bundle = load_configuration()
+    require(bundle['marker']['kind'] == 'zog-state-directory',
+            'state-backend', 'root-directory backend must be selected explicitly')
+    require(initialize_state_id == bundle['bootstrap']['state']['state_volume_id'],
+            'state-identity', 'exact configured STATE ID required')
+    accounts_match()
+    backing = _mount(bundle)
+    require(backing.get('backend') == 'root-directory',
+            'wrong-directory-backing', 'root filesystem identity was not verified')
+    root_fd = directory('/')
+    try:
+        ensure_directory_mountpoint(root_fd)
+    finally:
+        os.close(root_fd)
+    with open_volume() as c:
+        require(c.bundle['marker']['kind'] == 'zog-state-directory',
+                'state-backend', 'root-directory backend must be selected explicitly')
+        return dict(prepare_tree(c, initialize_state_id),
+                    backend='root-directory', filesystem_independent=False)
