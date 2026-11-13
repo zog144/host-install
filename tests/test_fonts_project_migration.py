@@ -12,6 +12,7 @@ from zog.host_install import fonts_project_migration as migration
 def fixture(tmp_path):
     root = tmp_path / "host"
     root.mkdir()
+    (root / "var/lib").mkdir(parents=True)
     home = root / "home/certbot-build-owner"
     home.mkdir(parents=True, mode=0o700)
     home.chmod(0o700)
