@@ -195,6 +195,26 @@ def _prepare_parent(root):
                     "private application directory mode differs")
 
 
+def _sync_tree(path):
+    """Durably flush copied files and directory entries before publication."""
+    for name in sorted(os.listdir(path)):
+        child = path / name
+        st = child.lstat()
+        if stat.S_ISDIR(st.st_mode):
+            _sync_tree(child)
+        elif stat.S_ISREG(st.st_mode):
+            fd = os.open(child, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+            try:
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
 def _publish_no_replace(pending, target):
     """Linux atomic directory rename that cannot replace an existing Project."""
     libc = ctypes.CDLL(None, use_errno=True)
@@ -296,8 +316,10 @@ def operation(action, *, root=Path("/")):
                 and pending.stat().st_gid == os.getegid()
                 and stat.S_IMODE(pending.stat().st_mode) == 0o700,
                 "staging ownership differs from executing context")
-        # The trusted root administrator owns the parent. Never overwrite an
-        # existing destination, and fsync the parent after the rename.
+        # Verify and flush staged bytes/entries before the atomic rename.
+        # The trusted administrator owns the parent; no existing destination
+        # may be overwritten even across an interrupted migration.
+        _sync_tree(pending)
         _publish_no_replace(pending, target)
         fd = os.open(target.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:
