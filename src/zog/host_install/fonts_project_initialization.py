@@ -183,7 +183,7 @@ def _verify(root, path, action):
     migration.require(state.is_dir() and not state.is_symlink(),
                       "initialized state root missing")
     controllers_present = []
-    for name in CONTROLLERS:
+    for name in CONTROLLER_FILES:
         entry = path / name
         if entry.exists() or entry.is_symlink():
             st = entry.lstat()
