@@ -216,3 +216,82 @@ def test_recovery_rejects_mutated_source_tree_and_manifest(tmp_path, monkeypatch
     with pytest.raises(copy.MigrationHold):
         init.operation("complete-layout", root=root)
     assert not (target / "package").exists()
+
+
+def test_complete_layout_recovers_committed_initializer_without_changing_manifest(tmp_path, monkeypatch):
+    root, repos = setup(tmp_path, monkeypatch)
+    init.operation("stage", root=root, source_checkouts=repos)
+    initial = init.operation("commit", root=root)
+    project = copy._map(root, copy.NEW)
+    manifest = (project / init.MANIFEST).read_bytes()
+    assert initial["runtime_layout"]["status"] == "initialized"
+    assert initial["runtime_layout"]["missing"] == list(init.LAYOUT_DIRECTORIES)
+    assert not (project / "controller.json").exists()
+    completed = init.operation("complete-layout", root=root)
+    assert completed["runtime_layout"]["status"] == "ready"
+    assert completed["runtime_layout"]["missing"] == []
+    assert completed["manifest_sha256"] == initial["manifest_sha256"]
+    assert completed["source_tree_sha256"] == initial["source_tree_sha256"]
+    assert (project / init.MANIFEST).read_bytes() == manifest
+    for name in init.LAYOUT_DIRECTORIES:
+        node = project / name
+        assert node.is_dir() and not node.is_symlink()
+        assert node.stat().st_uid == os.geteuid() and node.stat().st_gid == os.getegid()
+        assert (node.stat().st_mode & 0o777) == 0o700
+    assert not copy._map(root, copy.OLD).exists()
+    assert not (project / "controller-inherited-v1.json").exists()
+    # A completed repeated invocation does not rewrite any existing entry.
+    before = {name: (project / name).stat().st_ino for name in init.LAYOUT_DIRECTORIES}
+    assert init.operation("complete-layout", root=root) == completed
+    assert before == {name: (project / name).stat().st_ino for name in init.LAYOUT_DIRECTORIES}
+    assert init.operation("verify", root=root)["runtime_layout"]["status"] == "ready"
+
+
+def test_complete_layout_recovers_partial_directory_creation_without_reinitializing(tmp_path, monkeypatch):
+    root, repos = setup(tmp_path, monkeypatch)
+    init.operation("stage", root=root, source_checkouts=repos)
+    init.operation("commit", root=root)
+    project = copy._map(root, copy.NEW)
+    (project / "package").mkdir(mode=0o700)
+    original_inode = (project / "package").stat().st_ino
+    assert init.operation("verify", root=root)["runtime_layout"]["status"] == "incomplete"
+    result = init.operation("complete-layout", root=root)
+    assert result["runtime_layout"]["status"] == "ready"
+    assert (project / "package").stat().st_ino == original_inode
+
+
+def test_complete_layout_rejects_foreign_directory_and_controllers_without_writes(tmp_path, monkeypatch):
+    root, repos = setup(tmp_path, monkeypatch)
+    init.operation("stage", root=root, source_checkouts=repos)
+    init.operation("commit", root=root)
+    project = copy._map(root, copy.NEW)
+    (project / "application").write_bytes(b"foreign file")
+    with pytest.raises(copy.MigrationHold, match="foreign"):
+        init.operation("complete-layout", root=root)
+    assert not (project / "package").exists()
+    assert not (project / "catalogue").exists()
+    (project / "application").unlink()
+    (project / "controller-inherited-v1.json").write_bytes(b"foreign controller")
+    with pytest.raises(copy.MigrationHold, match="controller already present"):
+        init.operation("complete-layout", root=root)
+    assert not (project / "package").exists()
+    assert not (project / "catalogue").exists()
+    (project / "controller-inherited-v1.json").unlink()
+    (project / "catalogue").symlink_to(tmp_path / "outside")
+    with pytest.raises(copy.MigrationHold, match="foreign"):
+        init.operation("complete-layout", root=root)
+    assert (project / "catalogue").is_symlink()
+
+
+def test_complete_layout_rejects_manifests_that_change_after_commit(tmp_path, monkeypatch):
+    root, repos = setup(tmp_path, monkeypatch)
+    init.operation("stage", root=root, source_checkouts=repos)
+    init.operation("commit", root=root)
+    project = copy._map(root, copy.NEW)
+    manifest = project / init.MANIFEST
+    body = json.loads(manifest.read_text())
+    body["copy_performed"] = True
+    manifest.write_text(json.dumps(body))
+    with pytest.raises(copy.MigrationHold, match="falsely claims"):
+        init.operation("complete-layout", root=root)
+    assert not (project / "package").exists()
