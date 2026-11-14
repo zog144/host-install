@@ -149,6 +149,65 @@ def _complete_layout(root, target):
     return verified
 
 
+LAYOUT_DIRECTORIES = ("package", "application", "catalogue")
+CONTROLLERS = ("controller.json", "controller-inherited-v1.json")
+
+
+def _layout(path):
+    """Inspect only the three runtime directories absent from the original init.
+
+    Existing entries must be genuine directories owned and accessible by the
+    current installer. An unknown entry is never repaired or replaced.
+    """
+    present = []
+    absent = []
+    for name in LAYOUT_DIRECTORIES:
+        entry = path / name
+        if not entry.exists() and not entry.is_symlink():
+            absent.append(name)
+            continue
+        st = entry.lstat()
+        migration.require(stat.S_ISDIR(st.st_mode) and not entry.is_symlink(),
+                          "initialized runtime directory is foreign: " + name)
+        migration.require(st.st_uid == os.geteuid() and st.st_gid == os.getegid()
+                          and stat.S_IMODE(st.st_mode) == 0o700 and
+                          os.access(entry, os.R_OK | os.W_OK | os.X_OK,
+                                    effective_ids=True),
+                          "initialized runtime directory identity or access differs: " + name)
+        present.append(name)
+    return {"status": "ready" if not absent else
+            "initialized" if not present else "incomplete",
+            "present": present, "missing": absent}
+
+
+def _complete_layout(root, target):
+    """Complete an already committed, authenticated initialization, without
+    changing its original manifest or existing source/companion contents.
+
+    A repeat after partial directory creation is safe *only* when all existing
+    objects match the reviewed current-process ownership and access rules.
+    """
+    original = _verify(root, target, "verify")
+    for name in CONTROLLERS:
+        entry = target / name
+        migration.require(not entry.exists() and not entry.is_symlink(),
+                          "controller already present; inspect before layout completion")
+    before = _layout(target)  # Reject every conflicting entry before writes.
+    for name in before["missing"]:
+        entry = target / name
+        os.mkdir(entry, mode=0o700)
+        # Creation must not depend on the caller's umask.
+        os.chmod(entry, 0o700)
+        _sync_directory(entry)
+    _sync_directory(target)
+    after = _verify(root, target, "complete-layout")
+    migration.require(after["runtime_layout"]["status"] == "ready" and
+                      after["manifest_sha256"] == original["manifest_sha256"] and
+                      after["source_tree_sha256"] == original["source_tree_sha256"],
+                      "initialized layout completion changed reviewed source evidence")
+    return after
+
+
 def _sync_directory(path):
     fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
@@ -196,6 +255,7 @@ def _verify(root, path, action):
             "source_tree_sha256": data["source_tree_sha256"],
             "manifest_sha256": hashlib.sha256(_canonical(data)).hexdigest(),
             "destination": migration._access(path),
+            "runtime_layout": _layout(path),
             "effective_uid": os.geteuid(), "effective_gid": os.getegid(),
             "compilation_authorized": False}
 
@@ -221,6 +281,8 @@ def operation(action, *, root=Path("/"), source_checkouts=None):
         return _complete_layout(root, target)
     if action == "verify":
         return _verify(root, target, "verify")
+    if action == "complete-layout":
+        return _complete_layout(root, target)
     if action == "commit":
         migration.require(not target.exists() and not target.is_symlink(),
                           "initialized destination already exists; do not replace")
