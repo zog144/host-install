@@ -112,3 +112,107 @@ def test_initialization_refuses_symlink_destination(tmp_path, monkeypatch):
     with pytest.raises(copy.MigrationHold, match="already present"):
         init.operation("stage", root=root, source_checkouts=repos)
     assert target.is_symlink()
+
+
+def test_initializer_prepares_all_runtime_controller_directories(tmp_path, monkeypatch):
+    root, repos = setup(tmp_path, monkeypatch)
+    staged = init.operation("stage", root=root, source_checkouts=repos)
+    assert staged["layout_complete"] is True
+    assert staged["missing_layout_directories"] == []
+    pending = copy._map(root, init.PENDING)
+    for name in init.LAYOUT_DIRECTORIES:
+        item = pending / name
+        assert item.is_dir() and not item.is_symlink()
+        assert item.stat().st_mode & 0o777 == 0o755
+        assert list(item.iterdir()) == []
+    committed = init.operation("commit", root=root)
+    assert committed["layout_complete"] is True
+    assert init.operation("verify", root=root)["layout_complete"] is True
+
+
+def test_repair_already_committed_verified_native_project_without_changing_manifest(
+        tmp_path, monkeypatch):
+    """Reproduce actual native case: committed source/state but three absent."""
+    import hashlib
+    root, repos = setup(tmp_path, monkeypatch)
+    init.operation("stage", root=root, source_checkouts=repos)
+    init.operation("commit", root=root)
+    project = copy._map(root, copy.NEW)
+    for name in init.LAYOUT_DIRECTORIES:
+        (project / name).rmdir()
+    manifest = project / init.MANIFEST
+    original = manifest.read_bytes()
+    original_hash = hashlib.sha256(original).hexdigest()
+    before = init.operation("verify", root=root)
+    assert before["layout_complete"] is False
+    assert before["missing_layout_directories"] == list(init.LAYOUT_DIRECTORIES)
+    assert before["controller_installed"] is False
+    assert before["copy_performed"] is False
+
+    result = init.operation("complete-layout", root=root)
+    assert result["layout_complete"] is True
+    assert result["manifest_sha256"] == before["manifest_sha256"]
+    assert hashlib.sha256(manifest.read_bytes()).hexdigest() == original_hash
+    assert manifest.read_bytes() == original
+    assert result["source_tree_sha256"] == before["source_tree_sha256"]
+    assert init.operation("complete-layout", root=root) == result
+    assert init.operation("verify", root=root)["layout_complete"] is True
+    assert not (project / "controller-inherited-v1.json").exists()
+    assert not (project / "controller.json").exists()
+    assert not copy._map(root, copy.OLD).exists()
+
+
+def test_resume_interrupted_layout_completion_without_overwriting_existing(
+        tmp_path, monkeypatch):
+    root, repos = setup(tmp_path, monkeypatch)
+    init.operation("stage", root=root, source_checkouts=repos)
+    init.operation("commit", root=root)
+    target = copy._map(root, copy.NEW)
+    for name in init.LAYOUT_DIRECTORIES:
+        (target / name).rmdir()
+    (target / "package").mkdir(mode=0o755)
+    missing = init.operation("verify", root=root)["missing_layout_directories"]
+    assert missing == ["application", "catalogue"]
+    result = init.operation("complete-layout", root=root)
+    assert result["layout_complete"] is True
+    assert list((target / "package").iterdir()) == []
+
+
+@pytest.mark.parametrize("foreign", (
+    "unexpected-package-content", "controller-present", "linked-catalogue",
+    "wrong-permissions",
+))
+def test_layout_completion_rejects_foreign_and_conflicting_state(
+        tmp_path, monkeypatch, foreign):
+    root, repos = setup(tmp_path, monkeypatch)
+    init.operation("stage", root=root, source_checkouts=repos)
+    init.operation("commit", root=root)
+    target = copy._map(root, copy.NEW)
+    for name in init.LAYOUT_DIRECTORIES:
+        (target / name).rmdir()
+    if foreign == "unexpected-package-content":
+        (target / "package").mkdir(mode=0o755)
+        (target / "package" / "artifact").write_text("foreign")
+    elif foreign == "controller-present":
+        (target / "controller-inherited-v1.json").write_text("{}")
+    elif foreign == "linked-catalogue":
+        (target / "catalogue").symlink_to(target / "state")
+    else:
+        (target / "package").mkdir(mode=0o700)
+    with pytest.raises(copy.MigrationHold):
+        init.operation("complete-layout", root=root)
+    assert not (target / "application").exists()
+    assert (target / init.MANIFEST).is_file()
+
+
+def test_recovery_rejects_mutated_source_tree_and_manifest(tmp_path, monkeypatch):
+    root, repos = setup(tmp_path, monkeypatch)
+    init.operation("stage", root=root, source_checkouts=repos)
+    init.operation("commit", root=root)
+    target = copy._map(root, copy.NEW)
+    for name in init.LAYOUT_DIRECTORIES:
+        (target / name).rmdir()
+    (target / "source/tracked.txt").write_text("changed")
+    with pytest.raises(copy.MigrationHold):
+        init.operation("complete-layout", root=root)
+    assert not (target / "package").exists()
