@@ -63,3 +63,63 @@ account data must not be regenerated or deleted to make either path pass.
 
 This is a source contract and recovery procedure, not authorization to start
 the gateway, submit to FIFO or compile Fonts.
+
+## November 14 — complete the genuine already committed initialization
+
+The compiler Host has **already** committed and verified this initializer at
+`/var/lib/zog/image-build/projects/gateway-first-fonts-runtime`, but the old
+initializer created only `source`, `companions` and `state`. It omitted
+the `package`, `application` and `catalogue` root-level directories
+required by `host-deploy.fonts_lane_runtime._SUBDIRS`. Host-deploy correctly
+reported `status=partial` and blocked activation. This is **not** a failed
+source initialization, an old-Project copy, or permission to reinterpret
+`partial` generically.
+
+The **existing** authenticated initialization manifest must remain byte-for-byte
+unchanged. The native Work report observed its canonical SHA-256 as
+`535c0c283599c8ad3e256d4cdf8db5bb4b16bf1350dfec59de10ebde52d79cb7`.
+The corrected initializer now creates all three private (0700) directories
+when staging *new* Projects; for the already committed one, a separate
+explicit `--complete-layout` command provides idempotent recovery:
+
+```sh
+# Work must first install the reviewed corrected host-install wheel in the
+# existing trusted compiler maintenance environment, verify RECORD/SHA and
+# its selected PATH entrypoint. Do not reuse the older PR38 wheel.
+host-install-fonts-project-init --verify
+# Verify the original manifest_sha256 and source_tree_sha256 values match
+# the retained Work report and no controller file is present.
+host-install-fonts-project-init --complete-layout
+host-install-fonts-project-init --verify
+```
+
+`--complete-layout` reauthenticates the exact source, box-control and
+build-record Git revisions and the *original* manifest before writes. It checks
+the current process identity, requires each existing runtime directory to be a
+private mode-0700 directory and rejects foreign/symlink/incorrect-owner or
+nonempty pre-existing directories and any installed controller. It creates only
+the **missing** directories through the existing process context and fsyncs
+their entries. A subsequent invocation is read-only when all are present.
+It does not regenerate checkouts, modify state or manifest, overwrite a
+controller, select an account, change accepted compiler evidence or mark the
+lane active. On a crash after creating only some directories, repeat
+`--verify` and then `--complete-layout` only if the preserved source and
+existing directory evidence match exactly.
+
+The resulting verified report contains
+`runtime_layout.status=ready`, `layout_complete=true`,
+`missing_layout_directories=[]`, `controllers_present=[]`, unchanged
+`manifest_sha256`, and the three unchanged source tree identifiers.
+host-deploy's reviewed `--prepared-initialize` stage must refuse any other
+layout status. It may then proceed through its existing *separate* reviewed
+controller installation/activation lifecycle with the generic partial-state
+guard intact. In the final controller lifecycle, only host-deploy creates
+`controller-inherited-v1.json` after durable intent.
+
+**Native boundary:** the old `--stage`/`--commit` must NOT be repeated on
+the existing Project. No manual mkdir, reinitialization, controller JSON edit,
+old-account creation, gateway start, SSM submission or compilation is
+authorized by this source recovery. The original `kind=image` compiler
+generation, signed receipt, schema-4 lane and independently retained October
+pin remain unchanged. The real root-control service/socket identity still
+needs separately reviewed Work installation and kernel credential acceptance.
