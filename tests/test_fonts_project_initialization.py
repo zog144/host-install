@@ -123,7 +123,7 @@ def test_initializer_prepares_all_runtime_controller_directories(tmp_path, monke
     for name in init.LAYOUT_DIRECTORIES:
         item = pending / name
         assert item.is_dir() and not item.is_symlink()
-        assert item.stat().st_mode & 0o777 == 0o755
+        assert item.stat().st_mode & 0o777 == 0o700
         assert list(item.iterdir()) == []
     committed = init.operation("commit", root=root)
     assert committed["layout_complete"] is True
@@ -170,7 +170,7 @@ def test_resume_interrupted_layout_completion_without_overwriting_existing(
     target = copy._map(root, copy.NEW)
     for name in init.LAYOUT_DIRECTORIES:
         (target / name).rmdir()
-    (target / "package").mkdir(mode=0o755)
+    (target / "package").mkdir(mode=0o700)
     missing = init.operation("verify", root=root)["missing_layout_directories"]
     assert missing == ["application", "catalogue"]
     result = init.operation("complete-layout", root=root)
@@ -191,14 +191,14 @@ def test_layout_completion_rejects_foreign_and_conflicting_state(
     for name in init.LAYOUT_DIRECTORIES:
         (target / name).rmdir()
     if foreign == "unexpected-package-content":
-        (target / "package").mkdir(mode=0o755)
+        (target / "package").mkdir(mode=0o700)
         (target / "package" / "artifact").write_text("foreign")
     elif foreign == "controller-present":
         (target / "controller-inherited-v1.json").write_text("{}")
     elif foreign == "linked-catalogue":
         (target / "catalogue").symlink_to(target / "state")
     else:
-        (target / "package").mkdir(mode=0o700)
+        (target / "package").mkdir(mode=0o755)
     with pytest.raises(copy.MigrationHold):
         init.operation("complete-layout", root=root)
     assert not (target / "application").exists()
@@ -224,6 +224,9 @@ def test_complete_layout_recovers_committed_initializer_without_changing_manifes
     initial = init.operation("commit", root=root)
     project = copy._map(root, copy.NEW)
     manifest = (project / init.MANIFEST).read_bytes()
+    for directory in init.LAYOUT_DIRECTORIES:
+        (project / directory).rmdir()
+    initial = init.operation("verify", root=root)
     assert initial["runtime_layout"]["status"] == "initialized"
     assert initial["runtime_layout"]["missing"] == list(init.LAYOUT_DIRECTORIES)
     assert not (project / "controller.json").exists()
@@ -252,6 +255,8 @@ def test_complete_layout_recovers_partial_directory_creation_without_reinitializ
     init.operation("stage", root=root, source_checkouts=repos)
     init.operation("commit", root=root)
     project = copy._map(root, copy.NEW)
+    for directory in init.LAYOUT_DIRECTORIES:
+        (project / directory).rmdir()
     (project / "package").mkdir(mode=0o700)
     original_inode = (project / "package").stat().st_ino
     assert init.operation("verify", root=root)["runtime_layout"]["status"] == "incomplete"
@@ -265,6 +270,8 @@ def test_complete_layout_rejects_foreign_directory_and_controllers_without_write
     init.operation("stage", root=root, source_checkouts=repos)
     init.operation("commit", root=root)
     project = copy._map(root, copy.NEW)
+    for directory in init.LAYOUT_DIRECTORIES:
+        (project / directory).rmdir()
     (project / "application").write_bytes(b"foreign file")
     with pytest.raises(copy.MigrationHold, match="foreign"):
         init.operation("complete-layout", root=root)
@@ -288,6 +295,8 @@ def test_complete_layout_rejects_manifests_that_change_after_commit(tmp_path, mo
     init.operation("stage", root=root, source_checkouts=repos)
     init.operation("commit", root=root)
     project = copy._map(root, copy.NEW)
+    for directory in init.LAYOUT_DIRECTORIES:
+        (project / directory).rmdir()
     manifest = project / init.MANIFEST
     body = json.loads(manifest.read_text())
     body["copy_performed"] = True
