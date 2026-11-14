@@ -239,6 +239,15 @@ def _verify(root, path, action):
     state = path / "state"
     migration.require(state.is_dir() and not state.is_symlink(),
                       "initialized state root missing")
+    controllers_present = []
+    for name in CONTROLLERS:
+        entry = path / name
+        if entry.exists() or entry.is_symlink():
+            st = entry.lstat()
+            migration.require(stat.S_ISREG(st.st_mode) and not entry.is_symlink()
+                              and st.st_nlink == 1 and not stat.S_IMODE(st.st_mode) & 0o022,
+                              "initialized controller object is foreign: " + name)
+            controllers_present.append(name)
     migration.require(path.stat().st_uid == os.geteuid()
                       and path.stat().st_gid == os.getegid(),
                       "initialization directory differs from executing identity")
@@ -256,6 +265,7 @@ def _verify(root, path, action):
             "manifest_sha256": hashlib.sha256(_canonical(data)).hexdigest(),
             "destination": migration._access(path),
             "runtime_layout": _layout(path),
+            "controllers_present": controllers_present,
             "effective_uid": os.geteuid(), "effective_gid": os.getegid(),
             "compilation_authorized": False}
 
