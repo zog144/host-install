@@ -59,7 +59,7 @@ def test_disabled_gateway_template_selects_one_existing_direct_runtime():
     text = units["zog-task-c-gateway.service"].decode()
     lines = [v for v in text.splitlines()
              if v.strip() and not v.lstrip().startswith("#")]
-    assert "User=root" in lines and "Group=root" in lines
+    assert not any(line.startswith(("User=", "Group=")) for line in lines)
     assert "StateDirectory=host-deploy-gateway" in lines
     assert "StateDirectoryMode=0700" in lines
     assert "ReadWritePaths=/var/lib/host-deploy-gateway" in lines

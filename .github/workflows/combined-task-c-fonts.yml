@@ -1,0 +1,66 @@
+name: Combined trusted Task C and Fonts Project migration (one host-install)
+on:
+  push:
+    branches: [regular/combined-task-c-fonts-project-migration-20261114]
+  pull_request:
+    paths:
+      - 'src/zog/host_install/task_c_local_install.py'
+      - 'src/zog/host_install/fonts_project_migration.py'
+      - 'src/zog/host_install/systemd/task-c-local/**'
+      - 'tests/test_task_c_local_install.py'
+      - 'tests/test_fonts_project_migration.py'
+      - 'tests/test_combined_task_c_fonts_install.py'
+      - 'pyproject.toml'
+      - '.github/workflows/combined-task-c-fonts.yml'
+permissions:
+  contents: read
+jobs:
+  combined-runtime:
+    name: One installed component / Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install exactly one host-install checkout with both entry points
+        run: python -m pip install -e . 'pytest>=8,<10'
+      - name: Run Task C, Fonts migration and same-checkout integration regressions
+        run: |
+          python -m pytest -q -rs \
+            tests/test_task_c_local_install.py \
+            tests/test_fonts_project_migration.py \
+            tests/test_combined_task_c_fonts_install.py
+          host-install-task-c --help
+          host-install-fonts-project-migrate --help
+      - name: Verify both capabilities and systemd unit in ONE built distribution
+        run: |
+          mkdir -p /tmp/zog-combined-host-install-wheel
+          python -m pip wheel --no-deps . -w /tmp/zog-combined-host-install-wheel
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          root=Path('/tmp/zog-combined-host-install-wheel')
+          wheels=list(root.glob('host_install-*.whl'))
+          assert len(wheels)==1,wheels
+          with ZipFile(wheels[0]) as archive:
+              names=set(archive.namelist())
+              assert 'zog/host_install/task_c_local_install.py' in names
+              assert 'zog/host_install/fonts_project_migration.py' in names
+              assert 'zog/host_install/systemd/task-c-local/zog-task-c-gateway.service' in names
+              ep=next(n for n in names if n.endswith('.dist-info/entry_points.txt'))
+              scripts=archive.read(ep).decode()
+              assert 'host-install-task-c = zog.host_install.task_c_local_install:main' in scripts
+              assert 'host-install-fonts-project-migrate = zog.host_install.fonts_project_migration:main' in scripts
+          PY
+      - name: Nonactivation declaration
+        run: |
+          echo 'One installable host-install wheel contains both Task C staging and Fonts project migration.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Disposable tests only: no Host, service, SSM, compiler job, existing account, or retained Project modified.' >> "$GITHUB_STEP_SUMMARY"
