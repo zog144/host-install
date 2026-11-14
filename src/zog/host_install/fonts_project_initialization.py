@@ -57,7 +57,14 @@ def _source(tree, relative):
                       "reviewed source provenance repository differs: " + relative)
     migration.require((tree / ".git").is_dir() and not (tree / ".git").is_symlink(),
                       "reviewed source is not an independent Git checkout")
-    return migration._tree(tree)["content_tree_sha256"]
+    # Git's authenticated tree object is stable across legitimate index mtime
+    # refreshes. Full filesystem snapshots include .git/index timestamps,
+    # which change during git status and therefore cannot be rechecked as a
+    # durable source digest. Git status above rejects edited/untracked files.
+    tree_id = _git(tree, "rev-parse", "HEAD^{tree}")
+    migration.require(re.fullmatch(r"[a-f0-9]{40,64}", tree_id) is not None,
+                      "invalid reviewed Git tree identity")
+    return hashlib.sha256((tree_id + "\n").encode("ascii")).hexdigest()
 
 
 def _absent_old(root):
