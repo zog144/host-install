@@ -91,66 +91,6 @@ def _manifest(path):
     return data
 
 
-def _layout(path):
-    """Classify only the three root-level, owner-controlled runtime directories.
-
-    Never infer readiness from the retained manifest alone. An unexpected
-    directory owner, permission, file, symlink or foreign controller is a HOLD,
-    not a repairable missing directory.
-    """
-    for filename in CONTROLLER_FILES:
-        item = path / filename
-        migration.require(not item.exists() and not item.is_symlink(),
-                          "controller already present; initialization completion forbidden")
-    missing = []
-    for name in LAYOUT_DIRECTORIES:
-        item = path / name
-        if not item.exists() and not item.is_symlink():
-            missing.append(name)
-            continue
-        st = item.lstat()
-        migration.require(stat.S_ISDIR(st.st_mode) and not item.is_symlink()
-                          and st.st_uid == path.stat().st_uid
-                          and st.st_gid == path.stat().st_gid
-                          and stat.S_IMODE(st.st_mode) == 0o755
-                          and not os.listdir(item),
-                          "foreign or nonempty controller directory: " + name)
-    return missing
-
-
-def _complete_layout(root, target):
-    """Idempotent source-owned recovery; no reinitialization or manifest edits."""
-    prior = _verify(root, target, "verify")
-    # Do not turn a copied/foreign project into this exact immutable
-    # initialized one. _verify authenticated all three Git source trees.
-    migration.require(prior["initialized_source_verified"] is True
-                      and prior["controller_installed"] is False,
-                      "only verified unactivated initialization can be completed")
-    for name in _layout(target):
-        item = target / name
-        try:
-            item.mkdir(mode=0o755)
-        except FileExistsError:
-            raise migration.MigrationHold("concurrent controller directory appeared: " + name)
-        st = item.lstat()
-        migration.require(stat.S_ISDIR(st.st_mode) and not item.is_symlink()
-                          and st.st_uid == os.geteuid()
-                          and st.st_gid == os.getegid()
-                          and stat.S_IMODE(st.st_mode) == 0o755
-                          and not os.listdir(item),
-                          "new controller directory does not match execution context")
-        _sync_directory(item)
-        _sync_directory(target)
-    verified = _verify(root, target, "complete-layout")
-    migration.require(verified["layout_complete"] is True,
-                      "controller directory layout recovery is incomplete")
-    migration.require(verified["manifest_sha256"] == prior["manifest_sha256"],
-                      "initialization provenance changed during layout completion")
-    return verified
-
-
-LAYOUT_DIRECTORIES = ("package", "application", "catalogue")
-CONTROLLERS = ("controller.json", "controller-inherited-v1.json")
 
 
 def _layout(path):
@@ -188,11 +128,14 @@ def _complete_layout(root, target):
     objects match the reviewed current-process ownership and access rules.
     """
     original = _verify(root, target, "verify")
-    for name in CONTROLLERS:
+    for name in CONTROLLER_FILES:
         entry = target / name
         migration.require(not entry.exists() and not entry.is_symlink(),
                           "controller already present; inspect before layout completion")
     before = _layout(target)  # Reject every conflicting entry before writes.
+    for name in before["present"]:
+        migration.require(not os.listdir(target / name),
+                          "nonempty initialized controller directory: " + name)
     for name in before["missing"]:
         entry = target / name
         os.mkdir(entry, mode=0o700)
@@ -235,7 +178,7 @@ def _verify(root, path, action):
         migration.require(type(expected) is str and re.fullmatch(r"[a-f0-9]{64}", expected)
                           and _source(directory, key) == expected,
                           "initialized checkout/source-tree differs: " + key)
-    missing = _layout(path)
+    layout = _layout(path)
     state = path / "state"
     migration.require(state.is_dir() and not state.is_symlink(),
                       "initialized state root missing")
@@ -258,13 +201,13 @@ def _verify(root, path, action):
             "copy_performed": False,
             "initialized_source_verified": True,
             "controller_installed": False,
-            "layout_complete": not missing,
-            "missing_layout_directories": missing,
+            "layout_complete": layout["status"] == "ready",
+            "missing_layout_directories": layout["missing"],
             "source_checkouts": data["source_checkouts"],
             "source_tree_sha256": data["source_tree_sha256"],
             "manifest_sha256": hashlib.sha256(_canonical(data)).hexdigest(),
             "destination": migration._access(path),
-            "runtime_layout": _layout(path),
+            "runtime_layout": layout,
             "controllers_present": controllers_present,
             "effective_uid": os.geteuid(), "effective_gid": os.getegid(),
             "compilation_authorized": False}
@@ -291,8 +234,6 @@ def operation(action, *, root=Path("/"), source_checkouts=None):
         return _complete_layout(root, target)
     if action == "verify":
         return _verify(root, target, "verify")
-    if action == "complete-layout":
-        return _complete_layout(root, target)
     if action == "commit":
         migration.require(not target.exists() and not target.is_symlink(),
                           "initialized destination already exists; do not replace")
@@ -313,7 +254,7 @@ def operation(action, *, root=Path("/"), source_checkouts=None):
     (pending / "companions").mkdir(mode=0o700)
     (pending / "state").mkdir(mode=0o700)
     for name in LAYOUT_DIRECTORIES:
-        (pending / name).mkdir(mode=0o755)
+        (pending / name).mkdir(mode=0o700)
     hashed = {}
     for key in SOURCES:
         src = Path(source_checkouts[key])
