@@ -114,6 +114,8 @@ def _layout(path):
                           os.access(entry, os.R_OK | os.W_OK | os.X_OK,
                                     effective_ids=True),
                           "initialized runtime directory identity or access differs: " + name)
+        migration.require(not os.listdir(entry),
+                          "nonempty initialized runtime directory: " + name)
         present.append(name)
     return {"status": "ready" if not absent else
             "initialized" if not present else "incomplete",
