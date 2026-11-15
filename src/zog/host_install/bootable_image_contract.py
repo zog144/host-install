@@ -38,6 +38,10 @@ BOOT_A_FILES = (
     "usr/lib/systemd/system/serial-getty@.service",
     "usr/lib/systemd/boot/efi/systemd-bootx64.efi",
     "usr/lib/os-release",
+    "etc/passwd",
+    "etc/group",
+    "usr/lib/sysusers.d/systemd-journal.conf",
+    "usr/lib/sysusers.d/dbus.conf",
 )
 RESIDENT_B_EXECUTABLES = (
     "usr/lib/systemd/systemd-networkd",
@@ -152,6 +156,20 @@ def contract():
                 "/" + name: {"owner": "root:root", "mode": f"{mode:04o}", "empty": True}
                 for name, mode in FAIL_CLOSED_MOUNTPOINTS.items()
             },
+            "offline_service_accounts": {
+                "phase": "after-native-package-composition-before-canonical-inventory",
+                "materializer": "host-install-resident-accounts",
+                "required_vendor_fragments": [
+                    "/usr/lib/sysusers.d/systemd-journal.conf",
+                    "/usr/lib/sysusers.d/dbus.conf",
+                ],
+                "required_group": "systemd-journal",
+                "required_user_and_primary_group": "messagebus",
+                "materialized_etc_passwd_group_required": True,
+                "live_root_or_published_generation_writes_forbidden": True,
+                "dedicated_compiler_accounts_forbidden": True,
+                "service_account_numeric_ids_selected_by": "systemd-sysusers-in-staged-root",
+            },
             "persistent_host_identity_forbidden": True,
             "machine_id_must_not_be_preprovisioned": True,
             "host_private_keys_forbidden": True,
@@ -237,6 +255,18 @@ def validate_contract(value):
             "bootable-image switch-root contract changed")
     require("usr/lib/os-release" in value["rootfs"]["boot_a_required_files"],
             "bootable-image OS-tree marker requirement changed")
+    require(set(("etc/passwd", "etc/group",
+                 "usr/lib/sysusers.d/systemd-journal.conf",
+                 "usr/lib/sysusers.d/dbus.conf")).issubset(
+                set(value["rootfs"]["boot_a_required_files"])),
+            "materialized resident account database and vendor source inputs required")
+    accounts = value["rootfs"].get("offline_service_accounts", {})
+    require(accounts.get("materializer") == "host-install-resident-accounts"
+            and accounts.get("required_group") == "systemd-journal"
+            and accounts.get("required_user_and_primary_group") == "messagebus"
+            and accounts.get("live_root_or_published_generation_writes_forbidden") is True
+            and accounts.get("dedicated_compiler_accounts_forbidden") is True,
+            "reviewed resident service account materialization contract changed")
     require(value["acceptance"]["boot_a"]["requires_certificates"] is False and
             value["acceptance"]["resident_b"]["requires_certificates"] is False,
             "certificate work cannot become a boot prerequisite")

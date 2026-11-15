@@ -14,6 +14,7 @@ license-files = ["LICENSE", "LICENSES/*.txt", "THIRD-PARTY-NOTICES.md"]
 
 [project.scripts]
 host-install = "zog.host_install.cli:main"
+host-install-resident-accounts = "zog.host_install.resident_accounts:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

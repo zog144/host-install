@@ -84,6 +84,30 @@ retained as failed evidence and must not be retried as an accepted boot input.
 
 Boot A native PASS requires UEFI to execute the exact loader; exact reviewed kernel/initramfs selection; root mounted from the selected HOST PARTUUID read-only; PID 1 systemd; journald evidence; serial/getty recovery; and host-install's live host-generation report proving the booted slot from the live root PARTUUID.
 
+## Boot A resident system-account prepublication gate (November 15)
+
+Image-build PR #25 corrects the getty unit to select the actual installed
+`/usr/sbin/agetty` and publishes upstream `systemd-journal` and
+`messagebus` sysusers fragments. Fragments alone do not populate NSS
+`/etc/passwd` and `/etc/group` when the HOST root is later mounted
+read-only. Before image-build canonical inventory/hash/archive/publication,
+host-install owns the explicit **offline** invocation
+`host-install-resident-accounts --materialize --root <unpublished-rootfs>
+--sysusers-executable /usr/bin/systemd-sysusers`.
+
+It verifies the exact Zog os-release tree, materializes only upstream
+`systemd-journal` group and D-Bus `messagebus` service identity,
+preserves existing Zog/root accounts and records dynamically allocated IDs.
+No dedicated compiler user, UID/GID selector, personal login, live Host
+account change or after-publication rootfs patch is permitted. A separate
+`--verify --root` is mandatory after final assembly. Verified rootfs
+inventory must include exact `etc/passwd`, `etc/group` and both upstream
+`usr/lib/sysusers.d` fragments. Real boot must then prove journald access
+sockets, D-Bus and the usable serial console; source-only inventory is not
+a native PASS.
+
+[Exact staged-root command, checks and Work handoff](resident-service-accounts-2026-11-15.md).
+
 ## Resident gate B — persistent storage and core services
 
 After Boot A, the same installation may proceed to Resident B.
