@@ -59,7 +59,6 @@ def test_real_offline_sysusers_creates_only_journald_group_and_messagebus(rootfs
     assert before["before"]["systemd_journal_group"] is False
     assert before["vendor_declarations"]["systemd-journal"]["kind"] == "g"
     assert before["vendor_declarations"]["messagebus"]["kind"] == "u"
-    assert service.operation("verify", rootfs) if False else True
 
     published = service.operation("materialize", rootfs,
                                   sysusers_executable=_tool())
