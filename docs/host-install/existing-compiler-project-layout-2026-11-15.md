@@ -47,6 +47,12 @@ this command**:
 - For completion, device and inode returned by the **read-only** inspection.
   The command refuses substitutions between selection and mutation.
 
+Root may inspect the older non-root-owned source checkout using Git's
+one-command `safe.directory=<exact-reviewed-checkout-path>` setting.
+No wildcard/global Git trust is written, and Git's optional index locks,
+fsmonitor and hooks are disabled for the inspection. Git ref history
+is observed, not fetched, checked out, reset or cleaned.
+
 The existing Project must be a real directory, not a link, under a reviewed
 local Project-storage root (`/home/`, `/var/lib/zog/image-build/` or
 `/var/lib/zog/image-build-lanes/`). Every ancestor is checked for symlinks;
