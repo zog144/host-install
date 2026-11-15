@@ -24,7 +24,7 @@ from . import (beacon_profile, application_progress_profile,
                host_welcome_progress_profile, image_progress_profile,
                certify_manage_profile, certificate_native_observation,
                certificate_owner_authority, bootable_image_contract,
-               first_boot_a_plan)
+               first_boot_a_plan, successor_boot_a_plan)
 from .artifact import stage
 from .filesystem import build_root_fixture
 from .image import inspect, install
@@ -59,6 +59,7 @@ def main(argv=None):
     cmd.add_argument("--filesystem-uuid", required=True)
     sub.add_parser("bootable-image-contract", help="emit the immutable resident bootable-image contract")
     sub.add_parser("first-boot-a-plan", help="emit the frozen first disposable Boot A installation plan")
+    sub.add_parser("successor-boot-a-plan", help="emit the selected corrected-generation disposable Boot A plan without authorizing disk writes")
     cmd = sub.add_parser("bootable-image-assess", help="assess a verified image-build host artifact against the bootable-image contract")
     cmd.add_argument("artifact", type=Path)
     cmd.add_argument("--expected-id", required=True)
@@ -354,6 +355,8 @@ def main(argv=None):
             result = bootable_image_contract.contract()
         elif args.command == "first-boot-a-plan":
             result = first_boot_a_plan.plan()
+        elif args.command == "successor-boot-a-plan":
+            result = successor_boot_a_plan.plan()
         elif args.command == "bootable-image-assess":
             result = bootable_image_contract.assess_artifact(
                 args.artifact, args.expected_id
