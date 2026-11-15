@@ -149,8 +149,7 @@ def _declarations(root):
 
 def _read(root):
     os_release = _regular(root, "usr/lib/os-release", limit=4096)
-    _require(os_release == b'NAME="Zog"\\nID=zog\\nPRETTY_NAME="Zog"\\n'.replace(
-                 b"\\n", b"\n"),
+    _require(os_release == b'NAME="Zog"\nID=zog\nPRETTY_NAME="Zog"\n',
              "unpublished resident root is not the reviewed Zog OS tree")
     compatibility = root / "etc/os-release"
     _require(compatibility.is_symlink()
