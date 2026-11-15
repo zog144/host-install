@@ -33,7 +33,7 @@ EVIDENCE_FIELDS = (
 SHA_RE = re.compile(r"[a-f0-9]{64}\Z")
 
 
-def plan():
+def _build_plan():
     """Concrete static target and generation; absence of byte pins is explicit."""
     partitions = [
         {"role": role, "mib": mib, "partuuid": partuuid,
@@ -143,51 +143,17 @@ def plan():
             ],
         },
     }
-    validate(result)
     return result
 
 
-def validate(value):
-    require(type(value) is dict and value.get("schema") == SCHEMA,
-            "unsupported successor resident plan")
-    fixed = plan_without_validate()
-    require(value == fixed, "successor resident plan differs from reviewed exact selection")
+_FROZEN = _build_plan()
+
+
+def plan():
+    """Return a complete selected target, never permitting a live write."""
+    value = copy.deepcopy(_FROZEN)
+    validate(value)
     return value
-
-
-def plan_without_validate():
-    """Used only for exact frozen baseline comparison; avoids recursion."""
-    # Populate baseline through a local, explicit callback rather than
-    # accepting caller-supplied role/ID/digest substitutions.
-    return _plan_factory()
-
-
-def _plan_factory():
-    # Set below to plan's generator after definition; internal test helper.
-    return _make_plan()
-
-
-# The public plan() is rebound to one generator at end of this module.
-_make_plan = plan
-
-
-def _public_plan():
-    value = _make_plan()
-    return value
-
-
-# The recursive validation in _make_plan is avoided by deriving the reference
-# once. The frozen reference is not mutated by callers.
-def _original_factory():
-    original_validate = globals()["validate"]
-    try:
-        globals()["validate"] = lambda value: value
-        return _make_plan()
-    finally:
-        globals()["validate"] = original_validate
-
-
-_FROZEN = _original_factory()
 
 
 def validate(value):
