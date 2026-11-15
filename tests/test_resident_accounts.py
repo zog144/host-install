@@ -23,8 +23,11 @@ def rootfs(tmp_path):
     for directory in ("etc", "usr/lib/sysusers.d", "usr/lib/systemd", "usr/bin"):
         (root / directory).mkdir(parents=True, exist_ok=True)
     (root / "usr/lib/os-release").write_text('NAME="Zog"\nID=zog\nPRETTY_NAME="Zog"\n')
+    (root / "etc/os-release").symlink_to("../usr/lib/os-release")
     (root / "usr/lib/systemd/systemd").write_bytes(b"dummy native executable name")
     (root / "usr/bin/dbus-daemon").write_bytes(b"dummy native executable name")
+    (root / "usr/lib/systemd/systemd").chmod(0o755)
+    (root / "usr/bin/dbus-daemon").chmod(0o755)
     (root / "etc/passwd").write_text(
         "root:x:0:0:root:/root:/bin/sh\n"
         "zog-system:x:970:970:existing fixed service account:/var/lib/zog:/usr/sbin/nologin\n"
@@ -175,3 +178,26 @@ def test_materialization_source_uses_upstream_systemd_sysusers_not_useradd():
         assert forbidden not in source
     meta = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text()
     assert 'host-install-resident-accounts = "zog.host_install.resident_accounts:main"' in meta
+
+
+def test_non_zog_root_and_compatibility_symlink_refused(rootfs):
+    marker = rootfs / "usr/lib/os-release"
+    original = marker.read_bytes()
+    marker.write_bytes(b"NAME=NotZog\nID=foreign\n")
+    with pytest.raises(service.AccountMaterializationHold, match="not the reviewed Zog"):
+        service.operation("inspect", rootfs)
+    marker.write_bytes(original)
+    link = rootfs / "etc/os-release"
+    link.unlink()
+    link.symlink_to("/etc/os-release")
+    with pytest.raises(service.AccountMaterializationHold, match="compatibility link differs"):
+        service.operation("materialize", rootfs,
+                          sysusers_executable=_tool())
+    assert "messagebus" not in (rootfs / "etc/passwd").read_text()
+
+
+def test_world_writable_system_daemon_refused(rootfs):
+    daemon = rootfs / "usr/bin/dbus-daemon"
+    daemon.chmod(0o777)
+    with pytest.raises(service.AccountMaterializationHold, match="system daemon"):
+        service.operation("inspect", rootfs)
