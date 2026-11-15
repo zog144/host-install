@@ -77,7 +77,11 @@ def _git(directory, *args):
     env["GIT_OPTIONAL_LOCKS"] = "0"
     try:
         run = subprocess.run(
-            ["git", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null",
+            # Explicitly trust only this already validated checkout path for
+            # read-only root inspection of an existing non-root-owned Project.
+            # Never configure Git's global safe.directory or a wildcard.
+            ["git", "-c", "safe.directory=" + str(directory),
+             "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null",
              "-C", str(directory), *args],
             env=env, text=True, capture_output=True, check=False, timeout=45)
     except (OSError, subprocess.TimeoutExpired) as exc:
