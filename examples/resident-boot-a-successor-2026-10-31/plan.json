@@ -1,0 +1,155 @@
+{
+  "schema": "zog-host-install-boot-a-successor-disposable-plan-v1",
+  "purpose": "disposable-uefi-boot-a-successor",
+  "production_sizing": false,
+  "device_writes_authorized": false,
+  "native_boot_authorized": false,
+  "disk": {
+    "mib": 32768,
+    "disk_guid": "cfa94099-d379-5c5a-9f98-384f941cf237",
+    "partition_table": "gpt",
+    "partitions": [
+      {
+        "role": "ESP",
+        "mib": 512,
+        "partuuid": "9d57e75e-93aa-50ec-9940-4c61ad99115c",
+        "filesystem_uuid": null,
+        "filesystem": "fat32"
+      },
+      {
+        "role": "HOST-A",
+        "mib": 8192,
+        "partuuid": "79c78b1d-84d6-5fc4-bb31-deb9a6d7091e",
+        "filesystem_uuid": "f18601cd-d219-5d6b-a6b0-fa499489cb63",
+        "filesystem": "ext4"
+      },
+      {
+        "role": "HOST-B",
+        "mib": 8192,
+        "partuuid": "0e93acb9-77bb-5f87-91d3-8fc35d4ac6fa",
+        "filesystem_uuid": "41dd3ee3-f027-5cf0-a5e4-f29874b724b4",
+        "filesystem": "ext4"
+      },
+      {
+        "role": "STATE",
+        "mib": 2048,
+        "partuuid": "8d6760a1-bfe2-5bbb-8bd9-063bfaedb871",
+        "filesystem_uuid": "656042e5-d689-5141-b94d-d99171ddfe3d",
+        "filesystem": "ext4"
+      },
+      {
+        "role": "APPLICATIONS",
+        "mib": 2048,
+        "partuuid": "7c54dcb0-f0d9-5287-892b-0604c74e18f7",
+        "filesystem_uuid": "b8d40caf-eea2-5159-9f35-4216f3eeef12",
+        "filesystem": "ext4"
+      }
+    ],
+    "unallocated_tail_allowed": true
+  },
+  "selected_slot": "HOST-A",
+  "slots": {
+    "HOST-A": {
+      "generation": "273de2a04a8a0b8d4db3005bca078639f3c2fdcd6f9e24a9619d2b0ca6947aab",
+      "root_partuuid": "79c78b1d-84d6-5fc4-bb31-deb9a6d7091e",
+      "root_filesystem_uuid": "f18601cd-d219-5d6b-a6b0-fa499489cb63",
+      "read_only": true
+    },
+    "HOST-B": {
+      "generation": null,
+      "root_partuuid": "0e93acb9-77bb-5f87-91d3-8fc35d4ac6fa",
+      "root_filesystem_uuid": "41dd3ee3-f027-5cf0-a5e4-f29874b724b4",
+      "read_only": true,
+      "recovery_slot": true,
+      "write_or_activation_authorized": false
+    }
+  },
+  "generation_binding": {
+    "generation": "273de2a04a8a0b8d4db3005bca078639f3c2fdcd6f9e24a9619d2b0ca6947aab",
+    "producer": "image-build",
+    "producer_source_revision": "68d6397ca20c4651df8f13c8a840dc8f77d55034",
+    "retained_parent_generation": "45a81ec3ea473bfa397e546b5c0ec1ae306bf00cb864eaa9a86d94c13c623f2e",
+    "rejected_predecessor": "5af34ec67cbfdcd1e7936bf70e3cf2f5c6945c7e3de5f95993918325f6e29c44",
+    "selected_generation_status": "published-source-and-installed-verification-passed",
+    "retained_inventory_entries": 40974,
+    "retained_provenance_records": 27,
+    "publication_byte_pins": null,
+    "byte_pins_status": "REQUIRES_EXACT_RETAINED_PRODUCER_READBACK",
+    "generation_rebuilt_by_installer": false,
+    "successor_os_identity": {
+      "vendor_file": "/usr/lib/os-release",
+      "vendor_contents": "NAME=\"Zog\"\nID=zog\nPRETTY_NAME=\"Zog\"\n",
+      "compatibility_symlink": "/etc/os-release",
+      "compatibility_target": "../usr/lib/os-release",
+      "must_be_in_immutable_generation": true,
+      "installer_must_not_synthesize": true
+    }
+  },
+  "esp": {
+    "efi_loader_source": "/usr/lib/systemd/boot/efi/systemd-bootx64.efi",
+    "efi_loader_sha256": null,
+    "efi_loader_bytes": null,
+    "copy_exact_verified_successor_loader_only": true,
+    "root_argument": "root=PARTUUID=79c78b1d-84d6-5fc4-bb31-deb9a6d7091e",
+    "root_read_only": true,
+    "kernel_arguments_required": [
+      "root=PARTUUID=79c78b1d-84d6-5fc4-bb31-deb9a6d7091e",
+      "ro"
+    ],
+    "installation_specific_configuration_only_on_esp": true
+  },
+  "rootfs_materialization": {
+    "source_generation": "273de2a04a8a0b8d4db3005bca078639f3c2fdcd6f9e24a9619d2b0ca6947aab",
+    "source_archive_sha256": null,
+    "source_archive_bytes": null,
+    "target_role": "HOST-A",
+    "target_partuuid": "79c78b1d-84d6-5fc4-bb31-deb9a6d7091e",
+    "target_mib": 8192,
+    "read_only_after_install": true,
+    "modify_rootfs_after_image_build_publication": false,
+    "preserve_empty_fail_closed_mountpoints": {
+      "/state": "0000",
+      "/applications": "0000"
+    },
+    "required_switch_root_os_tree_marker": "/usr/lib/os-release",
+    "required_compatibility_symlink": {
+      "/etc/os-release": "../usr/lib/os-release"
+    }
+  },
+  "foreign_boot_provider": {
+    "provider": "amazon-linux-2023",
+    "architecture": "x86_64",
+    "kernel_release": "6.18.44-99.149.amzn2023.x86_64",
+    "kernel_sha256": "1faf0278011e0d62f01b28ddf81fc32af9e3fd032be0b805a1d38d981933431b",
+    "kernel_bytes": 14207224,
+    "initramfs_sha256": "06bca6e41de36109384ba019212ab1be72643a578d0afb9f3fa3c561a190f599",
+    "initramfs_bytes": 21381902,
+    "modules_inventory_sha256": "8dbf40e1497ff8857a6a0602e66626155e897cfd54b6731aa1eea8f842899da4",
+    "kernel_config_sha256": "de3812ae0e81108f86550781cac8302c8b400bf7bfefe5ea23e115074b6e0ef6",
+    "dracut_package": "102-3.amzn2023.0.4.x86_64",
+    "acceptance": "WORK_PREWRITE_REVERIFY_AND_NATIVE_ACCEPT",
+    "nvme_config_present": true,
+    "partuuid_dispatch_source_level": true,
+    "read_only_root_native_proof": true,
+    "exact_pid1_switch_root_native_proof": false,
+    "kernel_initramfs_reselected_from_old_reviewed_provider": true
+  },
+  "native_acceptance": {
+    "status": "NOT_RUN_FOR_SUCCESSOR",
+    "owner": "host-install+host-deploy Work",
+    "failed_predecessor_status": "FAILED_SWITCH_ROOT",
+    "successor_prewrite_evidence_complete": false,
+    "resident_pid1_verified": false,
+    "reboot_verified": false,
+    "required": [
+      "read back canonical generation/archive/inventory and new EFI hashes from retained image-build producer",
+      "independently verify exact selected generation and all byte hashes before disk writes",
+      "preserve the existing 5-partition GPT and selected HOST-A PARTUUID",
+      "copy exact successor EFI to ESP without modifying immutable HOST-A root",
+      "boot the reviewed AL2023 kernel/initramfs with root=PARTUUID and ro",
+      "prove /usr/lib/systemd/systemd is PID 1, journald and serial/getty recovery",
+      "reboot and prove live HOST-A PARTUUID and same generation",
+      "test non-destructive HOST-B recovery only with independently accepted bytes"
+    ]
+  }
+}
