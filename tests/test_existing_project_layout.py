@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 import stat
 import subprocess
+import shutil
+import sys
 
 import pytest
 
@@ -272,3 +274,44 @@ def test_module_packaged_as_new_cli_in_same_existing_host_install_wheel():
                        "os.replace(", "os.chown(", "git checkout", "git reset",
                        "git clean", "os.environ['HOME']", "os.environ['USER']"):
         assert prohibited not in code
+
+
+def test_native_root_administrator_preserves_existing_unprivileged_project_owner(
+        tmp_path):
+    """Real Linux root reads another owner's Git safely; no user switching."""
+    if os.geteuid() == 0 or shutil.which("sudo") is None:
+        pytest.skip("requires disposable nonroot runner with sudo")
+    ready = subprocess.run(["sudo", "-n", "true"], capture_output=True)
+    if ready.returncode:
+        pytest.skip("disposable native root admission not available")
+    selected = fixture(tmp_path)
+    baseline = digest_tree(selected["project"])
+    inspected = existing.operation("inspect", **params(selected))
+    options = params(
+        selected, expected_device=inspected["project_identity"]["device"],
+        expected_inode=inspected["project_identity"]["inode"])
+    options["root"] = str(options["root"])
+    code = (
+        "import json,sys\n"
+        "from pathlib import Path\n"
+        "from zog.host_install import existing_project_layout as selected\n"
+        "kwargs=json.loads(sys.argv[1]); kwargs['root']=Path(kwargs['root'])\n"
+        "print(json.dumps(selected.operation('complete-layout',**kwargs)))\n"
+    )
+    result = subprocess.run(
+        ["sudo", "-n", sys.executable, "-c", code, json.dumps(options)],
+        check=True, capture_output=True, text=True)
+    returned = json.loads(result.stdout)
+    assert returned["effective_uid"] == 0
+    assert returned["created_directories"] == [
+        "package", "application", "catalogue"]
+    assert returned["source"] == inspected["source"]
+    assert returned["project_identity"]["uid"] == os.geteuid()
+    assert returned["project_identity"]["gid"] == os.getegid()
+    for name in returned["created_directories"]:
+        st = (selected["project"] / name).stat()
+        assert (st.st_uid, st.st_gid) == (os.geteuid(), os.getegid())
+        assert stat.S_IMODE(st.st_mode) == 0o700
+    assert [row for row in digest_tree(selected["project"])
+            if row[0] not in returned["created_directories"]] == baseline
+    assert existing.operation("verify", **params(selected))["layout"]["complete"]
