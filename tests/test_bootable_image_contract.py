@@ -197,3 +197,34 @@ def test_cli_emits_contract_without_authorizing_boot():
     result = json.loads(run.stdout)["result"]
     assert result == boot.contract()
     assert result["production_activation_authorized"] is False
+
+
+def test_boot_a_requires_offline_materialized_system_accounts_before_publication():
+    contract = boot.contract()
+    identity = contract["rootfs"]["offline_service_accounts"]
+    assert identity["materializer"] == "host-install-resident-accounts"
+    assert identity["required_group"] == "systemd-journal"
+    assert identity["required_user_and_primary_group"] == "messagebus"
+    assert identity["live_root_or_published_generation_writes_forbidden"] is True
+    assert identity["dedicated_compiler_accounts_forbidden"] is True
+    for name in (
+        "etc/passwd", "etc/group",
+        "usr/lib/sysusers.d/systemd-journal.conf",
+        "usr/lib/sysusers.d/dbus.conf",
+    ):
+        assert name in contract["rootfs"]["boot_a_required_files"]
+        fixture = complete_manifest()
+        fixture["rootfs"]["entries"] = [
+            row for row in fixture["rootfs"]["entries"]
+            if row["path"] != name]
+        status = boot.assess_verified_artifact(fixture)
+        assert not status["boot_a"]["source_complete"]
+        assert name in status["boot_a"]["missing_or_mismatched"]
+
+
+def test_boot_a_account_source_contract_cannot_reintroduce_compiler_users():
+    contract = boot.contract()
+    contract["rootfs"]["offline_service_accounts"][
+        "dedicated_compiler_accounts_forbidden"] = False
+    with pytest.raises(InstallError, match="materialization"):
+        boot.validate_contract(contract)
