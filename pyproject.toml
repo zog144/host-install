@@ -17,6 +17,7 @@ host-install = "zog.host_install.cli:main"
 host-install-task-c = "zog.host_install.task_c_local_install:main"
 host-install-fonts-project-migrate = "zog.host_install.fonts_project_migration:main"
 host-install-fonts-project-init = "zog.host_install.fonts_project_initialization:main"
+host-install-existing-project-layout = "zog.host_install.existing_project_layout:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

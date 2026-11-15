@@ -1,0 +1,64 @@
+name: Existing Project exact-selection and layout-only recovery
+on:
+  push:
+    branches: [regular/existing-fonts-project-layout-20261115]
+  pull_request:
+    paths:
+      - "src/zog/host_install/existing_project_layout.py"
+      - "tests/test_existing_project_layout.py"
+      - "pyproject.toml"
+      - "docs/host-install/existing-compiler-project-layout-2026-11-15.md"
+      - ".github/workflows/existing-project-layout.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  existing-project:
+    name: Historical Project preservation (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install -e . 'pytest>=8,<10'
+      - name: Verify existing Project source, Git retention and only missing layout
+        run: |
+          python -m pytest -q -rs \
+            tests/test_existing_project_layout.py \
+            tests/test_fonts_project_initialization.py \
+            tests/test_fonts_project_migration.py
+      - name: Verify packaged cli and original Task C/install capabilities coexist
+        run: |
+          host-install-existing-project-layout --help
+          host-install-fonts-project-init --help
+          host-install-fonts-project-migrate --help
+          host-install-task-c --help
+          python -m pip wheel --no-deps . -w /tmp
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          wheels=list(Path('/tmp').glob('host_install-*.whl'))
+          assert len(wheels)==1
+          with ZipFile(wheels[0]) as bundle:
+              names=set(bundle.namelist())
+              assert 'zog/host_install/existing_project_layout.py' in names
+              assert 'zog/host_install/fonts_project_initialization.py' in names
+              assert 'zog/host_install/fonts_project_migration.py' in names
+              assert 'zog/host_install/task_c_local_install.py' in names
+              entrypoint=next(x for x in names if x.endswith('.dist-info/entry_points.txt'))
+              scripts=bundle.read(entrypoint).decode()
+              for program in ('host-install-existing-project-layout',
+                              'host-install-fonts-project-init',
+                              'host-install-fonts-project-migrate', 'host-install-task-c'):
+                  assert program+' =' in scripts
+          PY
+      - name: No live mutation
+        run: |
+          echo "Only disposable Project fixtures were touched. No existing Host Project, generation, Git repository, account, controller, catalogue or SSM job was changed." >> "$GITHUB_STEP_SUMMARY"
