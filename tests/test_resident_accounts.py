@@ -150,7 +150,7 @@ def test_no_live_root_materialization_or_implicit_binary_selection(rootfs):
     with pytest.raises(service.AccountMaterializationHold,
                        match="explicit absolute"):
         service.operation("materialize", rootfs)
-    with pytest.raises(service.AccountMaterializationHold, match="OS-managed"):
+    with pytest.raises(service.AccountMaterializationHold, match="must be systemd-sysusers"):
         service.operation("materialize", rootfs,
                           sysusers_executable=str(rootfs / "etc/passwd"))
 
