@@ -148,13 +148,20 @@ def _declarations(root):
 
 
 def _read(root):
-    _require((root / "usr/lib/os-release").is_file()
-             and not (root / "usr/lib/os-release").is_symlink(),
-             "unpublished Zog resident OS-tree marker missing")
-    _require((root / "usr/lib/systemd/systemd").is_file(),
-             "resident systemd executable is absent")
-    _require((root / "usr/bin/dbus-daemon").is_file(),
-             "resident D-Bus executable is absent")
+    os_release = _regular(root, "usr/lib/os-release", limit=4096)
+    _require(os_release == b'NAME="Zog"\\nID=zog\\nPRETTY_NAME="Zog"\\n'.replace(
+                 b"\\n", b"\n"),
+             "unpublished resident root is not the reviewed Zog OS tree")
+    compatibility = root / "etc/os-release"
+    _require(compatibility.is_symlink()
+             and os.readlink(compatibility) == "../usr/lib/os-release",
+             "unpublished resident os-release compatibility link differs")
+    for path in ("usr/lib/systemd/systemd", "usr/bin/dbus-daemon"):
+        st = (root / path).lstat()
+        _require(stat.S_ISREG(st.st_mode) and not stat.S_ISLNK(st.st_mode)
+                 and not stat.S_IMODE(st.st_mode) & 0o022
+                 and bool(stat.S_IMODE(st.st_mode) & 0o111),
+                 "resident system daemon is missing or non-executable: " + path)
     passwd_raw = _regular(root, PASSWD)
     group_raw = _regular(root, GROUP)
     users = _database(passwd_raw, "passwd")
@@ -188,6 +195,8 @@ def _executable(path):
              "explicit absolute systemd-sysusers executable required")
     executable = Path(path).resolve(strict=True)
     st = executable.stat()
+    _require(executable.name == "systemd-sysusers",
+             "selected account materializer must be systemd-sysusers")
     _require(stat.S_ISREG(st.st_mode) and st.st_uid == 0
              and not stat.S_IMODE(st.st_mode) & 0o022
              and bool(stat.S_IMODE(st.st_mode) & 0o111),
