@@ -1,0 +1,61 @@
+name: Boot A exact successor disposable resident source plan
+
+on:
+  pull_request:
+    paths:
+      - "src/zog/host_install/successor_boot_a_plan.py"
+      - "src/zog/host_install/first_boot_a_plan.py"
+      - "src/zog/host_install/cli.py"
+      - "examples/resident-boot-a-successor-2026-10-31/plan.json"
+      - "tests/test_successor_boot_a_plan.py"
+      - "docs/host-install/boot-a-successor-resident-plan-2026-11-15.md"
+      - ".github/workflows/boot-a-successor-plan.yml"
+  push:
+    branches: [regular/boot-a-successor-generation-plan-20261115]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  nonwriting-plan:
+    name: Frozen GPT and successor source / Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install -e . 'pytest>=8,<10'
+      - name: Test both new plan and original immutable failure evidence
+        run: |
+          python -m pytest -q -rs \
+            tests/test_first_boot_a_plan.py \
+            tests/test_successor_boot_a_plan.py
+          python -m compileall -q src/zog/host_install/first_boot_a_plan.py src/zog/host_install/successor_boot_a_plan.py
+      - name: Assert real installed CLI matches checked-in exact successor plan
+        run: |
+          host-install first-boot-a-plan >/tmp/original-failed-plan.json
+          host-install successor-boot-a-plan >/tmp/selected-successor-plan.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          old=json.loads(Path('/tmp/original-failed-plan.json').read_text())['result']
+          new=json.loads(Path('/tmp/selected-successor-plan.json').read_text())['result']
+          fixture=json.loads(Path('examples/resident-boot-a-successor-2026-10-31/plan.json').read_text())
+          assert new == fixture
+          assert old['generation_binding']['native_boot_disposition'] == 'REJECTED_SWITCH_ROOT_OS_TREE_MISSING'
+          assert new['generation_binding']['generation'] != old['generation_binding']['generation']
+          assert new['esp']['efi_loader_sha256'] is None
+          assert new['rootfs_materialization']['source_archive_sha256'] is None
+          assert new['device_writes_authorized'] is False
+          assert new['native_boot_authorized'] is False
+          PY
+      - name: Source-only disposition
+        run: |
+          echo "No disk/device writes, EFI installation, rootfs mutation, AWS, EC2, boot or certificate operation was performed." >> "$GITHUB_STEP_SUMMARY"
+          echo "Successor is selected, but new producer archive/EFI byte pins require exact retained native readback before Work writes a disk." >> "$GITHUB_STEP_SUMMARY"
