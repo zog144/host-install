@@ -87,8 +87,10 @@ interrupted creation. No pre-existing directory is chmodded or emptied.
 PROJECT=/home/certbot-build-owner/certbot-seed
 # Operator reviews the actual repo location and source selection.
 SOURCE_REL=source
-APPROVED_COMMIT=<full-reviewed-source-git-commit>
-APPROVED_TREE=<full-reviewed-source-git-tree>
+# REVIEWED_SOURCE_COMMIT and REVIEWED_SOURCE_TREE must be independently
+# selected exact full Git object IDs in the Work operator's environment.
+APPROVED_COMMIT="$REVIEWED_SOURCE_COMMIT"
+APPROVED_TREE="$REVIEWED_SOURCE_TREE"
 host-install-existing-project-layout --inspect \
   --project-root "$PROJECT" \
   --source-relative "$SOURCE_REL" \
