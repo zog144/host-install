@@ -1,0 +1,82 @@
+name: Certify-manage combined issuer aggregate selection
+on:
+  push:
+    branches: [regular/issuer-combined-controller-selection-20261116]
+  pull_request:
+    paths:
+      - src/zog/host_install/certify_manage_profile.py
+      - src/zog/host_install/cli.py
+      - tests/test_certify_manage_profile.py
+      - tests/test_certify_manage_combined_controller_selection.py
+      - .github/workflows/certify-combined-controller-selection.yml
+      - docs/host-install/issuer-combined-controller-selection-2026-11-16.md
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  selected-source:
+    name: Pinned source and synthetic installed RECORD / Python ${{ matrix.python }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: zog144/box-control
+          ref: c886e7a90bb4ea74e771a6c5dcefaa2069539ec7
+          path: companions/box-control-certificate
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: zog144/root-control
+          ref: d9dfd6c02a5a96750f1213bf663cdceab72f1efd
+          path: companions/root-control
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: zog144/image-build
+          ref: 77a5e3c13e1c41582b3278941fb4b1f5e2f16678
+          path: companions/image-build-resident-b
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Verify exact source commits
+        run: |
+          test "$(git -C companions/box-control-certificate rev-parse HEAD)" = c886e7a90bb4ea74e771a6c5dcefaa2069539ec7
+          test "$(git -C companions/root-control rev-parse HEAD)" = d9dfd6c02a5a96750f1213bf663cdceab72f1efd
+          test "$(git -C companions/image-build-resident-b rev-parse HEAD)" = 77a5e3c13e1c41582b3278941fb4b1f5e2f16678
+      - name: Source compatibility and pinned RECORD/inheritance regressions
+        env:
+          PYTHONPATH: src:companions/box-control-certificate/box-control/src:companions/root-control/src
+          CERTIFICATE_BOX_CONTROL_SOURCE: companions/box-control-certificate
+          ROOT_CONTROL_SOURCE: companions/root-control
+        run: |
+          python -m pip install 'pytest>=8,<10' 'dbus-next==0.2.3' 'cryptography>=42,<47'
+          python -m compileall -q src/zog/host_install/certify_manage_profile.py src/zog/host_install/cli.py
+          python -m pytest -q -rs tests/test_certify_manage_profile.py tests/test_certify_manage_combined_controller_selection.py
+      - name: Verify unchanged issuer source suites can import combined controller modules
+        env:
+          PYTHONPATH: src:companions/box-control-certificate/box-control/src:companions/root-control/src
+          CERTIFICATE_BOX_CONTROL_SOURCE: companions/box-control-certificate
+          ROOT_CONTROL_SOURCE: companions/root-control
+        run: |
+          python - <<'PY'
+          from zog.host_install import certify_manage_profile as p
+          assert p.CONTROLLER_PYTHON == '/usr/bin/python3.12'
+          assert p.BOX_CONTROL_COMMIT == 'c886e7a90bb4ea74e771a6c5dcefaa2069539ec7'
+          assert p.ROOT_CONTROL_COMMIT == 'd9dfd6c02a5a96750f1213bf663cdceab72f1efd'
+          import zog.box_control.issuer_lifecycle_broker
+          import zog.box_control.issuer_lifecycle_client
+          import zog.root_control.daemon
+          import zog.root_control.systemd
+          PY
+      - name: Source-only/native authorization boundary
+        run: |
+          echo "Source checkout and SYNTHETIC RECORD only; no wheel produced, no live 3.12 aggregate accepted, no DNS or issuer activation." >> "$GITHUB_STEP_SUMMARY"
+          echo "Final real installed controller attestation remains blocked until image-build publishes actual wheel, interpreter, RECORD, and generation evidence." >> "$GITHUB_STEP_SUMMARY"
