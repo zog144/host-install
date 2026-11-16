@@ -671,9 +671,34 @@ def attest_installed_controller(*, python_executable=CONTROLLER_PYTHON):
     root = Path(dist.locate_file("")).resolve()
     require(root == _selected_aggregate_root(),
             "certify-installed", "controller aggregate installed outside selected Python 3.12 site-packages")
+    # A Python metadata object or an independently installed controller
+    # wheel is not evidence of the selected aggregate distribution. Require
+    # the actual nonreused zog dist-info RECORD on the selected site tree.
+    require(type(dist.version) is str and dist.version
+            and dist.version != "0.1.0",
+            "certify-installed", "combined aggregate requires a distinct immutable package version")
+    members = tuple(dist.files or ())
+    records = [
+        item for item in members
+        if len(item.parts) == 2
+        and item.name == "RECORD"
+        and item.parts[0].startswith("zog-")
+        and item.parts[0].endswith(".dist-info")
+    ]
+    require(len(records) == 1,
+            "certify-installed", "aggregate dist-info RECORD path is missing or ambiguous")
+    record_path = Path(dist.locate_file(records[0]))
+    _protected_ancestry(record_path, root)
     text = dist.read_text("RECORD")
-    require(type(text) is str and 0 < len(text) <= 4_000_000,
-            "certify-installed", "aggregate RECORD missing or excessive")
+    require(type(text) is str and 0 < len(text) <= 4_000_000
+            and record_path.read_bytes() == text.encode("utf-8"),
+            "certify-installed", "aggregate RECORD absent or differs from installed bytes")
+    record_directory = records[0].parts[0]
+    for metadata_name in ("METADATA", "WHEEL", "entry_points.txt"):
+        metadata_path = root / record_directory / metadata_name
+        _protected_ancestry(metadata_path, root)
+        require(metadata_path.is_file() and metadata_path.stat().st_size > 0,
+                "certify-installed", "aggregate distribution metadata is incomplete")
     rows = {}
     for row in csv.reader(io.StringIO(text)):
         require(len(row) == 3 and row[0] not in rows,
@@ -714,6 +739,7 @@ def attest_installed_controller(*, python_executable=CONTROLLER_PYTHON):
         "controller_python": CONTROLLER_PYTHON,
         "controller_site_packages": str(root),
         "python_abi": "cp312",
+        "dist_info": record_directory,
         "record_sha256": _sha256(text.encode()),
         "modules": observed,
         "production_activation_authorized": False,
