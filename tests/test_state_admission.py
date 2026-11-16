@@ -18,6 +18,9 @@ from test_state_provision import Context
 
 class AdmissionTests(unittest.TestCase):
     def setUp(self):
+        ids=patch.object(admission, "installed_consumer_ids", return_value=(970,970))
+        ids.start()
+        self.addCleanup(ids.stop)
         from zog.host_identify.initialization import prepare, load_existing
         self.temp = tempfile.TemporaryDirectory()
         self.c = Context(self.temp.name)
@@ -210,7 +213,7 @@ class WireTests(unittest.TestCase):
 
     def test_non_service_uid_rejected_before_inspection(self):
         left,right=socket.socketpair()
-        with left,right,patch.object(admission,'peer_uid',return_value=971),patch.object(admission,'inspect_live') as inspect:
+        with left,right,patch.object(admission,'peer_uid',return_value=971),patch.object(admission,'installed_consumer_ids',return_value=(970,970)),patch.object(admission,'inspect_live') as inspect:
             with self.assertRaisesRegex(StateError,'admission-peer'):admission.serve_connection(left)
             inspect.assert_not_called()
 
@@ -227,3 +230,40 @@ class WireTests(unittest.TestCase):
         with left,right:
             left.settimeout(.01)
             with self.assertRaises(TimeoutError):admission.receive(left,4096)
+
+
+class InstalledAccountTests(unittest.TestCase):
+    def test_installed_uid_gid_not_hard_coded(self):
+        from types import SimpleNamespace
+        for uid, gid in [(970,970), (991,991), (1003,1004)]:
+            with self.subTest(uid=uid, gid=gid), \
+                 patch.object(admission.pwd,"getpwnam",return_value=SimpleNamespace(pw_uid=uid,pw_gid=gid)), \
+                 patch.object(admission.grp,"getgrnam",return_value=SimpleNamespace(gr_gid=gid)):
+                self.assertEqual(admission.installed_consumer_ids(),(uid,gid))
+
+    def test_missing_root_and_conflicting_installed_account_refused(self):
+        from types import SimpleNamespace
+        cases=[(0,0,0),(970,970,971), (991,991,0)]
+        for uid,gid,group in cases:
+            with self.subTest(uid=uid), \
+                 patch.object(admission.pwd,"getpwnam",return_value=SimpleNamespace(pw_uid=uid,pw_gid=gid)), \
+                 patch.object(admission.grp,"getgrnam",return_value=SimpleNamespace(gr_gid=group)):
+                with self.assertRaisesRegex(StateError,"admission-account"):
+                    admission.installed_consumer_ids()
+        with patch.object(admission.pwd,"getpwnam",side_effect=KeyError("host-discover")):
+            with self.assertRaisesRegex(StateError,"admission-account"):
+                admission.installed_consumer_ids()
+
+    def test_peer_uid_alternate_account_and_foreign_peer_rejected(self):
+        from types import SimpleNamespace
+        a,b=socket.socketpair()
+        try:
+            with patch.object(admission.os,"geteuid",return_value=0), \
+                 patch.object(admission,"installed_consumer_ids",return_value=(991,991)), \
+                 patch.object(admission,"peer_uid",return_value=970), \
+                 patch.object(admission,"inspect_live") as inspected:
+                with self.assertRaisesRegex(StateError,"admission-peer"):
+                    admission.serve_connection(a)
+                inspected.assert_not_called()
+        finally:
+            a.close();b.close()
