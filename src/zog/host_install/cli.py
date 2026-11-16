@@ -152,7 +152,7 @@ def main(argv=None):
     cmd.add_argument("--root-control-socket", required=True)
     cmd.add_argument("--software-view", required=True)
     cmd = sub.add_parser("certify-manage-controller-attest-installed", help="attest installed box-control/root-control issuer controller bytes")
-    cmd.add_argument("--python-executable", default="/usr/bin/python3")
+    cmd.add_argument("--python-executable", default=certify_manage_profile.CONTROLLER_PYTHON)
     cmd = sub.add_parser("certificate-authority-pin-install", help="install independently authenticated station assignment signer pin")
     cmd.add_argument("--pin", type=Path, required=True)
     cmd.add_argument("--expected-key-id", required=True)
