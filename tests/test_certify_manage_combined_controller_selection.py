@@ -42,8 +42,9 @@ def test_exact_combined_source_selection_not_historical_issuer_pins():
     assert p.CONTROLLER_PYTHON == "/usr/bin/python3.12"
     assert p.CONTROLLER_SITE_PACKAGES == "/" + record["distribution"]["install_prefix"]
     assert p.CONTROLLER_DISTRIBUTION == record["distribution"]["name"]
-    assert record["native"]["installed_wheel_verified"] is False if (
-        "installed_wheel_verified" in record["native"]) else True
+    assert record["native"]["installed_accepted"] is False
+    assert record["native"]["source_only"] is True
+    assert record["native"]["aggregate_wheel_sha256"] is None
 
 
 def test_all_fifteen_issuer_modules_match_aggregate_git_blobs_and_source_files():
@@ -78,6 +79,4 @@ def test_four_changed_module_pins_are_the_selected_combined_source():
 
 def test_wrong_interpreter_cannot_use_aggregate_through_default_python_alias():
     with pytest.raises(StateError, match="canonical approved Python"):
-        p.attest_installed_controller(python_executable="../../usr/bin/python3.12") if (
-            __import__("os").geteuid() == 0) else p._absolute(
-                "../../usr/bin/python3.12", "canonical approved Python")
+        p._absolute("../../usr/bin/python3.12", "canonical approved Python")
