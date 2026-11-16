@@ -192,6 +192,9 @@ def test_stage_writes_nonactivating_install_profile(tmp_path, monkeypatch):
     assert install["controller_uid"] == 11021
     assert install["lifecycle_consumer_uid"] == 12031
     assert install["software_view"] == "sha256:" + "2" * 64
+    assert install["controller_python"] == "/usr/bin/python3.12"
+    assert install["controller_site_packages"] == "/usr/lib/python3.12/site-packages"
+    assert install["controller_distribution"] == "zog"
     assert install["policy_installed"] is False
     assert install["application_prepared"] is False
 
@@ -410,6 +413,10 @@ def test_installed_controller_attestation_checks_box_and_root_control(tmp_path, 
     assert result["root_control_source_commit"] == profile.ROOT_CONTROL_COMMIT
     assert set(result["modules"]) == set(profile.INSTALLED_MODULE_BLOBS)
     assert result["record_sha256"]
+    assert result["controller_python"] == "/usr/bin/python3.12"
+    assert result["controller_site_packages"] == str(distribution.root)
+    assert result["python_abi"] == "cp312"
+    assert result["distribution"] == "zog"
     assert result["production_activation_authorized"] is False
 
 
