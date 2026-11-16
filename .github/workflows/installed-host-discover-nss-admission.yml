@@ -32,6 +32,6 @@ jobs:
       - name: Installed account and protected AF_UNIX admission regressions
         env:
           PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}/tests
-        run: python -m pytest -q -ra tests/test_state_admission.py tests/test_admission_listener.py
+        run: sudo --preserve-env=PATH,PYTHONPATH "$(command -v python)" -m pytest -q -ra -p no:cacheprovider tests/test_state_admission.py tests/test_admission_listener.py
       - if: always()
         run: echo 'Synthetic NSS and local socket testing only; no live Host account, service, STATE, key, or socket modified.' >> "$GITHUB_STEP_SUMMARY"
