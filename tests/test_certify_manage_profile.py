@@ -192,6 +192,9 @@ def test_stage_writes_nonactivating_install_profile(tmp_path, monkeypatch):
     assert install["controller_uid"] == 11021
     assert install["lifecycle_consumer_uid"] == 12031
     assert install["software_view"] == "sha256:" + "2" * 64
+    assert install["controller_python"] == "/usr/bin/python3.12"
+    assert install["controller_site_packages"] == "/usr/lib/python3.12/site-packages"
+    assert install["controller_distribution"] == "zog"
     assert install["policy_installed"] is False
     assert install["application_prepared"] is False
 
@@ -205,6 +208,7 @@ def test_stage_writes_nonactivating_install_profile(tmp_path, monkeypatch):
     assert "SocketMode=0600" in socket
     assert "User=11021" in service and "Group=11022" in service
     assert "--authorized-uid 12031" in service
+    assert "ExecStart=/usr/bin/python3.12 -m zog.box_control.issuer_lifecycle_broker" in service
     assert "--generation " + "4" * 64 in service
     assert "--software-view sha256:" + "2" * 64 in service
     assert "--root-control-socket /run/zog/root-control.sock" in service
@@ -390,6 +394,14 @@ def fake_controller_distribution(tmp_path):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(record)
     files.append(record_rel)
+    for name, contents in (
+        ("METADATA", "Metadata-Version: 2.3\\nName: zog\\nVersion: 0.12.0\\n"),
+        ("WHEEL", "Wheel-Version: 1.0\\nGenerator: source-fixture\\nRoot-Is-Purelib: true\\nTag: py3-none-any\\n"),
+        ("entry_points.txt", "[console_scripts]\\nbox-control = zog.box_control.cli:main\\nroot-control = zog.root_control.daemon:main\\n"),
+    ):
+        member = record_rel.with_name(name)
+        (root / member).write_text(contents)
+        files.append(member)
     return mapping, FakeDistribution(root, files, record)
 
 
@@ -398,15 +410,22 @@ def test_installed_controller_attestation_checks_box_and_root_control(tmp_path, 
     monkeypatch.setattr(profile.os, "geteuid", lambda: 0)
     monkeypatch.delenv("PYTHONPATH", raising=False)
     monkeypatch.delenv("PYTHONHOME", raising=False)
-    monkeypatch.setattr(profile.sys, "executable", "/usr/bin/python3")
+    monkeypatch.setattr(profile.sys, "executable", "/usr/bin/python3.12")
+    monkeypatch.setattr(profile, "_selected_interpreter_version", lambda: (3, 12))
+    monkeypatch.setattr(profile, "_selected_aggregate_root", lambda: distribution.root)
     monkeypatch.setattr(profile, "_protected_ancestry", lambda *a: None)
     monkeypatch.setattr(profile.importlib.metadata, "distribution", lambda name: distribution)
     monkeypatch.setattr(profile.importlib, "import_module", lambda name: mapping[name])
-    result = profile.attest_installed_controller(python_executable="/usr/bin/python3")
+    result = profile.attest_installed_controller(python_executable="/usr/bin/python3.12")
     assert result["box_control_source_commit"] == profile.BOX_CONTROL_COMMIT
     assert result["root_control_source_commit"] == profile.ROOT_CONTROL_COMMIT
     assert set(result["modules"]) == set(profile.INSTALLED_MODULE_BLOBS)
     assert result["record_sha256"]
+    assert result["controller_python"] == "/usr/bin/python3.12"
+    assert result["controller_site_packages"] == str(distribution.root)
+    assert result["python_abi"] == "cp312"
+    assert result["distribution"] == "zog"
+    assert result["dist_info"] == "zog-0.12.0.dist-info"
     assert result["production_activation_authorized"] is False
 
 
@@ -424,9 +443,107 @@ def test_installed_controller_attestation_rejects_tamper(tmp_path, monkeypatch, 
     monkeypatch.setattr(profile.os, "geteuid", lambda: 0)
     monkeypatch.delenv("PYTHONPATH", raising=False)
     monkeypatch.delenv("PYTHONHOME", raising=False)
-    monkeypatch.setattr(profile.sys, "executable", "/usr/bin/python3")
+    monkeypatch.setattr(profile.sys, "executable", "/usr/bin/python3.12")
+    monkeypatch.setattr(profile, "_selected_interpreter_version", lambda: (3, 12))
+    monkeypatch.setattr(profile, "_selected_aggregate_root", lambda: distribution.root)
     monkeypatch.setattr(profile, "_protected_ancestry", lambda *a: None)
     monkeypatch.setattr(profile.importlib.metadata, "distribution", lambda name: distribution)
     monkeypatch.setattr(profile.importlib, "import_module", lambda name: mapping[name])
     with pytest.raises(StateError, match="bytes differ"):
+        profile.attest_installed_controller(python_executable="/usr/bin/python3.12")
+
+
+def test_issuer_selection_matches_original_combined_controller_sources():
+    assert profile.BOX_CONTROL_COMMIT == (
+        "c886e7a90bb4ea74e771a6c5dcefaa2069539ec7"
+    )
+    assert profile.ROOT_CONTROL_COMMIT == (
+        "d9dfd6c02a5a96750f1213bf663cdceab72f1efd"
+    )
+    assert profile.CONTROLLER_PYTHON == "/usr/bin/python3.12"
+    assert profile.CONTROLLER_SITE_PACKAGES == "/usr/lib/python3.12/site-packages"
+    assert profile.CONTROLLER_DISTRIBUTION == "zog"
+    assert profile._service_unit(
+        controller_uid=1000, controller_gid=1000, consumer_uid=2000,
+        project="/home/controller/project", generation="4" * 64,
+        software_view="sha256:" + "2" * 64,
+        root_control_socket="/run/zog/root-control.sock"
+    ).decode().count("/usr/bin/python3.12") == 1
+
+
+def test_attestation_rejects_wrong_controller_interpreter_and_python_abi(tmp_path, monkeypatch):
+    mapping, distribution = fake_controller_distribution(tmp_path)
+    monkeypatch.setattr(profile.os, "geteuid", lambda: 0)
+    monkeypatch.delenv("PYTHONPATH", raising=False)
+    monkeypatch.delenv("PYTHONHOME", raising=False)
+    monkeypatch.setattr(profile.sys, "executable", "/usr/bin/python3.12")
+    monkeypatch.setattr(profile, "_selected_aggregate_root", lambda: distribution.root)
+    monkeypatch.setattr(profile, "_selected_interpreter_version", lambda: (3, 12))
+    with pytest.raises(StateError, match="interpreter path differs"):
         profile.attest_installed_controller(python_executable="/usr/bin/python3")
+    monkeypatch.setattr(profile, "_selected_interpreter_version", lambda: (3, 15))
+    with pytest.raises(StateError, match="requires selected Python 3.12"):
+        profile.attest_installed_controller(python_executable="/usr/bin/python3.12")
+
+
+def test_attestation_rejects_aggregate_installed_in_other_python_site(tmp_path, monkeypatch):
+    mapping, distribution = fake_controller_distribution(tmp_path)
+    monkeypatch.setattr(profile.os, "geteuid", lambda: 0)
+    monkeypatch.delenv("PYTHONPATH", raising=False)
+    monkeypatch.delenv("PYTHONHOME", raising=False)
+    monkeypatch.setattr(profile.sys, "executable", "/usr/bin/python3.12")
+    monkeypatch.setattr(profile, "_selected_interpreter_version", lambda: (3, 12))
+    monkeypatch.setattr(profile.importlib.metadata, "distribution", lambda name: distribution)
+    with pytest.raises(StateError, match="outside selected Python 3.12"):
+        profile.attest_installed_controller(python_executable="/usr/bin/python3.12")
+
+
+def test_attestation_rejects_record_size_substitution(tmp_path, monkeypatch):
+    mapping, distribution = fake_controller_distribution(tmp_path)
+    selected = "zog/box_control/issuer_lifecycle_broker.py"
+    lines = distribution._record.splitlines()
+    lines = [line.rsplit(",", 1)[0] + ",1" if line.startswith(selected + ",") else line for line in lines]
+    distribution._record = "\n".join(lines) + "\n"
+    (distribution.root / "zog-0.12.0.dist-info/RECORD").write_text(distribution._record)
+    monkeypatch.setattr(profile.os, "geteuid", lambda: 0)
+    monkeypatch.delenv("PYTHONPATH", raising=False)
+    monkeypatch.delenv("PYTHONHOME", raising=False)
+    monkeypatch.setattr(profile.sys, "executable", "/usr/bin/python3.12")
+    monkeypatch.setattr(profile, "_selected_interpreter_version", lambda: (3, 12))
+    monkeypatch.setattr(profile, "_selected_aggregate_root", lambda: distribution.root)
+    monkeypatch.setattr(profile, "_protected_ancestry", lambda *a: None)
+    monkeypatch.setattr(profile.importlib.metadata, "distribution", lambda name: distribution)
+    monkeypatch.setattr(profile.importlib, "import_module", lambda name: mapping[name])
+    with pytest.raises(StateError, match="aggregate RECORD disagrees"):
+        profile.attest_installed_controller(python_executable="/usr/bin/python3.12")
+
+
+def test_installed_issuer_rejects_reused_published_zog_version(tmp_path, monkeypatch):
+    mapping, distribution = fake_controller_distribution(tmp_path)
+    distribution.version = "0.1.0"
+    monkeypatch.setattr(profile.os, "geteuid", lambda: 0)
+    monkeypatch.delenv("PYTHONPATH", raising=False)
+    monkeypatch.delenv("PYTHONHOME", raising=False)
+    monkeypatch.setattr(profile.sys, "executable", "/usr/bin/python3.12")
+    monkeypatch.setattr(profile, "_selected_interpreter_version", lambda: (3, 12))
+    monkeypatch.setattr(profile, "_selected_aggregate_root", lambda: distribution.root)
+    monkeypatch.setattr(profile.importlib.metadata, "distribution", lambda name: distribution)
+    with pytest.raises(StateError, match="distinct immutable package version"):
+        profile.attest_installed_controller(python_executable="/usr/bin/python3.12")
+
+
+@pytest.mark.parametrize("name", ("METADATA", "WHEEL", "entry_points.txt", "RECORD"))
+def test_installed_issuer_rejects_missing_distribution_metadata(
+        tmp_path, monkeypatch, name):
+    mapping, distribution = fake_controller_distribution(tmp_path)
+    (distribution.root / "zog-0.12.0.dist-info" / name).unlink()
+    monkeypatch.setattr(profile.os, "geteuid", lambda: 0)
+    monkeypatch.delenv("PYTHONPATH", raising=False)
+    monkeypatch.delenv("PYTHONHOME", raising=False)
+    monkeypatch.setattr(profile.sys, "executable", "/usr/bin/python3.12")
+    monkeypatch.setattr(profile, "_selected_interpreter_version", lambda: (3, 12))
+    monkeypatch.setattr(profile, "_selected_aggregate_root", lambda: distribution.root)
+    monkeypatch.setattr(profile, "_protected_ancestry", lambda *a: None)
+    monkeypatch.setattr(profile.importlib.metadata, "distribution", lambda name: distribution)
+    with pytest.raises((StateError, FileNotFoundError)):
+        profile.attest_installed_controller(python_executable="/usr/bin/python3.12")
