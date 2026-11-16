@@ -48,6 +48,11 @@ runtime Python version or site-packages root. It still requires root and
 rejects `PYTHONPATH`/`PYTHONHOME`. All fifteen controller imports must
 come from protected root-owned files inside the selected aggregate and
 match the original Git blob pins, installed RECORD SHA-256 and **byte size**.
+The attestor also requires a real protected `zog-<version>.dist-info`
+directory with byte-identical on-disk `RECORD` and nonempty `METADATA`,
+`WHEEL` and `entry_points.txt` files. A distinct release version from the
+previously published `zog==0.1.0` is required; source tests must never
+substitute a fabricated distribution-metadata object for native acceptance.
 The nonactivating lifecycle broker unit is explicitly rendered with
 `ExecStart=/usr/bin/python3.12 -m
 zog.box_control.issuer_lifecycle_broker ...`. Its installation plan
