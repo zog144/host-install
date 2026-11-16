@@ -40,14 +40,14 @@ IMAGE_BUILD_PRODUCER_BLOB = "a6216f5031c8155cd020ce4424e94307af319213"
 CERTIFY_MANAGE_COMMIT = "8d073ff449557fc82c12eea93e240cdeec1b0fcc"
 CERTIFY_APPLICATION_BLOB = "23b180f1f731dae67a06fcd1bdb994304c67390f"
 CERTIFY_REQUIREMENTS_BLOB = "1de58f2be2e21710a7544df8a9d0638ad3bb5c06"
-BOX_CONTROL_COMMIT = "73d64fb8b643e27667ac719080a37913c008b5dd"
-ROOT_CONTROL_COMMIT = "8bb9a5638622b3c443e59351cfdf06583cea8e80"
+BOX_CONTROL_COMMIT = "c886e7a90bb4ea74e771a6c5dcefaa2069539ec7"
+ROOT_CONTROL_COMMIT = "d9dfd6c02a5a96750f1213bf663cdceab72f1efd"
 
 BOX_CONTROL_MODULE_BLOBS = {
     "zog.box_control.errors": "592fb98713710387217238e26d148ee6fe487d1b",
     "zog.box_control.runtime.systemd": "2502e9a9c41a0798e56e7397b139f39cf92837f1",
-    "zog.box_control.issuer_lifecycle_broker": "137799041bcbafc8ceec589bffbe43e1cb9f0e40",
-    "zog.box_control.issuer_lifecycle_client": "662afc2a7718d2cd7d84763ad6f9364590a9e4b0",
+    "zog.box_control.issuer_lifecycle_broker": "fc32e0c42fd97cdadefa197f9a0bfdc2beacc7c9",
+    "zog.box_control.issuer_lifecycle_client": "3168d674963259aadacfed05c91cec765928f094",
     "zog.box_control.issuer_inspection_evidence": "47579c5f0fdbb7ef0c426f02a4f4f02f5495f122",
     "zog.box_control.role_broker": "16403f5c5612d10639e19f0e44defb4c9d0e5955",
     "zog.box_control.role_broker_client": "9e9f9866b3d707328503e6981f05876d00fbb6a8",
@@ -56,12 +56,20 @@ BOX_CONTROL_MODULE_BLOBS = {
     "zog.box_control.application_storage": "72a7cb0d5fc24870ad2336de7579c704a2461b15",
 }
 ROOT_CONTROL_MODULE_BLOBS = {
-    "zog.root_control.daemon": "416ededcd76332e003f8c6e7e92036cc3d1ca660",
-    "zog.root_control.systemd": "b82cc736aca21c04b211ae8056c8efe80b3e508b",
+    "zog.root_control.daemon": "e5f6b8d15a8cb9cf9aeed7658a2d01271be380ab",
+    "zog.root_control.systemd": "0f0e78c50ed5f517d30f63cb56471138319df7c2",
     "zog.root_control.issuer_inspection_result": "fc810766fc2a2140770398bb503ab42442a24e30",
     "zog.root_control.issuer_observation": "3b8ac6f8bf8d541b6e24a96f9fcff5e4f64bc242",
     "zog.root_control.identities": "ef265ffd5340c189ecb59392e0541861201716b9",
 }
+# Selected single-distribution controller runtime (image-build Resident B #24).
+# Do not confuse /usr/bin/python3 (Host utilities may use Python 3.15)
+# with the aggregate package installed for the Python 3.12 controller ABI.
+CONTROLLER_PYTHON = "/usr/bin/python3.12"
+CONTROLLER_SITE_PACKAGES = "/usr/lib/python3.12/site-packages"
+CONTROLLER_PYTHON_VERSION = (3, 12)
+CONTROLLER_DISTRIBUTION = "zog"
+
 INSTALLED_MODULE_BLOBS = {**BOX_CONTROL_MODULE_BLOBS, **ROOT_CONTROL_MODULE_BLOBS}
 
 PROGRAMS = ("prepare", "issue", "renew", "inspect", "stage")
@@ -368,7 +376,7 @@ def _socket_unit(consumer_uid):
 def _service_unit(*, controller_uid, controller_gid, consumer_uid,
                   project, generation, software_view, root_control_socket):
     argv = (
-        "/usr/bin/python3 -m zog.box_control.issuer_lifecycle_broker"
+        f"{CONTROLLER_PYTHON} -m zog.box_control.issuer_lifecycle_broker"
         f" --project {project} --authorized-uid {consumer_uid}"
         f" --generation {generation} --software-view {software_view}"
         f" --root-control-socket {root_control_socket}"
@@ -622,7 +630,17 @@ def _protected_ancestry(path, stop):
         current = current.parent
 
 
-def attest_installed_controller(*, python_executable="/usr/bin/python3"):
+def _selected_aggregate_root():
+    """Fixed installed site-packages selected by the reviewed Resident B source."""
+    return Path(CONTROLLER_SITE_PACKAGES)
+
+
+def _selected_interpreter_version():
+    """Inspect the executing interpreter, never a guessed host /usr/bin/python3."""
+    return sys.version_info[:2]
+
+
+def attest_installed_controller(*, python_executable=CONTROLLER_PYTHON):
     """Attest pinned box-control/root-control modules from the aggregate wheel."""
     require(os.geteuid() == 0, "root-required",
             "controller installed-software attestation requires root")
@@ -631,16 +649,22 @@ def attest_installed_controller(*, python_executable="/usr/bin/python3"):
     python_executable = _absolute(
         python_executable, "canonical approved Python executable required"
     )
+    require(python_executable == CONTROLLER_PYTHON,
+            "certify-installed", "selected controller interpreter path differs")
+    require(_selected_interpreter_version() == CONTROLLER_PYTHON_VERSION,
+            "certify-installed", "controller attestation requires selected Python 3.12")
     running = Path(sys.executable).resolve()
     require(Path(python_executable).resolve() == running,
             "certify-installed", "attestation interpreter differs")
     try:
-        dist = importlib.metadata.distribution("zog")
+        dist = importlib.metadata.distribution(CONTROLLER_DISTRIBUTION)
     except importlib.metadata.PackageNotFoundError:
         require(False, "certify-installed", "aggregate zog distribution unavailable")
-    require(dist.metadata.get("Name") == "zog",
+    require(dist.metadata.get("Name") == CONTROLLER_DISTRIBUTION,
             "certify-installed", "unexpected aggregate distribution")
     root = Path(dist.locate_file("")).resolve()
+    require(root == _selected_aggregate_root(),
+            "certify-installed", "controller aggregate installed outside selected Python 3.12 site-packages")
     text = dist.read_text("RECORD")
     require(type(text) is str and 0 < len(text) <= 4_000_000,
             "certify-installed", "aggregate RECORD missing or excessive")
@@ -648,7 +672,7 @@ def attest_installed_controller(*, python_executable="/usr/bin/python3"):
     for row in csv.reader(io.StringIO(text)):
         require(len(row) == 3 and row[0] not in rows,
                 "certify-installed", "invalid aggregate RECORD")
-        rows[row[0]] = row[1]
+        rows[row[0]] = (row[1], row[2])
 
     observed = {}
     for module, expected in INSTALLED_MODULE_BLOBS.items():
@@ -664,9 +688,11 @@ def attest_installed_controller(*, python_executable="/usr/bin/python3"):
         relative = path.resolve().relative_to(root).as_posix()
         require(relative in rows, "certify-installed",
                 "installed controller module absent from RECORD")
-        algorithm, sep, encoded = rows[relative].partition("=")
+        record_digest, record_size = rows[relative]
+        algorithm, sep, encoded = record_digest.partition("=")
         require(sep == "=" and algorithm == "sha256"
-                and encoded == _record_sha256(data),
+                and encoded == _record_sha256(data)
+                and record_size == str(len(data)),
                 "certify-installed", "aggregate RECORD disagrees with controller module")
         observed[module] = {
             "origin": str(path.resolve()),
@@ -677,7 +703,11 @@ def attest_installed_controller(*, python_executable="/usr/bin/python3"):
         "schema": "zog-certify-manage-controller-installed-attestation-v1",
         "box_control_source_commit": BOX_CONTROL_COMMIT,
         "root_control_source_commit": ROOT_CONTROL_COMMIT,
+        "distribution": CONTROLLER_DISTRIBUTION,
         "distribution_version": dist.version,
+        "controller_python": CONTROLLER_PYTHON,
+        "controller_site_packages": str(root),
+        "python_abi": "cp312",
         "record_sha256": _sha256(text.encode()),
         "modules": observed,
         "production_activation_authorized": False,
