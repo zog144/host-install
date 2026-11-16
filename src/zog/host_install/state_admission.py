@@ -6,6 +6,8 @@ The consumer must retain/recheck its own STATE and use host-identify load-existi
 from contextlib import contextmanager
 import fcntl
 import os
+import pwd
+import grp
 from pathlib import Path
 import secrets
 import socket
@@ -78,6 +80,25 @@ def observe(context):
                     control_authorized=False, transport_enabled=False)
 
 
+def installed_consumer_ids():
+    """Read the installed NSS account rather than assuming a fixed numeric ID.
+
+    The installed service account/group are root-administered local identity,
+    not an untrusted wire value or supplied expected UID. Root and missing or
+    conflicting group records are never valid consumer identities.
+    """
+    try:
+        user = pwd.getpwnam("host-discover")
+        group = grp.getgrnam("host-discover")
+    except KeyError as error:
+        raise StateError("admission-account", "installed host-discover account absent") from error
+    require(type(user.pw_uid) is int and type(user.pw_gid) is int
+            and user.pw_uid > 0 and user.pw_gid > 0
+            and type(group.gr_gid) is int and group.gr_gid == user.pw_gid,
+            "admission-account", "installed host-discover group mismatch")
+    return user.pw_uid, user.pw_gid
+
+
 def peer_uid(connection):
     return struct.unpack('3i', connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize('3i')))[1]
 
@@ -101,7 +122,8 @@ def serve_connection(connection):
     """One request on a systemd-accepted socket; caller cannot select paths/actions."""
     require(os.geteuid() == 0, 'root-required', 'privileged observation requires root')
     connection.settimeout(TIMEOUT)
-    require(peer_uid(connection) == 970, 'admission-peer', 'host-discover UID required')
+    require(peer_uid(connection) == installed_consumer_ids()[0],
+            'admission-peer', 'installed host-discover UID required')
     nonce = request_valid(receive(connection, REQUEST_LIMIT))
     response = dict(schema=1, kind='zog-host-admission-response', nonce=nonce)
     try:
@@ -153,13 +175,15 @@ def request_live(context):
 Call after consumer inspection/probe, before anchored identity loading. Recheck
 again afterward. This observation is instantaneous; it is not a health lease.
 """
-    require(os.geteuid() == 970 and os.getegid() == 970, 'admission-account', 'host-discover account required')
+    uid, gid = installed_consumer_ids()
+    require(os.geteuid() == uid and os.getegid() == gid,
+            'admission-account', 'installed host-discover account required')
     context.recheck()
     parent = directory('/run/host-install')
     try:
         metadata(parent, 0, 0, 0o755)
         s = os.stat('admission.sock', dir_fd=parent, follow_symlinks=False)
-        require(stat.S_ISSOCK(s.st_mode) and (s.st_uid, s.st_gid, stat.S_IMODE(s.st_mode)) == (0, 970, 0o660),
+        require(stat.S_ISSOCK(s.st_mode) and (s.st_uid, s.st_gid, stat.S_IMODE(s.st_mode)) == (0, gid, 0o660),
                 'admission-socket', 'unexpected socket ownership/mode')
         nonce = secrets.token_hex(32)
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
