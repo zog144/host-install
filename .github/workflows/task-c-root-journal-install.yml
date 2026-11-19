@@ -41,6 +41,18 @@ jobs:
           ref: dc8ab86897ad6652b7f9da42e587e84171c6bb64
           path: companions/host-deploy
           persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: zog144/box-control
+          ref: c886e7a90bb4ea74e771a6c5dcefaa2069539ec7
+          path: companions/box-control
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: zog144/image-build
+          ref: 77a5e3c13e1c41582b3278941fb4b1f5e2f16678
+          path: companions/image-build
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
@@ -49,6 +61,8 @@ jobs:
         run: |
           test "$(git -C companions/root-control rev-parse HEAD)" = b655b0a2b2ba7abb5fddbdaadae01ef6e34bcb56
           test "$(git -C companions/host-deploy rev-parse HEAD)" = dc8ab86897ad6652b7f9da42e587e84171c6bb64
+          test "$(git -C companions/box-control rev-parse HEAD)" = c886e7a90bb4ea74e771a6c5dcefaa2069539ec7
+          test "$(git -C companions/image-build rev-parse HEAD)" = 77a5e3c13e1c41582b3278941fb4b1f5e2f16678
           python - <<'PY'
           import os,sys
           from zog.host_install import task_c_local_install as i
@@ -56,10 +70,14 @@ jobs:
               host_install='.',
               host_deploy='companions/host-deploy',
               root_control='companions/root-control',
+              box_control='companions/box-control/box-control',
+              image_build='companions/image-build',
               python=os.path.realpath(sys.executable))
           assert selection['root_control_revision'] == i.ROOT_CONTROL_REVISION
           assert selection['root_control_journal_git_blob'] == i.ROOT_CONTROL_JOURNAL_GIT_BLOB
           assert selection['root_control_journal'] == '/var/lib/zog-task-c/operations'
+          assert selection['box_control_revision'] == i.BOX_CONTROL_REVISION
+          assert selection['image_build_revision'] == i.IMAGE_BUILD_REVISION
           assert selection['runtime_modules'][-1] == 'zog.root_control.task_c_trusted_host'
           assert selection['ssm_execution'] is False
           PY
