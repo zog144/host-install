@@ -297,7 +297,7 @@ def test_staging_requires_gateway_inactive_before_host_changes():
 
 
 
-def test_selected_normal_controller_dependency_closure_is_explicit(tmp_path):
+def test_selected_normal_controller_dependency_closure_is_explicit(tmp_path, monkeypatch):
     selected_plan = selected.source_plan(**inputs(tmp_path))
     assert selected_plan["box_control_revision"] == (
         "c886e7a90bb4ea74e771a6c5dcefaa2069539ec7")
@@ -308,6 +308,7 @@ def test_selected_normal_controller_dependency_closure_is_explicit(tmp_path):
     assert selected_plan["ssm_execution"] is False
     assert selected_plan["service_activation"] is False
     changed = dict(selected_plan, box_control_revision="0" * 40)
+    monkeypatch.setattr(selected.os, "geteuid", lambda: 0)
     root = tmp_path / "host"
     root.mkdir()
     with pytest.raises(selected.TaskCInstallError, match="plan changed"):
