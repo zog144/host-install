@@ -136,3 +136,67 @@ def test_nonroot_installation_root_rejected_before_any_creation(tmp_path):
     with pytest.raises(journal.TaskCJournalDirectoryError, match="root:root"):
         journal.ensure_operations(root)
     assert not list(root.iterdir())
+
+
+
+def test_existing_root_owned_lock_is_preserved_without_creating_new_records(tmp_path):
+    root = host(tmp_path)
+    journal.ensure_operations(root)
+    operations = root / journal.DIRECTORY.lstrip("/")
+    lock = operations / ".lock"
+    lock.write_bytes(b"retained lock bytes")
+    lock.chmod(0o600)
+    before = stat_dir(lock)
+    journal.ensure_operations(root)
+    assert stat_dir(lock) == before
+    assert lock.read_bytes() == b"retained lock bytes"
+
+
+@pytest.mark.parametrize("foreign", ("symlink", "group-writable", "wrong-owner"))
+def test_existing_foreign_lock_refused_without_repair(tmp_path, foreign):
+    root = host(tmp_path)
+    journal.ensure_operations(root)
+    operations = root / journal.DIRECTORY.lstrip("/")
+    lock = operations / ".lock"
+    if foreign == "symlink":
+        other = root / "foreign-lock"
+        other.write_bytes(b"outside")
+        lock.symlink_to(other)
+    else:
+        lock.write_bytes(b"retained foreign")
+        lock.chmod(0o666 if foreign == "group-writable" else 0o600)
+        if foreign == "wrong-owner":
+            os.chown(lock, 12345, 0)
+    before = lock.lstat()
+    with pytest.raises(journal.TaskCJournalDirectoryError, match="unsafe|linked"):
+        journal.ensure_operations(root)
+    assert lock.lstat().st_ino == before.st_ino
+    if foreign == "symlink":
+        assert (root / "foreign-lock").read_bytes() == b"outside"
+    else:
+        assert lock.read_bytes() == b"retained foreign"
+
+
+def test_stage_rejects_unsafe_journal_before_package_or_gateway_unit(tmp_path, monkeypatch):
+    from zog.host_install import task_c_local_install as installer
+    root = host(tmp_path)
+    journal.ensure_operations(root)
+    operations = root / journal.DIRECTORY.lstrip("/")
+    operations.chmod(0o755)
+    # Construct an intentionally minimal schema: stage must reject unsafe
+    # custody even when its review selection cannot be trusted. Source
+    # plan validation happens first, so make an exact local fixture.
+    from test_task_c_local_install import inputs, recorder
+    values = inputs(tmp_path)
+    monkeypatch.setattr(installer, "_reviewed_root_control", lambda _: {
+        "revision": installer.ROOT_CONTROL_REVISION,
+        "journal_git_blob": installer.ROOT_CONTROL_JOURNAL_GIT_BLOB,
+    })
+    monkeypatch.setattr(installer, "_reviewed_dependency", lambda p, r, c: r)
+    plan = installer.source_plan(**values)
+    commands = []
+    with pytest.raises(installer.TaskCInstallError, match="unsafe mode"):
+        installer.stage(plan, root=root, runner=recorder(commands))
+    assert commands == []
+    assert not (root / "etc/systemd/system").exists()
+    assert not (root / "opt/zog/task-c").exists()
