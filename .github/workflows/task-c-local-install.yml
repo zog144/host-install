@@ -1,5 +1,7 @@
 name: Task C ordinary local installation source (no S3)
 on:
+  push:
+    branches: [regular/task-c-root-journal-install-20261119]
   pull_request:
     paths:
       - "src/zog/host_install/task_c_local_install.py"
@@ -19,16 +21,21 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: zog144/host-deploy
-          ref: a28df09b070d81ae3369ade969302f52d0a2d749
+          ref: dc8ab86897ad6652b7f9da42e587e84171c6bb64
           path: host-deploy
+      - uses: actions/checkout@v4
+        with:
+          repository: zog144/root-control
+          ref: b655b0a2b2ba7abb5fddbdaadae01ef6e34bcb56
+          path: root-control
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: Install ordinary host-install component for local test
         run: python -m pip install -e host-install
-      - name: Stage actual gateway repositories in a disposable tree (never activate)
+      - name: Stage actual local repositories on a disposable root (never activate)
         run: |
-          python - <<'PY'
+          sudo -E env PYTHONPATH="$PWD/host-install/src" "$(command -v python)" - <<'PY'
           import os
           import subprocess
           import sys
@@ -38,14 +45,13 @@ jobs:
           plan=local.source_plan(
               host_deploy="host-deploy",
               host_install="host-install",
+              root_control="root-control",
               python=os.path.realpath(sys.executable))
           with TemporaryDirectory() as folder:
-              # A disposable root tests Python/package install, not actual
-              # systemd, IAM, S3 or SSM. No native production state is touched.
-              local.os.geteuid=lambda:0
-              result=local.stage(plan,root=Path(folder),
-                                 runner=subprocess.run)
+              result=local.stage(plan,root=Path(folder), runner=subprocess.run)
               assert result["ssm_authorized"] is False
+              assert result["gateway_active"] is False
+              assert (Path(folder)/"var/lib/zog-task-c/operations").stat().st_mode & 0o777 == 0o700
               assert (Path(folder)/"etc/systemd/system/zog-task-c-gateway.service").is_file()
           PY
 
@@ -63,7 +69,7 @@ jobs:
       - name: Install normal component development package and pytest
         run: python -m pip install -e . pytest
       - name: Source-only disposable staging and nonactivation regressions
-        run: python -m pytest -q tests/test_task_c_local_install.py
+        run: sudo -E env PYTHONPATH="$PWD/src" "$(command -v python)" -m pytest -q tests/test_task_c_local_install.py tests/test_task_c_journal_directory.py
       - name: Verify installable Python CLI
         run: |
           host-install-task-c --help
@@ -89,3 +95,4 @@ jobs:
         run: |
           echo "Source-only: neither production Host installation nor systemd socket/service activation nor AWS/SSM was executed." >> "$GITHUB_STEP_SUMMARY"
           echo "S3, approval-signing and installer-signing are not prerequisites for this newly selected ordinary installation path." >> "$GITHUB_STEP_SUMMARY"
+          echo "Selected root-control journal must be installed with all ordinary Python dependencies and pip check; unresolved dependencies are an installation HOLD." >> "$GITHUB_STEP_SUMMARY"
