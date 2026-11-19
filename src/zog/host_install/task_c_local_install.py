@@ -122,6 +122,7 @@ def source_plan(*, host_deploy, host_install, root_control,
     )
     _require(len(set(roots)) == len(roots), "component sources overlap")
     journal_source = _reviewed_root_control(roots[2])
+    _reviewed_dependency(roots[2], ROOT_CONTROL_REVISION, "root-control")
     _reviewed_dependency(roots[3], BOX_CONTROL_REVISION, "box-control")
     _reviewed_dependency(roots[4], IMAGE_BUILD_REVISION, "image-build")
     python = Path(python)
