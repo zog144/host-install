@@ -17,7 +17,13 @@ Task C signed-storage/S3/broker/owner-service design. The source selects:
 - root-control [PR #53](https://github.com/zog144/root-control/pull/53)
   `b655b0a2b2ba7abb5fddbdaadae01ef6e34bcb56`, which includes
   the combined issuer + Task C + inherited-build controller with the
-  systemd 252 finite-build compatibility correction.
+  systemd 252 finite-build compatibility correction;
+- box-control [PR #21](https://github.com/zog144/box-control/pull/21)
+  `c886e7a90bb4ea74e771a6c5dcefaa2069539ec7`, the actual
+  root-control development distribution's `box-control==0.1.0` dependency;
+- image-build [PR #24](https://github.com/zog144/image-build/pull/24)
+  `77a5e3c13e1c41582b3278941fb4b1f5e2f16678`, its
+  `image-build==0.2.0.dev5` dependency.
 
 The root-control selection is verified against its **exact Git HEAD** and
 the `src/zog/root_control/task_c_trusted_host.py` original Git blob
@@ -25,10 +31,13 @@ the `src/zog/root_control/task_c_trusted_host.py` original Git blob
 That module defines the actual `LocalTaskCJournal`, its
 `DEFAULT_DIRECTORY=/var/lib/zog-task-c/operations`, once-only
 fsynced intent/CommandId, cancellation, lost-reply and replay behavior.
-The installer now requires a **third** explicit `--root-control-source`
-and installs that root-control distribution with host-install and
-host-deploy into the **same existing Task C Python venv**
-`/opt/zog/task-c/venv`. It runs ordinary `pip check`, imports all
+The installer now requires the explicit `--root-control-source`,
+`--box-control-source`, and `--image-build-source` alongside the original
+host-install and host-deploy sources. The selected box-control package
+source is inside the Git checkout's `box-control/` subdirectory;
+the other four use their checkout roots. All five component distributions
+are installed **together**, using normal pip dependency resolution, into
+the **same Task C Python venv** `/opt/zog/task-c/venv`. It runs ordinary `pip check`, imports all
 selected Gateway modules and the real root-control module via the installed
 isolated venv Python, verifies the installed journal's **same original Git
 blob** and exact default directory, and refuses missing/dependency-incomplete
@@ -36,15 +45,21 @@ packages before it publishes the service. Do not use a separate Python
 environment with an inaccessible `LocalTaskCJournal`, repackage the journal
 into host-deploy under another name, or bypass the checked distribution.
 
-Root-control's component-development `pyproject.toml` currently declares
-normal `box-control==0.1.0`, `image-build==0.2.0.dev5` and
-`dbus-next==0.2.3` dependencies. The installer intentionally does not
-use `--no-deps` or suppress `pip check`. **Before native staging**, Work
-must confirm these exact dependencies are available from approved source or
-installed wheels in the selected Python runtime. An unavailable dependency
-is HOLD, not permission to copy a module manually or ignore the RECORD.
-A future reviewed aggregate `zog` package can replace the development-wheel
-selection only through a separate compatible installation/attestation change.
+Root-control's development `pyproject.toml` declares
+`box-control==0.1.0`, `image-build==0.2.0.dev5` and
+`dbus-next==0.2.3`. The installer now takes the **exact original
+box-control and image-build Git checkouts** as ordinary local source
+inputs and checks their reviewed HEADs and unchanged tracked files.
+This resolves the previously observed real pip failure
+`No matching distribution found for box-control==0.1.0` without
+`--no-deps`, editing Python metadata, forging a wheel or disabling
+`pip check`. [Original local installation CI #44541320071](https://github.com/zog144/host-install/actions/runs/44541320071)
+passed a complete actual disposable five-repository pip installation and
+`pip check` under the selected Python 3.12. Work must still compare actual
+native wheel/RECORD and installer results to the reviewed candidate; tests
+are not a live installed-byte acceptance. A future approved aggregate
+`zog` package can replace the component-development distribution selection
+only through a separate reviewed compatible installation path.
 
 ## Protected root-owned filesystem operation (before runtime)
 
@@ -103,6 +118,8 @@ set -euo pipefail
 HOST_INSTALL_SOURCE=/opt/zog/task-c/sources/host-install
 HOST_DEPLOY_SOURCE=/opt/zog/task-c/sources/host-deploy
 ROOT_CONTROL_SOURCE=/opt/zog/task-c/sources/root-control
+BOX_CONTROL_SOURCE=/opt/zog/task-c/sources/box-control/box-control
+IMAGE_BUILD_SOURCE=/opt/zog/task-c/sources/image-build
 PYTHON=/opt/zog/task-c/installer-venv/bin/python3.12
 INSTALLER=/opt/zog/task-c/installer-venv/bin/host-install-task-c
 
@@ -111,6 +128,8 @@ sudo "$INSTALLER" --plan \
   --host-install-source "$HOST_INSTALL_SOURCE" \
   --host-deploy-source "$HOST_DEPLOY_SOURCE" \
   --root-control-source "$ROOT_CONTROL_SOURCE" \
+  --box-control-source "$BOX_CONTROL_SOURCE" \
+  --image-build-source "$IMAGE_BUILD_SOURCE" \
   --python "$PYTHON"
 
 # Root-control journal setup is part of this one staging transaction.
@@ -119,6 +138,8 @@ sudo "$INSTALLER" --stage \
   --host-install-source "$HOST_INSTALL_SOURCE" \
   --host-deploy-source "$HOST_DEPLOY_SOURCE" \
   --root-control-source "$ROOT_CONTROL_SOURCE" \
+  --box-control-source "$BOX_CONTROL_SOURCE" \
+  --image-build-source "$IMAGE_BUILD_SOURCE" \
   --python "$PYTHON"
 
 sudo stat -c '%U:%G %a %F %n' /var/lib/zog-task-c/operations
@@ -152,13 +173,19 @@ filesystems: fresh setup, idempotency with retained operation file,
 wrong owner/GID, wrong mode, symlinked parent/leaf, foreign file,
 unsafe parent and nonroot installation root. It proves no chmod/chown
 adoption or journal content replacement. The original
-`tests/test_task_c_local_install.py` covers the updated three-repository
+`tests/test_task_c_local_install.py` covers the updated five-repository
 source/venv plan, root staging, missing module, installed import check,
 one still-disabled Gateway unit, rejected wrong selection and no SSM.
-Dedicated CI additionally checks the **actual** root-control journal
-Git revision/blob and instantiates the real journal only against a
+Dedicated CI also checks the **actual** root-control, box-control and
+image-build Git revisions plus the original journal Git blob and instantiates the real journal only against a
 disposable pre-created root.
 
-**Status:** proposed source installation path. Native installation,
+**Status:** source-tested installation path; [protected root
+journal CI #44541320104](https://github.com/zog144/host-install/actions/runs/44541320104)
+passed Python 3.12 and 3.13; the original [actual normal-install
+workflow #44541320071](https://github.com/zog144/host-install/actions/runs/44541320071)
+passed the full venv installation, `pip check` and staging on its
+disposable root. The old S3/signed-v4 CI remains an unselected historical
+failure, not a Task C local-installation criterion. Native installation,
 approved wheel/RECORD readback, original Host state, Gateway activation,
 AWS/SSM and Fonts compilation remain separate Work gates.
