@@ -1,0 +1,108 @@
+name: Task C selected root-control journal installation source
+
+on:
+  push:
+    branches: [regular/task-c-root-journal-install-20261119]
+  pull_request:
+    paths:
+      - src/zog/host_install/task_c_local_install.py
+      - src/zog/host_install/task_c_journal_directory.py
+      - src/zog/host_install/systemd/task-c-local/zog-task-c-gateway.service
+      - tests/test_task_c_local_install.py
+      - tests/test_task_c_journal_directory.py
+      - docs/host-install/TASK-C-ROOT-JOURNAL-INSTALL-2026-11-19.md
+      - .github/workflows/task-c-root-journal-install.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  protected-journal:
+    name: Root 0700 directory and reviewed journal source / Python ${{ matrix.python }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: zog144/root-control
+          ref: b655b0a2b2ba7abb5fddbdaadae01ef6e34bcb56
+          path: companions/root-control
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: zog144/host-deploy
+          ref: dc8ab86897ad6652b7f9da42e587e84171c6bb64
+          path: companions/host-deploy
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install -e . 'pytest>=8,<10'
+      - name: Verify unchanged reviewed journal source and exact selected Git commit
+        run: |
+          test "$(git -C companions/root-control rev-parse HEAD)" = b655b0a2b2ba7abb5fddbdaadae01ef6e34bcb56
+          test "$(git -C companions/host-deploy rev-parse HEAD)" = dc8ab86897ad6652b7f9da42e587e84171c6bb64
+          python - <<'PY'
+          import os,sys
+          from zog.host_install import task_c_local_install as i
+          selection=i.source_plan(
+              host_install='.',
+              host_deploy='companions/host-deploy',
+              root_control='companions/root-control',
+              python=os.path.realpath(sys.executable))
+          assert selection['root_control_revision'] == i.ROOT_CONTROL_REVISION
+          assert selection['root_control_journal_git_blob'] == i.ROOT_CONTROL_JOURNAL_GIT_BLOB
+          assert selection['root_control_journal'] == '/var/lib/zog-task-c/operations'
+          assert selection['runtime_modules'][-1] == 'zog.root_control.task_c_trusted_host'
+          assert selection['ssm_execution'] is False
+          PY
+      - name: Real root directory and full original installer regressions
+        run: |
+          sudo -E env PYTHONPATH="$PWD/src:$PWD/companions/root-control/src" "$(command -v python)" -m pytest -q -rs \
+              tests/test_task_c_local_install.py \
+              tests/test_task_c_journal_directory.py
+      - name: Open selected real root-control journal on only a disposable pre-created directory
+        run: |
+          sudo -E env PYTHONPATH="$PWD/src:$PWD/companions/root-control/src" "$(command -v python)" - <<'PY'
+          from pathlib import Path
+          from tempfile import TemporaryDirectory
+          from zog.host_install.task_c_journal_directory import ensure_operations
+          from zog.root_control.task_c_trusted_host import LocalTaskCJournal, DEFAULT_DIRECTORY
+          assert DEFAULT_DIRECTORY == '/var/lib/zog-task-c/operations'
+          with TemporaryDirectory() as folder:
+              result=ensure_operations(Path(folder))
+              assert result['owner_uid'] == result['owner_gid'] == 0
+              j=LocalTaskCJournal(Path(folder) / 'var/lib/zog-task-c/operations')
+              try:
+                  assert j.inspect('a'*32) == (None,None,None)
+              finally:
+                  j.close()
+          PY
+      - name: Verify source wheel retains only one disabled Gateway unit
+        run: |
+          python -m pip wheel --no-deps . -w /tmp
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          wheels=list(Path('/tmp').glob('host_install-*.whl'))
+          assert len(wheels)==1
+          with ZipFile(wheels[0]) as z:
+              names=set(z.namelist())
+              assert 'zog/host_install/task_c_journal_directory.py' in names
+              unit=z.read('zog/host_install/systemd/task-c-local/zog-task-c-gateway.service').decode()
+              assert 'ReadWritePaths=/var/lib/host-deploy-gateway /var/lib/zog-task-c/operations' in unit
+              assert '[Install]' not in unit
+              assert 'DynamicUser=yes' not in unit
+              assert 'ExecStart=/opt/zog/task-c/venv/bin/host-deploy-gateway' in unit
+          PY
+      - name: Native authority is not granted by source tests
+        run: |
+          echo "No live Host/var/lib/zog-task-c, gateway, SSM or compiler operation was touched. Tested exact source and disposable root-owned directory only." >> "$GITHUB_STEP_SUMMARY"
+          echo "Actual pip dependency closure, installed wheel/RECORD, root ownership and inactive Gateway remain native Work gates." >> "$GITHUB_STEP_SUMMARY"
