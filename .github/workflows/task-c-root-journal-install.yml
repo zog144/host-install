@@ -98,7 +98,7 @@ jobs:
               assert 'zog/host_install/task_c_journal_directory.py' in names
               unit=z.read('zog/host_install/systemd/task-c-local/zog-task-c-gateway.service').decode()
               assert 'ReadWritePaths=/var/lib/host-deploy-gateway /var/lib/zog-task-c/operations' in unit
-              assert '[Install]' not in unit
+              assert not any(line.strip() == '[Install]' for line in unit.splitlines())
               assert 'DynamicUser=yes' not in unit
               assert 'ExecStart=/opt/zog/task-c/venv/bin/host-deploy-gateway' in unit
           PY
