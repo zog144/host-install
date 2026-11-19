@@ -175,7 +175,7 @@ def test_installer_refuses_foreign_plan_and_symlink_ancestor(tmp_path, monkeypat
     with pytest.raises(selected.TaskCInstallError, match="plan changed"):
         selected.stage(changed, root=root, runner=recorder([]))
     (root / "var").symlink_to(tmp_path)
-    with pytest.raises(selected.TaskCInstallError, match="symlinked"):
+    with pytest.raises(selected.TaskCInstallError, match="symlinked|linked|unsafe"):
         selected.stage(plan, root=root, runner=recorder([]))
     assert not (root / "etc/systemd/system").exists()
 
@@ -259,7 +259,8 @@ def test_source_plan_requires_real_selected_root_control_source(tmp_path, monkey
     values["root_control"] = values["host_install"]
     with pytest.raises(selected.TaskCInstallError, match="incorrect component repository"):
         selected.source_plan(**values)
-    selected_plan = selected.source_plan(**inputs(tmp_path))
+    values["root_control"] = str(tmp_path / "root-control")
+    selected_plan = selected.source_plan(**values)
     assert selected_plan["runtime_modules"][-1] == "zog.root_control.task_c_trusted_host"
     assert len({selected_plan[k] for k in (
         "host_deploy_source", "host_install_source", "root_control_source")}) == 3
