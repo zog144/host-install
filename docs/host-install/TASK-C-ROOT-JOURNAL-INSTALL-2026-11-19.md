@@ -120,7 +120,8 @@ HOST_DEPLOY_SOURCE=/opt/zog/task-c/sources/host-deploy
 ROOT_CONTROL_SOURCE=/opt/zog/task-c/sources/root-control
 BOX_CONTROL_SOURCE=/opt/zog/task-c/sources/box-control/box-control
 IMAGE_BUILD_SOURCE=/opt/zog/task-c/sources/image-build
-PYTHON=/opt/zog/task-c/installer-venv/bin/python3.12
+# Only if native Work verifies this is a real, selected, non-symlink file.
+PYTHON=/usr/bin/python3.12
 INSTALLER=/opt/zog/task-c/installer-venv/bin/host-install-task-c
 
 # Sources and Python must already be selected and attested.
