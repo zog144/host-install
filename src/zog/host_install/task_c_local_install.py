@@ -30,6 +30,8 @@ MODULES = (
     "zog.root_control.task_c_trusted_host",
 )
 ROOT_CONTROL_REVISION = "b655b0a2b2ba7abb5fddbdaadae01ef6e34bcb56"
+BOX_CONTROL_REVISION = "c886e7a90bb4ea74e771a6c5dcefaa2069539ec7"
+IMAGE_BUILD_REVISION = "77a5e3c13e1c41582b3278941fb4b1f5e2f16678"
 ROOT_CONTROL_JOURNAL_GIT_BLOB = "de63bac2261d639eb9f1177ef92651bbd3fcb750"
 ROOT_CONTROL_JOURNAL_REL = "src/zog/root_control/task_c_trusted_host.py"
 VENVDIR = "/opt/zog/task-c/venv"
@@ -87,15 +89,41 @@ def _reviewed_root_control(source):
     return {"revision": selected.stdout.strip(), "journal_git_blob": git_blob}
 
 
-def source_plan(*, host_deploy, host_install, root_control, python):
+def _reviewed_dependency(source, revision, component):
+    """The selected controller's declared package dependencies are real inputs."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(source), "rev-parse", "--verify", "HEAD"],
+            text=True, capture_output=True, timeout=10, check=False,
+            env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
+        )
+        clean = subprocess.run(
+            ["git", "-C", str(source), "diff", "--quiet", "HEAD", "--"],
+            capture_output=True, timeout=10, check=False,
+            env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise TaskCInstallError("cannot inspect selected " + component + " checkout") from exc
+    _require(result.returncode == 0 and result.stdout.strip() == revision
+             and clean.returncode == 0,
+             "selected " + component + " checkout differs from reviewed source")
+    return revision
+
+
+def source_plan(*, host_deploy, host_install, root_control,
+                box_control, image_build, python):
     """Explicit, locally selected repositories; not a remote trust grant."""
     roots = (
         _source(host_deploy, "host_deploy"),
         _source(host_install, "host_install"),
         _source(root_control, "root_control"),
+        _source(box_control, "box_control"),
+        _source(image_build, "image_build"),
     )
     _require(len(set(roots)) == len(roots), "component sources overlap")
     journal_source = _reviewed_root_control(roots[2])
+    _reviewed_dependency(roots[3], BOX_CONTROL_REVISION, "box-control")
+    _reviewed_dependency(roots[4], IMAGE_BUILD_REVISION, "image-build")
     python = Path(python)
     _require(python.is_absolute() and python.is_file()
              and not python.is_symlink(),
@@ -105,7 +133,11 @@ def source_plan(*, host_deploy, host_install, root_control, python):
         "host_deploy_source": str(roots[0]),
         "host_install_source": str(roots[1]),
         "root_control_source": str(roots[2]),
+        "box_control_source": str(roots[3]),
+        "image_build_source": str(roots[4]),
         "root_control_revision": journal_source["revision"],
+        "box_control_revision": BOX_CONTROL_REVISION,
+        "image_build_revision": IMAGE_BUILD_REVISION,
         "root_control_journal_git_blob": journal_source["journal_git_blob"],
         "root_control_journal": JOURNAL_DIR,
         "journal_owner": "root:root",
@@ -214,6 +246,8 @@ def stage(plan, *, root=Path("/"), runner=subprocess.run):
         host_deploy=plan["host_deploy_source"],
         host_install=plan["host_install_source"],
         root_control=plan["root_control_source"],
+        box_control=plan["box_control_source"],
+        image_build=plan["image_build_source"],
         python=plan["python"])
     _require(approved == plan, "installation plan changed")
     if root == Path("/"):
@@ -232,13 +266,15 @@ def stage(plan, *, root=Path("/"), runner=subprocess.run):
              "selected application venv absent")
     executable = venv_parent / "bin" / "python"
     _require(executable.is_file(), "venv Python not installed")
-    # Install the selected reviewed root-control module IN THE SAME Task C
-    # gateway venv as host-deploy, with ordinary package dependencies and
-    # pip check. A separate root-control environment would leave the owner
-    # journal unavailable to host-deploy's real CLI.
+    # The selected root-control component declares box-control==0.1.0,
+    # image-build==0.2.0.dev5 and dbus-next==0.2.3. All exact local
+    # component repositories must be supplied to ordinary pip together,
+    # because only the aggregate "zog" is published to PyPI. Never omit
+    # dependencies or suppress pip check to install the journal alone.
     _run(runner, (executable, "-m", "pip", "install", "--no-cache-dir",
                   plan["host_install_source"], plan["host_deploy_source"],
-                  plan["root_control_source"]))
+                  plan["root_control_source"], plan["box_control_source"],
+                  plan["image_build_source"]))
     _run(runner, (executable, "-m", "pip", "check"))
     # Require all actual gateway imports and the real root-control send-once
     # journal from the selected Python environment. Import is not enough:
@@ -305,6 +341,8 @@ def main(argv=None):
     parser.add_argument("--host-deploy-source")
     parser.add_argument("--host-install-source")
     parser.add_argument("--root-control-source")
+    parser.add_argument("--box-control-source")
+    parser.add_argument("--image-build-source")
     parser.add_argument("--python")
     action = parser.add_mutually_exclusive_group(required=True)
     action.add_argument("--plan", action="store_true")
@@ -317,12 +355,15 @@ def main(argv=None):
     else:
         if any(not value for value in (
                 args.host_deploy_source, args.host_install_source,
-                args.root_control_source, args.python)):
-            parser.error("--plan/--stage require host-deploy, host-install, root-control and --python")
+                args.root_control_source, args.box_control_source,
+                args.image_build_source, args.python)):
+            parser.error("--plan/--stage require host-deploy, host-install, root-control, box-control, image-build and --python")
         selected = source_plan(
             host_deploy=args.host_deploy_source,
             host_install=args.host_install_source,
             root_control=args.root_control_source,
+            box_control=args.box_control_source,
+            image_build=args.image_build_source,
             python=args.python)
         result = stage(selected) if args.stage else selected
     print(json.dumps(result, sort_keys=True))
