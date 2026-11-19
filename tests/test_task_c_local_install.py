@@ -16,6 +16,8 @@ def synthetic_root_source_pin(monkeypatch):
         "revision": selected.ROOT_CONTROL_REVISION,
         "journal_git_blob": selected.ROOT_CONTROL_JOURNAL_GIT_BLOB,
     })
+    monkeypatch.setattr(selected, "_reviewed_dependency",
+                        lambda path, revision, component: revision)
 
 
 def inputs(tmp_path):
@@ -24,6 +26,8 @@ def inputs(tmp_path):
         ("host-deploy", "host_deploy"),
         ("host-install", "host_install"),
         ("root-control", "root_control"),
+        ("box-control", "box_control"),
+        ("image-build", "image_build"),
     ):
         root = tmp_path / directory
         (root / "src" / "zog" / package).mkdir(parents=True)
@@ -57,6 +61,8 @@ def test_source_selection_is_ordinary_local_repositories(tmp_path):
     assert plan["root_control_revision"] == selected.ROOT_CONTROL_REVISION
     assert plan["root_control_journal_git_blob"] == selected.ROOT_CONTROL_JOURNAL_GIT_BLOB
     assert plan["root_control_journal"] == "/var/lib/zog-task-c/operations"
+    assert plan["box_control_revision"] == selected.BOX_CONTROL_REVISION
+    assert plan["image_build_revision"] == selected.IMAGE_BUILD_REVISION
     assert plan["journal_owner"] == "root:root"
     assert plan["journal_mode"] == "0700"
     assert plan["service_activation"] is False
@@ -131,6 +137,8 @@ def test_normal_stage_creates_root_backed_data_and_disabled_units(
                and plan["host_deploy_source"] in command
                and plan["host_install_source"] in command
                and plan["root_control_source"] in command
+               and plan["box_control_source"] in command
+               and plan["image_build_source"] in command
                for command in commands)
     assert any(command[1:4] == ("-m", "pip", "check")
                for command in commands)
@@ -263,7 +271,9 @@ def test_source_plan_requires_real_selected_root_control_source(tmp_path, monkey
     selected_plan = selected.source_plan(**values)
     assert selected_plan["runtime_modules"][-1] == "zog.root_control.task_c_trusted_host"
     assert len({selected_plan[k] for k in (
-        "host_deploy_source", "host_install_source", "root_control_source")}) == 3
+        "host_deploy_source", "host_install_source",
+        "root_control_source", "box_control_source",
+        "image_build_source")}) == 5
 
 
 def test_staging_requires_gateway_inactive_before_host_changes():
@@ -284,3 +294,22 @@ def test_staging_requires_gateway_inactive_before_host_changes():
     with pytest.raises(selected.TaskCInstallError, match="cannot be established"):
         selected._require_gateway_inactive(
             lambda args, *, check=False: SimpleNamespace(returncode=1))
+
+
+
+def test_selected_normal_controller_dependency_closure_is_explicit(tmp_path):
+    selected_plan = selected.source_plan(**inputs(tmp_path))
+    assert selected_plan["box_control_revision"] == (
+        "c886e7a90bb4ea74e771a6c5dcefaa2069539ec7")
+    assert selected_plan["image_build_revision"] == (
+        "77a5e3c13e1c41582b3278941fb4b1f5e2f16678")
+    assert selected_plan["root_control_revision"] == (
+        "b655b0a2b2ba7abb5fddbdaadae01ef6e34bcb56")
+    assert selected_plan["ssm_execution"] is False
+    assert selected_plan["service_activation"] is False
+    changed = dict(selected_plan, box_control_revision="0" * 40)
+    root = tmp_path / "host"
+    root.mkdir()
+    with pytest.raises(selected.TaskCInstallError, match="plan changed"):
+        selected.stage(changed, root=root, runner=recorder([]))
+    assert list(root.iterdir()) == []
