@@ -77,6 +77,26 @@ def ensure_operations(root=Path("/"), *, create=True):
             fds.append(next_fd)
             _checked(next_fd, name, leaf=is_leaf)
         st = os.fstat(fds[-1])
+        # The journal runtime may already have created this lock during an
+        # earlier authorized invocation. Never overwrite or adopt a foreign
+        # lock: that would defeat its one-operation send fence.
+        try:
+            lock_fd = os.open(
+                ".lock", os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                dir_fd=fds[-1])
+        except FileNotFoundError:
+            lock_fd = None
+        if lock_fd is not None:
+            try:
+                lock_st = os.fstat(lock_fd)
+                _require(stat.S_ISREG(lock_st.st_mode)
+                         and lock_st.st_nlink == 1
+                         and lock_st.st_uid == ROOT_UID
+                         and lock_st.st_gid == ROOT_GID
+                         and stat.S_IMODE(lock_st.st_mode) == 0o600,
+                         "Task C journal retained lock is unsafe")
+            finally:
+                os.close(lock_fd)
         os.fsync(fds[-1])
         return {
             "directory": DIRECTORY,
