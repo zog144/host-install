@@ -21,7 +21,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: zog144/host-deploy
-          ref: dc8ab86897ad6652b7f9da42e587e84171c6bb64
+          ref: 5d7960e55454f88dbc85c3a6ce9c6a972ee31f23
           path: host-deploy
       - uses: actions/checkout@v4
         with:
