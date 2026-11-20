@@ -602,3 +602,36 @@ def test_installed_attestor_reports_differing_record_metadata_without_contents(
     assert report["installed_sha256"]
     assert report["metadata_sha256"]
     assert "sha256=changed" not in str(caught.value)
+
+
+
+def test_attestor_diagnoses_oversized_real_importlib_record_listing(
+        tmp_path, monkeypatch):
+    """Python PathDistribution.files raises csv.Error on giant fields.
+
+    Attestation must still describe the installed RECORD size/hash without
+    surfacing a traceback or bypassing its usual source-pinned checks.
+    """
+    import importlib.metadata as metadata
+    info = tmp_path / "site-packages/zog-0.1.1.dev20261117.dist-info"
+    info.mkdir(parents=True)
+    (info / "METADATA").write_text(
+        "Metadata-Version: 2.3\nName: zog\nVersion: 0.1.1.dev20261117\n")
+    (info / "WHEEL").write_text("Wheel-Version: 1.0\nRoot-Is-Purelib: true\n")
+    (info / "RECORD").write_bytes(b"X" * 4_000_001)
+    dist = metadata.PathDistribution(info)
+    monkeypatch.setattr(profile.os, "geteuid", lambda: 0)
+    monkeypatch.delenv("PYTHONPATH", raising=False)
+    monkeypatch.delenv("PYTHONHOME", raising=False)
+    monkeypatch.setattr(profile.sys, "executable", "/usr/bin/python3.12")
+    monkeypatch.setattr(profile, "_selected_interpreter_version", lambda: (3, 12))
+    monkeypatch.setattr(profile, "_selected_aggregate_root", lambda: info.parent)
+    monkeypatch.setattr(profile, "_protected_ancestry", lambda *a: None)
+    monkeypatch.setattr(profile.importlib.metadata, "distribution", lambda _: dist)
+    with pytest.raises(StateError, match="oversized installed record") as caught:
+        profile.attest_installed_controller(python_executable="/usr/bin/python3.12")
+    report = json.loads(str(caught.value).split("diagnostics=", 1)[1])
+    assert report["status"] == "oversized_installed_record"
+    assert report["installed_size_bytes"] == 4_000_001
+    assert report["listed_record_matches"] == 0
+    assert "XXXX" not in str(caught.value)
