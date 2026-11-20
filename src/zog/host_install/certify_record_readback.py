@@ -103,8 +103,18 @@ def _hash_oversize(path, info, evidence):
             _failure("installed_record_changed_during_read", evidence)
         with os.fdopen(fd, "rb") as source:
             fd = -1
-            for data in iter(lambda: source.read(65536), b""):
+            remaining = first.st_size
+            while remaining:
+                data = source.read(min(65536, remaining))
+                if not data:
+                    _failure("installed_record_changed_during_read", evidence)
                 digest.update(data)
+                remaining -= len(data)
+            # Do not hash bytes beyond the originally checked size. A
+            # concurrent append is a failure, not permission for an
+            # unbounded diagnostic read.
+            if source.read(1):
+                _failure("installed_record_changed_during_read", evidence)
             last = os.fstat(source.fileno())
             if ((last.st_dev, last.st_ino, last.st_size, last.st_mtime_ns) !=
                     (first.st_dev, first.st_ino, first.st_size, first.st_mtime_ns)):
