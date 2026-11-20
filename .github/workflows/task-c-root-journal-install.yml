@@ -38,7 +38,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: zog144/host-deploy
-          ref: dc8ab86897ad6652b7f9da42e587e84171c6bb64
+          ref: 5d7960e55454f88dbc85c3a6ce9c6a972ee31f23
           path: companions/host-deploy
           persist-credentials: false
       - uses: actions/checkout@v4
@@ -60,7 +60,7 @@ jobs:
       - name: Verify unchanged reviewed journal source and exact selected Git commit
         run: |
           test "$(git -C companions/root-control rev-parse HEAD)" = b655b0a2b2ba7abb5fddbdaadae01ef6e34bcb56
-          test "$(git -C companions/host-deploy rev-parse HEAD)" = dc8ab86897ad6652b7f9da42e587e84171c6bb64
+          test "$(git -C companions/host-deploy rev-parse HEAD)" = 5d7960e55454f88dbc85c3a6ce9c6a972ee31f23
           test "$(git -C companions/box-control rev-parse HEAD)" = c886e7a90bb4ea74e771a6c5dcefaa2069539ec7
           test "$(git -C companions/image-build rev-parse HEAD)" = 77a5e3c13e1c41582b3278941fb4b1f5e2f16678
           python - <<'PY'
