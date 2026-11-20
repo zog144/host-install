@@ -245,3 +245,44 @@ def test_oversized_diagnostic_hash_is_bounded(tmp_path):
     assert evidence["installed_size_bytes"] == size
     assert evidence["installed_sha256"] is None
     assert_private_report(evidence, raw)
+
+
+def test_oversized_diagnostic_rejects_growth_without_hashing_append(
+        tmp_path, monkeypatch):
+    """A growing file cannot turn the bounded diagnostic into an EOF read."""
+    root, dist, raw = fixture(tmp_path)
+    installed = root / DIST_NAME / "RECORD"
+    installed.write_bytes(b"x" * (MAX + 1))
+    real_fdopen = record.os.fdopen
+
+    class GrowingReader:
+        def __init__(self, source):
+            self.source = source
+            self.grown = False
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            self.source.close()
+
+        def read(self, size=-1):
+            assert 0 < size <= 65536
+            if not self.grown:
+                self.grown = True
+                with installed.open("ab") as writer:
+                    writer.write(b"unexpected-appended-bytes")
+            return self.source.read(size)
+
+        def fileno(self):
+            return self.source.fileno()
+
+    monkeypatch.setattr(record.os, "fdopen",
+                        lambda fd, mode: GrowingReader(real_fdopen(fd, mode)))
+    with pytest.raises(StateError, match="installed record changed during read") as caught:
+        read(root, dist, members_override=[Path(DIST_NAME) / "RECORD"])
+    evidence = diagnostic(caught)
+    assert evidence["status"] == "installed_record_changed_during_read"
+    assert evidence["installed_size_bytes"] == MAX + 1
+    assert evidence["installed_sha256"] is None
+    assert_private_report(evidence, raw)
