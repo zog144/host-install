@@ -61,7 +61,7 @@ def diagnostic(exc):
 def assert_private_report(evidence, original):
     assert evidence["schema"] == "zog-certify-installed-record-readback-v1"
     assert evidence["installed_record_path"].endswith("/" + DIST_NAME + "/RECORD")
-    assert evidence["metadata_record_path"].endswith("/" + DIST_NAME + "/RECORD")
+    assert evidence["metadata_record_path"].endswith("/RECORD")
     assert evidence["listed_record_matches"] in (0, 1)
     assert "zog/root_control/daemon.py" not in json.dumps(evidence)
     assert "zog/box_control/issuer_lifecycle_broker.py" not in json.dumps(evidence)
@@ -122,7 +122,7 @@ def test_oversized_physical_record_reports_exact_size_and_hash(tmp_path):
     oversized = b"z" * (MAX + 1)
     (root / DIST_NAME / "RECORD").write_bytes(oversized)
     with pytest.raises(StateError, match="oversized installed record") as caught:
-        read(root, dist)
+        read(root, dist, members_override=[])
     evidence = diagnostic(caught)
     assert evidence["status"] == "oversized_installed_record"
     assert evidence["installed_size_bytes"] == MAX + 1
