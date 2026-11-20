@@ -10,8 +10,8 @@ Task C signed-storage/S3/broker/owner-service design. The source selects:
 
 - host-install combined Task C / first Fonts / issuer source via the reviewed
   PR branch (this proposed installer is layered on host-install PR #42);
-- host-deploy [PR #51](https://github.com/zog144/host-deploy/pull/51)
-  `dc8ab86897ad6652b7f9da42e587e84171c6bb64`, which provides
+- host-deploy [PR #53](https://github.com/zog144/host-deploy/pull/53) (stacked on [PR #51](https://github.com/zog144/host-deploy/pull/51))
+  `5d7960e55454f88dbc85c3a6ce9c6a972ee31f23`, the exact native-installed checkout, which provides
   the selected protected root-owner `dispatch-submit` and denies direct
   SSM fallback;
 - root-control [PR #53](https://github.com/zog144/root-control/pull/53)
@@ -190,3 +190,16 @@ disposable root. The old S3/signed-v4 CI remains an unselected historical
 failure, not a Task C local-installation criterion. Native installation,
 approved wheel/RECORD readback, original Host state, Gateway activation,
 AWS/SSM and Fonts compilation remain separate Work gates.
+
+
+## November 20 source-pin reconciliation
+
+The original live Task C staging used host-deploy commit
+`5d7960e55454f88dbc85c3a6ce9c6a972ee31f23` (PR #53, stacked on
+PR #51), not the earlier PR #51 revision
+`dc8ab86897ad6652b7f9da42e587e84171c6bb64`. Both CI workflow
+checkouts (`task-c-local-install.yml` and `task-c-root-journal-install.yml`)
+and the current native handoff now select the exact checkout already used.
+This corrects the source/evidence record; it is not permission to reinstall,
+restart or activate any Host service, submit SSM, replay operations or alter
+retained state. Re-attestation of installed bytes remains a separate native gate.
