@@ -678,7 +678,14 @@ def attest_installed_controller(*, python_executable=CONTROLLER_PYTHON):
     require(type(dist.version) is str and dist.version
             and dist.version != "0.1.0",
             "certify-installed", "combined aggregate requires a distinct immutable package version")
-    members = tuple(dist.files or ())
+    # A malformed or oversized installed RECORD can make Python's
+    # importlib.metadata *file listing itself* raise csv.Error before
+    # it yields any members. The protected readback below must classify
+    # that actual on-disk failure, not leak an unhandled traceback.
+    try:
+        members = tuple(dist.files or ())
+    except (csv.Error, OSError, UnicodeError, ValueError):
+        members = ()
     records = [
         item for item in members
         if len(item.parts) == 2
