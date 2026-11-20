@@ -153,6 +153,7 @@ def verify_record(distribution, root, record_members, *, protect_path):
     evidence["installed_size_bytes"] = info.st_size
     if info.st_size == 0:
         evidence["installed_sha256"] = _hash(b"")
+        evidence["installed_entry_count"] = 0
         _failure("empty_installed_record", evidence)
     if info.st_size > MAX_RECORD_BYTES:
         evidence["installed_sha256"] = _hash_oversize(actual, info, evidence)
