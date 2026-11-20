@@ -227,6 +227,18 @@ def verify_record(distribution, root, record_members, *, protect_path):
     if metadata != normalized:
         _failure("differing_record_views", evidence)
 
+    # Require that the actual selected RECORD path still identifies the
+    # same inode and unchanged bytes after metadata lookup. Otherwise a
+    # replacement between the two independent readbacks is uncertain.
+    try:
+        final_info = actual.lstat()
+    except OSError:
+        _failure("installed_record_changed_during_read", evidence)
+    if ((final_info.st_dev, final_info.st_ino, final_info.st_size,
+         final_info.st_mtime_ns, final_info.st_ctime_ns) !=
+            (info.st_dev, info.st_ino, info.st_size,
+             info.st_mtime_ns, info.st_ctime_ns)):
+        _failure("installed_record_changed_during_read", evidence)
     evidence["newline_translation_only"] = metadata_raw != raw
     evidence["status"] = (
         "verified_universal_newlines" if metadata_raw != raw else "verified_exact_bytes"
