@@ -89,13 +89,31 @@ def _failure(reason, evidence):
     )
 
 
-def _hash_oversize(path, length):
-    if length > MAX_DIAGNOSTIC_HASH_BYTES:
+def _hash_oversize(path, info, evidence):
+    """Hash only bounded read-only evidence through an O_NOFOLLOW FD."""
+    if info.st_size > MAX_DIAGNOSTIC_HASH_BYTES:
         return None
     digest = hashlib.sha256()
-    with path.open("rb") as source:
-        for data in iter(lambda: source.read(65536), b""):
-            digest.update(data)
+    fd = -1
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        first = os.fstat(fd)
+        if ((first.st_dev, first.st_ino, first.st_size) !=
+                (info.st_dev, info.st_ino, info.st_size)):
+            _failure("installed_record_changed_during_read", evidence)
+        with os.fdopen(fd, "rb") as source:
+            fd = -1
+            for data in iter(lambda: source.read(65536), b""):
+                digest.update(data)
+            last = os.fstat(source.fileno())
+            if ((last.st_dev, last.st_ino, last.st_size, last.st_mtime_ns) !=
+                    (first.st_dev, first.st_ino, first.st_size, first.st_mtime_ns)):
+                _failure("installed_record_changed_during_read", evidence)
+    except OSError:
+        _failure("installed_record_unreadable", evidence)
+    finally:
+        if fd >= 0:
+            os.close(fd)
     return digest.hexdigest()
 
 
@@ -137,7 +155,7 @@ def verify_record(distribution, root, record_members, *, protect_path):
         evidence["installed_sha256"] = _hash(b"")
         _failure("empty_installed_record", evidence)
     if info.st_size > MAX_RECORD_BYTES:
-        evidence["installed_sha256"] = _hash_oversize(actual, info.st_size)
+        evidence["installed_sha256"] = _hash_oversize(actual, info, evidence)
         _failure("oversized_installed_record", evidence)
     try:
         # Do not read beyond the checked size or follow a replacement link.
@@ -151,6 +169,15 @@ def verify_record(distribution, root, record_members, *, protect_path):
                 fd = -1
                 raw = file.read(MAX_RECORD_BYTES + 1)
             if len(raw) != info.st_size:
+                _failure("installed_record_changed_during_read", evidence)
+            # Guard against a concurrent in-place modification of a nominally
+            # identical-length RECORD; neither read-only success nor error
+            # diagnostics can assert stable bytes in that situation.
+            current = actual.lstat()
+            if ((current.st_dev, current.st_ino, current.st_size,
+                 current.st_mtime_ns, current.st_ctime_ns) !=
+                    (info.st_dev, info.st_ino, info.st_size,
+                     info.st_mtime_ns, info.st_ctime_ns)):
                 _failure("installed_record_changed_during_read", evidence)
         finally:
             if fd >= 0:
@@ -182,14 +209,16 @@ def verify_record(distribution, root, record_members, *, protect_path):
     metadata_raw = metadata.encode("utf-8")
     evidence["metadata_size_bytes"] = len(metadata_raw)
     evidence["metadata_sha256"] = _hash(metadata_raw)
+    if len(metadata_raw) == 0:
+        evidence["metadata_entry_count"] = 0
+        evidence["matching_entry_count"] = 0
+        _failure("empty_metadata_record", evidence)
+    if len(metadata_raw) > MAX_RECORD_BYTES:
+        _failure("oversized_metadata_record", evidence)
     _, evidence["metadata_entry_count"] = _entries(metadata)
     left, _ = _entries(raw_text)
     right, _ = _entries(metadata)
     evidence["matching_entry_count"] = len(left & right)
-    if len(metadata_raw) == 0:
-        _failure("empty_metadata_record", evidence)
-    if len(metadata_raw) > MAX_RECORD_BYTES:
-        _failure("oversized_metadata_record", evidence)
 
     # This is the only permitted discrepancy: Python universal-newline
     # conversion, not a content change. The RAW on-disk digest is preserved
