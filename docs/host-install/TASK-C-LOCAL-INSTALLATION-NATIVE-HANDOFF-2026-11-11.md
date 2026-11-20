@@ -1,3 +1,5 @@
+> **Historical installation snapshot (November 11).** The two-repository gateway-only path below is superseded by the [November 19 Task C root-control journal installation contract](TASK-C-ROOT-JOURNAL-INSTALL-2026-11-19.md). The current supported staging path installs host-install, host-deploy, root-control, box-control and image-build in the same ordinary Task C venv; it verifies the selected root-control source and precreates `/var/lib/zog-task-c/operations` as root:root 0700 before staging the still-inactive Gateway. Do not use the historical two-checkout commands below for any new Work installation. No S3, extra disk, new signer, owner service or runtime activation is added.
+
 # Task C — trusted-Host direct SSM and ordinary local installation
 
 2026-11-11 · **Selected source contract, native activation HOLD**

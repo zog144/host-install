@@ -10,6 +10,7 @@ Historical signed v3/v4 migration modules are deliberately not imported.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.resources
 import json
 import os
@@ -17,12 +18,22 @@ from pathlib import Path
 import stat
 import subprocess
 
+from .task_c_journal_directory import (
+    DIRECTORY as JOURNAL_DIR, ensure_operations, TaskCJournalDirectoryError,
+)
+
 SCHEMA = "zog-task-c-local-installation-v1"
 MODULES = (
     "zog.host_deploy.gateway.generic_pipeline",
     "zog.host_deploy.gateway.trusted_host_submission",
     "zog.host_deploy.gateway.graphics_operation_send_intent",
+    "zog.root_control.task_c_trusted_host",
 )
+ROOT_CONTROL_REVISION = "b655b0a2b2ba7abb5fddbdaadae01ef6e34bcb56"
+BOX_CONTROL_REVISION = "c886e7a90bb4ea74e771a6c5dcefaa2069539ec7"
+IMAGE_BUILD_REVISION = "77a5e3c13e1c41582b3278941fb4b1f5e2f16678"
+ROOT_CONTROL_JOURNAL_GIT_BLOB = "de63bac2261d639eb9f1177ef92651bbd3fcb750"
+ROOT_CONTROL_JOURNAL_REL = "src/zog/root_control/task_c_trusted_host.py"
 VENVDIR = "/opt/zog/task-c/venv"
 DATA_DIRS = (
     "/var/lib/host-deploy-gateway",
@@ -52,13 +63,68 @@ def _source(path, package):
     return path
 
 
-def source_plan(*, host_deploy, host_install, python):
+def _reviewed_root_control(source):
+    """Verify original selected Git revision and exact journal source bytes."""
+    source = Path(source)
+    path = source / ROOT_CONTROL_JOURNAL_REL
+    _require(path.is_file() and not path.is_symlink(),
+             "selected root-control Task C journal source absent or linked")
+    raw = path.read_bytes()
+    git_blob = hashlib.sha1(
+        b"blob " + str(len(raw)).encode("ascii") + b"\0" + raw
+    ).hexdigest()
+    _require(git_blob == ROOT_CONTROL_JOURNAL_GIT_BLOB,
+             "selected root-control journal source differs from reviewed bytes")
+    try:
+        selected = subprocess.run(
+            ["git", "-C", str(source), "rev-parse", "--verify", "HEAD"],
+            text=True, capture_output=True, timeout=10, check=False,
+            env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise TaskCInstallError("cannot inspect selected root-control Git HEAD") from exc
+    _require(selected.returncode == 0
+             and selected.stdout.strip() == ROOT_CONTROL_REVISION,
+             "selected root-control source revision differs from reviewed candidate")
+    return {"revision": selected.stdout.strip(), "journal_git_blob": git_blob}
+
+
+def _reviewed_dependency(source, revision, component):
+    """The selected controller's declared package dependencies are real inputs."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(source), "rev-parse", "--verify", "HEAD"],
+            text=True, capture_output=True, timeout=10, check=False,
+            env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
+        )
+        clean = subprocess.run(
+            ["git", "-C", str(source), "diff", "--quiet", "HEAD", "--"],
+            capture_output=True, timeout=10, check=False,
+            env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise TaskCInstallError("cannot inspect selected " + component + " checkout") from exc
+    _require(result.returncode == 0 and result.stdout.strip() == revision
+             and clean.returncode == 0,
+             "selected " + component + " checkout differs from reviewed source")
+    return revision
+
+
+def source_plan(*, host_deploy, host_install, root_control,
+                box_control, image_build, python):
     """Explicit, locally selected repositories; not a remote trust grant."""
     roots = (
         _source(host_deploy, "host_deploy"),
         _source(host_install, "host_install"),
+        _source(root_control, "root_control"),
+        _source(box_control, "box_control"),
+        _source(image_build, "image_build"),
     )
     _require(len(set(roots)) == len(roots), "component sources overlap")
+    journal_source = _reviewed_root_control(roots[2])
+    _reviewed_dependency(roots[2], ROOT_CONTROL_REVISION, "root-control")
+    _reviewed_dependency(roots[3], BOX_CONTROL_REVISION, "box-control")
+    _reviewed_dependency(roots[4], IMAGE_BUILD_REVISION, "image-build")
     python = Path(python)
     _require(python.is_absolute() and python.is_file()
              and not python.is_symlink(),
@@ -67,6 +133,16 @@ def source_plan(*, host_deploy, host_install, python):
         "schema": SCHEMA,
         "host_deploy_source": str(roots[0]),
         "host_install_source": str(roots[1]),
+        "root_control_source": str(roots[2]),
+        "box_control_source": str(roots[3]),
+        "image_build_source": str(roots[4]),
+        "root_control_revision": journal_source["revision"],
+        "box_control_revision": BOX_CONTROL_REVISION,
+        "image_build_revision": IMAGE_BUILD_REVISION,
+        "root_control_journal_git_blob": journal_source["journal_git_blob"],
+        "root_control_journal": JOURNAL_DIR,
+        "journal_owner": "root:root",
+        "journal_mode": "0700",
         "python": str(python),
         "venv": VENVDIR,
         "data_directories": list(DATA_DIRS),
@@ -144,6 +220,16 @@ def _run(runner, args):
              "ordinary Python/systemd installation command failed")
 
 
+def _require_gateway_inactive(runner):
+    """Do not overwrite the selected runtime while it is running."""
+    result = runner(
+        ["/usr/bin/systemctl", "is-active", "--quiet", UNITS[0]],
+        check=False,
+    )
+    _require(result.returncode in (3, 4),
+             "Task C Gateway is active or its inactive state cannot be established")
+
+
 def stage(plan, *, root=Path("/"), runner=subprocess.run):
     """Root-only package + disabled unit staging; no command can send SSM.
 
@@ -160,8 +246,19 @@ def stage(plan, *, root=Path("/"), runner=subprocess.run):
     approved = source_plan(
         host_deploy=plan["host_deploy_source"],
         host_install=plan["host_install_source"],
+        root_control=plan["root_control_source"],
+        box_control=plan["box_control_source"],
+        image_build=plan["image_build_source"],
         python=plan["python"])
     _require(approved == plan, "installation plan changed")
+    if root == Path("/"):
+        _require_gateway_inactive(runner)
+    # Before Python package installation or unit publication, fail closed
+    # against foreign journal custody. No mkdir/chmod/chown by the Gateway.
+    try:
+        journal_directory = ensure_operations(root)
+    except TaskCJournalDirectoryError as exc:
+        raise TaskCInstallError(str(exc)) from exc
     _directory(root, "/opt/zog/task-c", 0o755)
     venv_parent = _under(root, VENVDIR)
     if not venv_parent.exists():
@@ -170,19 +267,32 @@ def stage(plan, *, root=Path("/"), runner=subprocess.run):
              "selected application venv absent")
     executable = venv_parent / "bin" / "python"
     _require(executable.is_file(), "venv Python not installed")
-    # Only the two component repositories used by the selected gateway are
-    # installed. Root-control's alternative journal remains source-tested,
-    # not an additional dependency or deployed SSM authority. Ordinary pip
-    # resolves the real host-deploy runtime requirements; verify with pip check.
+    # The selected root-control component declares box-control==0.1.0,
+    # image-build==0.2.0.dev5 and dbus-next==0.2.3. All exact local
+    # component repositories must be supplied to ordinary pip together,
+    # because only the aggregate "zog" is published to PyPI. Never omit
+    # dependencies or suppress pip check to install the journal alone.
     _run(runner, (executable, "-m", "pip", "install", "--no-cache-dir",
-                  plan["host_install_source"], plan["host_deploy_source"]))
+                  plan["host_install_source"], plan["host_deploy_source"],
+                  plan["root_control_source"], plan["box_control_source"],
+                  plan["image_build_source"]))
     _run(runner, (executable, "-m", "pip", "check"))
-    # Require the existing trusted-Host gateway sender and durable local
-    # journal modules, not the old S3-backed owner/trust modules.
-    _run(runner, (executable, "-I", "-c",
-                  "import importlib; "
-                  + "; ".join("importlib.import_module(" + repr(m) + ")"
-                              for m in MODULES)))
+    # Require all actual gateway imports and the real root-control send-once
+    # journal from the selected Python environment. Import is not enough:
+    # compare the installed journal source bytes with the reviewed Git blob.
+    import_check = (
+        "import hashlib, importlib, pathlib; "
+        + "; ".join("importlib.import_module(" + repr(m) + ")"
+                    for m in MODULES)
+        + "; from zog.root_control import task_c_trusted_host as j"
+        + "; p=pathlib.Path(j.__file__)"
+        + "; data=p.read_bytes()"
+        + "; h=hashlib.sha1(b'blob '+str(len(data)).encode()+b'\\0'+data).hexdigest()"
+        + "; assert h==" + repr(ROOT_CONTROL_JOURNAL_GIT_BLOB)
+        + "; assert j.DEFAULT_DIRECTORY==" + repr(JOURNAL_DIR)
+        + "; assert getattr(j,'LocalTaskCJournal',None) is not None"
+    )
+    _run(runner, (executable, "-I", "-c", import_check))
     for path in DATA_DIRS:
         _directory(root, path, 0o700)
     _directory(root, UNIT_DIR, 0o755)
@@ -190,9 +300,12 @@ def stage(plan, *, root=Path("/"), runner=subprocess.run):
         _publish_unit(root, name, body)
     if root == Path("/"):
         _run(runner, ("/usr/bin/systemctl", "daemon-reload"))
+        _require_gateway_inactive(runner)
     # No systemctl enable/start/restart, no socket activation, AWS, S3 or SSM.
     return {"schema": SCHEMA, "status": "software-and-disabled-units-staged",
-            "units": list(UNITS), "native_runtime_started": False,
+            "units": list(UNITS), "journal": journal_directory,
+            "root_control_revision": ROOT_CONTROL_REVISION,
+            "native_runtime_started": False, "gateway_active": False,
             "ssm_authorized": False}
 
 
@@ -228,6 +341,9 @@ def main(argv=None):
         description="Stage local Task C Python software and disabled systemd units")
     parser.add_argument("--host-deploy-source")
     parser.add_argument("--host-install-source")
+    parser.add_argument("--root-control-source")
+    parser.add_argument("--box-control-source")
+    parser.add_argument("--image-build-source")
     parser.add_argument("--python")
     action = parser.add_mutually_exclusive_group(required=True)
     action.add_argument("--plan", action="store_true")
@@ -240,11 +356,15 @@ def main(argv=None):
     else:
         if any(not value for value in (
                 args.host_deploy_source, args.host_install_source,
-                args.python)):
-            parser.error("--plan/--stage require host-deploy, host-install and --python")
+                args.root_control_source, args.box_control_source,
+                args.image_build_source, args.python)):
+            parser.error("--plan/--stage require host-deploy, host-install, root-control, box-control, image-build and --python")
         selected = source_plan(
             host_deploy=args.host_deploy_source,
             host_install=args.host_install_source,
+            root_control=args.root_control_source,
+            box_control=args.box_control_source,
+            image_build=args.image_build_source,
             python=args.python)
         result = stage(selected) if args.stage else selected
     print(json.dumps(result, sort_keys=True))
