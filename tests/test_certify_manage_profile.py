@@ -547,3 +547,58 @@ def test_installed_issuer_rejects_missing_distribution_metadata(
     monkeypatch.setattr(profile.importlib.metadata, "distribution", lambda name: distribution)
     with pytest.raises((StateError, FileNotFoundError)):
         profile.attest_installed_controller(python_executable="/usr/bin/python3.12")
+
+
+
+def test_installed_attestor_accepts_real_wheel_record_crlf_after_text_translation(
+        tmp_path, monkeypatch):
+    """Raw accepted RECORD digest is retained, not the translated metadata hash."""
+    mapping, distribution = fake_controller_distribution(tmp_path)
+    raw = distribution._record.replace("\n", "\r\n").encode("utf-8")
+    (distribution.root / "zog-0.12.0.dist-info/RECORD").write_bytes(raw)
+    # importlib.metadata PathDistribution.read_text applies universal-newline
+    # translation; our fake intentionally models exactly that behavior.
+    assert distribution._record.encode("utf-8") != raw
+    monkeypatch.setattr(profile.os, "geteuid", lambda: 0)
+    monkeypatch.delenv("PYTHONPATH", raising=False)
+    monkeypatch.delenv("PYTHONHOME", raising=False)
+    monkeypatch.setattr(profile.sys, "executable", "/usr/bin/python3.12")
+    monkeypatch.setattr(profile, "_selected_interpreter_version", lambda: (3, 12))
+    monkeypatch.setattr(profile, "_selected_aggregate_root", lambda: distribution.root)
+    monkeypatch.setattr(profile, "_protected_ancestry", lambda *a: None)
+    monkeypatch.setattr(profile.importlib.metadata, "distribution", lambda name: distribution)
+    monkeypatch.setattr(profile.importlib, "import_module", lambda name: mapping[name])
+    original = raw
+    result = profile.attest_installed_controller(python_executable="/usr/bin/python3.12")
+    assert result["record_sha256"] == hashlib.sha256(original).hexdigest()
+    assert result["record_readback"]["installed_sha256"] == result["record_sha256"]
+    assert result["record_readback"]["status"] == "verified_universal_newlines"
+    assert result["record_readback"]["newline_translation_only"] is True
+    assert result["record_readback"]["matching_entry_count"] == (
+        result["record_readback"]["installed_entry_count"])
+    assert result["production_activation_authorized"] is False
+
+
+def test_installed_attestor_reports_differing_record_metadata_without_contents(
+        tmp_path, monkeypatch):
+    mapping, distribution = fake_controller_distribution(tmp_path)
+    # The on-disk original is unchanged, but the metadata API supplies an
+    # independently altered row. Never treat this as newline translation.
+    distribution._record = distribution._record.replace(
+        "sha256=", "sha256=changed", 1)
+    monkeypatch.setattr(profile.os, "geteuid", lambda: 0)
+    monkeypatch.delenv("PYTHONPATH", raising=False)
+    monkeypatch.delenv("PYTHONHOME", raising=False)
+    monkeypatch.setattr(profile.sys, "executable", "/usr/bin/python3.12")
+    monkeypatch.setattr(profile, "_selected_interpreter_version", lambda: (3, 12))
+    monkeypatch.setattr(profile, "_selected_aggregate_root", lambda: distribution.root)
+    monkeypatch.setattr(profile, "_protected_ancestry", lambda *a: None)
+    monkeypatch.setattr(profile.importlib.metadata, "distribution", lambda name: distribution)
+    with pytest.raises(StateError, match="differing record views") as caught:
+        profile.attest_installed_controller(python_executable="/usr/bin/python3.12")
+    report = json.loads(str(caught.value).split("diagnostics=", 1)[1])
+    assert report["status"] == "differing_record_views"
+    assert report["matching_entry_count"] > 0
+    assert report["installed_sha256"]
+    assert report["metadata_sha256"]
+    assert "sha256=changed" not in str(caught.value)
