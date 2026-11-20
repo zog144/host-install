@@ -1,15 +1,18 @@
 name: Certify-manage combined issuer aggregate selection
 on:
   push:
-    branches: [regular/issuer-combined-controller-selection-20261116]
+    branches: [regular/issuer-combined-controller-selection-20261116, regular/issuer-installed-record-diagnostics-20261120]
   pull_request:
     paths:
       - src/zog/host_install/certify_manage_profile.py
+      - src/zog/host_install/certify_record_readback.py
       - src/zog/host_install/cli.py
       - tests/test_certify_manage_profile.py
+      - tests/test_certify_record_readback.py
       - tests/test_certify_manage_combined_controller_selection.py
       - .github/workflows/certify-combined-controller-selection.yml
       - docs/host-install/issuer-combined-controller-selection-2026-11-16.md
+      - docs/host-install/issuer-installed-record-readback-2026-11-20.md
   workflow_dispatch:
 permissions:
   contents: read
@@ -72,7 +75,7 @@ jobs:
           ROOT_CONTROL_SOURCE: companions/root-control
         run: |
           python -m pip install 'pytest>=8,<10' 'dbus-next==0.2.3' 'cryptography>=42,<47'
-          python -m compileall -q src/zog/host_install/certify_manage_profile.py src/zog/host_install/cli.py
+          python -m compileall -q src/zog/host_install/certify_manage_profile.py src/zog/host_install/certify_record_readback.py src/zog/host_install/cli.py
           sudo -E env PYTHONPATH="$PWD/src:$PWD/companions/box-control-certificate/box-control/src:$PWD/companions/root-control/src:$PWD/companions/image-build/src" \
             CERTIFICATE_BOX_CONTROL_SOURCE="$PWD/companions/box-control-certificate" \
             ROOT_CONTROL_SOURCE="$PWD/companions/root-control" \
@@ -80,6 +83,7 @@ jobs:
             CERTIFY_MANAGE_SOURCE="$PWD/companions/certify-manage" \
             "$(command -v python)" -m pytest -q -rs \
               tests/test_certify_manage_profile.py \
+              tests/test_certify_record_readback.py \
               tests/test_certify_manage_combined_controller_selection.py
       - name: Verify unchanged issuer source suites can import combined controller modules
         env:
