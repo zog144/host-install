@@ -23,6 +23,7 @@ import sys
 
 from .state_contract import canonical, decode, fields, require
 from .state_inspect import directory
+from . import certify_record_readback
 from .state_io import ensure_directory, lock, publish
 
 
@@ -677,7 +678,14 @@ def attest_installed_controller(*, python_executable=CONTROLLER_PYTHON):
     require(type(dist.version) is str and dist.version
             and dist.version != "0.1.0",
             "certify-installed", "combined aggregate requires a distinct immutable package version")
-    members = tuple(dist.files or ())
+    # A malformed or oversized installed RECORD can make Python's
+    # importlib.metadata *file listing itself* raise csv.Error before
+    # it yields any members. The protected readback below must classify
+    # that actual on-disk failure, not leak an unhandled traceback.
+    try:
+        members = tuple(dist.files or ())
+    except (csv.Error, OSError, UnicodeError, ValueError):
+        members = ()
     records = [
         item for item in members
         if len(item.parts) == 2
@@ -685,14 +693,12 @@ def attest_installed_controller(*, python_executable=CONTROLLER_PYTHON):
         and item.parts[0].startswith("zog-")
         and item.parts[0].endswith(".dist-info")
     ]
-    require(len(records) == 1,
-            "certify-installed", "aggregate dist-info RECORD path is missing or ambiguous")
-    record_path = Path(dist.locate_file(records[0]))
-    _protected_ancestry(record_path, root)
-    text = dist.read_text("RECORD")
-    require(type(text) is str and 0 < len(text) <= 4_000_000
-            and record_path.read_bytes() == text.encode("utf-8"),
-            "certify-installed", "aggregate RECORD absent or differs from installed bytes")
+    # This read-only helper verifies the original on-disk RECORD bytes,
+    # separately reports absent/empty/oversized/mismatched metadata, and
+    # handles only Python's documented universal-newline translation.
+    # It does not substitute a normalized digest for installed provenance.
+    text, record_readback = certify_record_readback.verify_record(
+        dist, root, records, protect_path=_protected_ancestry)
     record_directory = records[0].parts[0]
     for metadata_name in ("METADATA", "WHEEL", "entry_points.txt"):
         metadata_path = root / record_directory / metadata_name
@@ -740,7 +746,8 @@ def attest_installed_controller(*, python_executable=CONTROLLER_PYTHON):
         "controller_site_packages": str(root),
         "python_abi": "cp312",
         "dist_info": record_directory,
-        "record_sha256": _sha256(text.encode()),
+        "record_sha256": record_readback["installed_sha256"],
+        "record_readback": record_readback,
         "modules": observed,
         "production_activation_authorized": False,
     }
