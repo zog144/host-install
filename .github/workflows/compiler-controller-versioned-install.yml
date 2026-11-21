@@ -7,6 +7,7 @@ on:
       - src/zog/host_install/compiler_controller_versioned_install.py
       - src/zog/host_install/compiler_legacy_rollback.py
       - tests/test_compiler_controller_versioned_install.py
+      - tests/acceptance/al2023_compiler_runtime.py
       - docs/host-install/COMPILER-CONTROLLER-VERSIONED-INSTALL-2026-11-21.md
       - .github/workflows/compiler-controller-versioned-install.yml
   workflow_dispatch:
@@ -70,3 +71,40 @@ jobs:
           with ZipFile(files[0]) as whl:
               assert 'zog/host_install/compiler_controller_versioned_install.py' in whl.namelist()
           PY
+
+
+  amazon-linux-2023-real-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: zog144/root-control
+          ref: 58b5a94311d771bb1c5f4c3e9c6191b44d6565c9
+          path: companions/root-control
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: zog144/box-control
+          ref: ad61fa6a4e9c3176149720868cb008e0512dbec9
+          path: companions/box-control
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: zog144/image-build
+          ref: ff968a431dd2067e7d0e1f17d6e547f2779f647a
+          path: companions/image-build
+          persist-credentials: false
+      - name: Real Amazon Linux 2023 Python 3.12 venv/pip/install/import acceptance
+        run: |
+          docker run --rm \
+            -v "$PWD:/work" -w /work \
+            amazonlinux:2023 bash -euc '
+              dnf -y install python3.12 python3.12-pip git
+              /usr/bin/python3.12 --version
+              PYTHONPATH=/work/src /usr/bin/python3.12 \
+                /work/tests/acceptance/al2023_compiler_runtime.py
+            '
