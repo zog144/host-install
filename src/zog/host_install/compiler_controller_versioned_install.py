@@ -69,38 +69,48 @@ def _safe_directory(root, path, *, create=False):
 
 
 def _inventory(root, path):
-    """Complete no-link root-owned inventory of file bytes, path and mode."""
+    """Use host-deploy's canonical complete no-link runtime inventory digest."""
     _safe_directory(root, path)
     inventory = []
     for folder, dirs, files in os.walk(path, followlinks=False):
         dirs.sort()
         files.sort()
-        for name in ["."] + dirs + files:
-            item = Path(folder) if name == "." else Path(folder) / name
+        current = Path(folder)
+        for directory in [current] + [current / name for name in dirs]:
+            info = directory.lstat()
+            require(stat.S_ISDIR(info.st_mode) and
+                    not info.st_mode & 0o022 and
+                    (root != Path("/") or info.st_uid == info.st_gid == 0),
+                    "linked, foreign or mutable runtime directory")
+        inventory.append({"type": "directory",
+                          "path": current.relative_to(path).as_posix(),
+                          "mode": stat.S_IMODE(current.lstat().st_mode)})
+        for name in files:
+            item = current / name
             st = item.lstat()
-            require(stat.S_ISREG(st.st_mode) or stat.S_ISDIR(st.st_mode),
-                    "linked or special runtime object")
-            require(not st.st_mode & 0o022 and
-                    (root != Path("/") or (st.st_uid == st.st_gid == 0)),
-                    "mutable or foreign runtime object")
-            relative = item.relative_to(path).as_posix()
-            if stat.S_ISREG(st.st_mode):
-                require(st.st_nlink == 1 and st.st_size <= 512 * 1024 * 1024,
-                        "linked or oversized runtime file")
-                digest = hashlib.sha256()
-                length = 0
-                with item.open("rb") as reader:
-                    for block in iter(lambda: reader.read(1024 * 1024), b""):
-                        length += len(block)
-                        digest.update(block)
-                require(length == st.st_size, "runtime changed during inventory")
-                inventory.append(("f", relative, stat.S_IMODE(st.st_mode),
-                                  length, digest.hexdigest()))
-            else:
-                inventory.append(("d", relative, stat.S_IMODE(st.st_mode)))
-    require(any(e[0] == "f" for e in inventory), "empty runtime inventory")
-    return hashlib.sha256(json.dumps(inventory, separators=(",", ":")).encode()).hexdigest()
-
+            require(stat.S_ISREG(st.st_mode) and st.st_nlink == 1
+                    and not st.st_mode & 0o022
+                    and (root != Path("/") or st.st_uid == st.st_gid == 0)
+                    and st.st_size <= 512 * 1024 * 1024,
+                    "linked, foreign or mutable runtime file")
+            digest = hashlib.sha256()
+            length = 0
+            with item.open("rb") as reader:
+                for block in iter(lambda: reader.read(1024 * 1024), b""):
+                    length += len(block)
+                    digest.update(block)
+            require(length == st.st_size, "runtime changed during inventory")
+            inventory.append({
+                "type": "file", "path": item.relative_to(path).as_posix(),
+                "mode": stat.S_IMODE(st.st_mode), "size": length,
+                "sha256": digest.hexdigest(),
+            })
+    require(any(e["type"] == "file" for e in inventory),
+            "empty runtime inventory")
+    return hashlib.sha256(json.dumps(
+        inventory, sort_keys=True, ensure_ascii=True,
+        separators=(",", ":"), allow_nan=False,
+    ).encode("ascii")).hexdigest()
 
 def _regular(root, path):
     _safe_directory(root, path.parent)
