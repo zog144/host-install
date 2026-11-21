@@ -513,3 +513,43 @@ def test_zero_length_legacy_regular_file_is_allowed(setup):
     assert (copy / "venv/__init__.py").stat().st_size == 0
     assert installer.legacy_rollback.assert_copy(root, old, copy)[
         "inventory_sha256"] == receipt["legacy_inventory_sha256"]
+
+
+
+def test_fresh_venv_links_become_real_executables_without_weakening_inventory(tmp_path):
+    venv = tmp_path / "new-venv"
+    (venv / "bin").mkdir(parents=True)
+    (venv / "lib").mkdir()
+    actual = venv / "bin/python3.12"
+    actual.write_bytes(b"new Python 3.12 executable")
+    actual.chmod(0o755)
+    (venv / "bin/python").symlink_to("python3.12")
+    (venv / "bin/python3").symlink_to("python3.12")
+    (venv / "lib64").symlink_to("lib", target_is_directory=True)
+
+    normalized = installer._normalize_new_venv(venv)
+    assert normalized == ["bin/python", "bin/python3", "lib64"]
+    for name in ("python", "python3", "python3.12"):
+        entry = venv / "bin" / name
+        assert entry.is_file() and not entry.is_symlink()
+        assert entry.read_bytes() == b"new Python 3.12 executable"
+        assert entry.stat().st_mode & 0o100
+    assert not (venv / "lib64").exists()
+    assert (venv / "lib").is_dir()
+    assert installer._inventory(tmp_path, venv)
+
+
+def test_fresh_venv_unexpected_or_escaping_link_holds_without_rewrite(tmp_path):
+    venv = tmp_path / "new-venv"
+    (venv / "bin").mkdir(parents=True)
+    (venv / "bin/python3.12").write_bytes(b"python")
+    (venv / "bin/python").symlink_to("../../foreign")
+    with pytest.raises(installer.CompilerInstallerHold, match="unexpected link"):
+        installer._normalize_new_venv(venv)
+    assert (venv / "bin/python").is_symlink()
+    (venv / "bin/python").unlink()
+    (venv / "bin/python").symlink_to("python3.12")
+    (venv / "other").symlink_to("bin")
+    with pytest.raises(installer.CompilerInstallerHold, match="unexpected link"):
+        installer._normalize_new_venv(venv)
+    assert (venv / "other").is_symlink()
