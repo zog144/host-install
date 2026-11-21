@@ -330,8 +330,8 @@ def preserve(release, *, service, original_runtime, root=Path("/"),
         digest = _inventory(root, old)
         unit = host_path(root, UNIT_DIR / service)
         unit_body = _regular(root, unit)
-        require(str(original_runtime).encode("utf-8") in unit_body,
-                "original service does not reference selected old runtime")
+        # The main fragment may name an obsolete command; ordered drop-ins
+        # (notably 60/70) determine the *effective* current ExecStart.
         backup = host_path(root, BACKUPS / release)
         require(not backup.exists() and not backup.is_symlink(),
                 "rollback snapshot already exists")
@@ -344,6 +344,27 @@ def preserve(release, *, service, original_runtime, root=Path("/"),
         active_dropins = host_path(root, UNIT_DIR / (service + ".d"))
         preserved_dropins = backup / (service + ".d")
         selected_dropins = _dropins(root, active_dropins)
+        def effective_command():
+            chosen = []
+            for raw in [unit_body] + [
+                    _regular(root, active_dropins / entry["name"])
+                    for entry in selected_dropins]:
+                section = False
+                for line in raw.decode("utf-8").splitlines():
+                    line = line.strip()
+                    if line.startswith("[") and line.endswith("]"):
+                        section = line == "[Service]"
+                    elif section and line.startswith("ExecStart="):
+                        command = line.partition("=")[2].strip()
+                        if not command:
+                            chosen.clear()
+                        else:
+                            chosen.append(command)
+            require(len(chosen) == 1, "original effective ExecStart is ambiguous")
+            return chosen[0]
+        observed_command = effective_command()
+        require(str(original_runtime) in observed_command,
+                "original effective ExecStart does not name retained runtime")
         _safe_directory(root, preserved_dropins, create=True)
         _copy_dropins(root, active_dropins, preserved_dropins,
                       selected_dropins)
@@ -351,7 +372,8 @@ def preserve(release, *, service, original_runtime, root=Path("/"),
                    "service": service, "original_runtime": str(original_runtime),
                    "runtime_tree_sha256": digest,
                    "unit_sha256": hashlib.sha256(unit_body).hexdigest(),
-                   "original_dropins": selected_dropins}
+                   "original_dropins": selected_dropins,
+                   "original_effective_execstart": observed_command}
         _atomic(backup / "preservation.json", _json(receipt))
         _fsync_directory(backup)
         return receipt
