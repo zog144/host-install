@@ -374,6 +374,12 @@ def preserve(release, *, service, original_runtime, root=Path("/"),
             require(len(chosen) == 1, "original effective ExecStart is ambiguous")
             return chosen[0]
         observed_command = effective_command()
+        if loaded_properties is not None:
+            # systemctl show reports the effective argv after ordered resets.
+            # Reject a mismatch between inspected files and manager state.
+            match = re.search(r"argv\[\]=(.+?)\s+;", loaded_properties["ExecStart"])
+            require(match is not None and match.group(1) == observed_command,
+                    "loaded compiler argv differs from preserved composition")
         require(str(original_runtime) in observed_command,
                 "original effective ExecStart does not name retained runtime")
         _safe_directory(root, preserved_dropins, create=True)
