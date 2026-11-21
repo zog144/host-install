@@ -234,3 +234,113 @@ def test_original_unit_must_point_to_preserved_runtime(setup):
     with pytest.raises(installer.CompilerInstallerHold, match="does not reference"):
         installer.preserve(release, service=service,
                            original_runtime="/opt/old", root=root)
+
+
+
+def with_realistic_dropins(setup):
+    """Four original overrides, reviewed two-file successor, no Host service."""
+    root, release, service, unit, original, staged, old, data, inspector = setup
+    original_dir = unit.with_name(service + ".d")
+    original_dir.mkdir()
+    old_files = {
+        "60-boot-a-restrictive-import.conf":
+            b"[Service]\nExecStart=\nExecStart=/opt/old/boot-a.py\nReadOnlyPaths=/opt/old\n",
+        "70-fonts-combined-runtime.conf":
+            b"[Service]\nExecStart=\nExecStart=/opt/old/bin/root-control\nReadOnlyPaths=/opt/old\n",
+        "gateway-mounts.conf":
+            b"[Unit]\nRequires=state.mount\nAfter=state.mount\n",
+        "issuer-persistence.conf":
+            b"[Service]\nExecStartPre=/usr/bin/test -d /state\nReadOnlyPaths=/state\n",
+    }
+    for name, body in old_files.items():
+        (original_dir / name).write_bytes(body)
+    successor = installer.host_path(
+        root, installer.VERSIONS / release / "systemd" / (service + ".d"))
+    successor.mkdir()
+    successor_files = {
+        "70-fonts-combined-runtime.conf":
+            (b"[Service]\nExecStart=\nExecStart=/opt/zog/compiler-runtime/"
+             + b"versions/" + release.encode() + b"/bin/root-control\n"),
+        "gateway-mounts.conf":
+            b"[Unit]\nRequires=state.mount\nAfter=state.mount\n",
+        "issuer-persistence.conf":
+            b"[Service]\nExecStartPre=/usr/bin/test -d /state\nReadOnlyPaths=/state\n",
+    }
+    for name, body in successor_files.items():
+        (successor / name).write_bytes(body)
+    data["composition"]["original_dropins"] = installer._dropins(root, original_dir)
+    data["composition"]["selected_dropins"] = installer._dropins(root, successor)
+    return root, release, service, unit, original, staged, old, data, inspector
+
+
+def test_all_original_dropins_preserved_then_selected_and_restored(setup):
+    root, release, service, unit, original, staged, old, data, inspector = (
+        with_realistic_dropins(setup))
+    originals = data["composition"]["original_dropins"]
+    successors = data["composition"]["selected_dropins"]
+    original_dir = unit.with_name(service + ".d")
+    installer.preserve(release, service=service,
+                       original_runtime="/opt/old", root=root)
+    backup_dir = installer.host_path(
+        root, installer.BACKUPS / release / (service + ".d"))
+    assert installer._dropins(root, backup_dir) == originals
+    data["rollback"]["runtime_tree_sha256"] = installer._inventory(
+        root, installer.host_path(root, data["rollback"]["saved_runtime_root"]))
+    installer.select("reviewed.json", "f" * 64, root=root)
+    assert installer._dropins(root, original_dir) == successors
+    assert "60-boot-a-restrictive-import.conf" not in [
+        item["name"] for item in installer._dropins(root, original_dir)]
+    installer.restore("reviewed.json", "f" * 64, root=root)
+    assert installer._dropins(root, original_dir) == originals
+    assert unit.read_bytes() == original
+    assert installer._dropins(root, backup_dir) == originals
+
+
+def test_interrupted_dropin_switch_is_masked_and_explicitly_recoverable(
+        setup, monkeypatch):
+    root, release, service, unit, original, staged, old, data, inspector = (
+        with_realistic_dropins(setup))
+    installer.preserve(release, service=service,
+                       original_runtime="/opt/old", root=root)
+    data["rollback"]["runtime_tree_sha256"] = installer._inventory(
+        root, installer.host_path(root, data["rollback"]["saved_runtime_root"]))
+    actual_switch = installer._switch_dropins
+
+    def interrupted(root, active_dir, existing, wanted_dir, wanted):
+        # Simulate crash after mask and first unlink, before all successors.
+        (active_dir / existing[0]["name"]).unlink()
+        raise OSError("interrupted-after-first-dropin")
+    monkeypatch.setattr(installer, "_switch_dropins", interrupted)
+    with pytest.raises(OSError, match="interrupted-after-first"):
+        installer.select("reviewed.json", "f" * 64, root=root)
+    assert unit.is_symlink() and unit.readlink() == Path("/dev/null")
+    monkeypatch.setattr(installer, "_switch_dropins", actual_switch)
+    assert installer.restore("reviewed.json", "f" * 64, root=root)["state"] == "restored"
+    assert unit.read_bytes() == original
+    assert installer._dropins(root, unit.with_name(service + ".d")) == (
+        data["composition"]["original_dropins"])
+
+
+def test_foreign_dropin_prevents_selection_and_cannot_be_erased(setup):
+    root, release, service, unit, original, staged, old, data, inspector = (
+        with_realistic_dropins(setup))
+    installer.preserve(release, service=service,
+                       original_runtime="/opt/old", root=root)
+    data["rollback"]["runtime_tree_sha256"] = installer._inventory(
+        root, installer.host_path(root, data["rollback"]["saved_runtime_root"]))
+    unexpected = unit.with_name(service + ".d") / "90-foreign.conf"
+    unexpected.write_bytes(b"[Service]\nExecStart=/foreign\n")
+    with pytest.raises(installer.CompilerInstallerHold, match="drop-in"):
+        installer.select("reviewed.json", "f" * 64, root=root)
+    assert unexpected.read_bytes().endswith(b"/foreign\n")
+    assert unit.read_bytes() == original
+
+
+def test_existing_old_python_symlink_still_denied_without_rewrite(setup):
+    root, release, service, unit, original, staged, old, data, inspector = setup
+    python = old / "bin/python"
+    python.symlink_to("python3.12")
+    with pytest.raises(installer.CompilerInstallerHold, match="linked"):
+        installer.preserve(release, service=service,
+                           original_runtime="/opt/old", root=root)
+    assert python.is_symlink() and python.readlink() == Path("python3.12")
