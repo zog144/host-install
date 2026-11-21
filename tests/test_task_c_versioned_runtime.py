@@ -115,3 +115,28 @@ def test_changed_prepared_runtime_denied(staged):
     with pytest.raises(versioned.SelectionError, match="unverified versioned runtime"):
         versioned.select("release-1", root=root)
     assert unit.read_bytes() == original
+
+
+def test_changed_prepared_file_mode_denied(staged):
+    root, unit, original, old = staged
+    path = (
+        root / versioned.BASE.lstrip("/")
+        / "versions/release-1/venv/bin/host-deploy-gateway"
+    )
+    path.chmod(0o700)
+    with pytest.raises(versioned.SelectionError, match="unverified versioned runtime"):
+        versioned.select("release-1", root=root)
+    assert unit.read_bytes() == original
+
+
+def test_symlinked_selected_executable_denied(staged):
+    root, unit, original, old = staged
+    path = (
+        root / versioned.BASE.lstrip("/")
+        / "versions/release-1/venv/bin/host-deploy-gateway"
+    )
+    path.unlink()
+    path.symlink_to(old / "bin/host-deploy-gateway")
+    with pytest.raises(versioned.SelectionError, match="versioned gateway missing"):
+        versioned.select("release-1", root=root)
+    assert unit.read_bytes() == original
