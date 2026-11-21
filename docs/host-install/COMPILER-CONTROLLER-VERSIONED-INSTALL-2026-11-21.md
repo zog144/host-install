@@ -61,3 +61,16 @@ This correction does **not** change `_inventory` for new staged software or host
 ### Native acceptance HOLD remains
 
 The existing compiler service was active during inspection. No stopping, reinstalling, selecting, restoring, or reboot testing is approved without an inactive maintenance window. Work must read the actual `/usr/bin/python3.12` byte hash and complete symlink ancestry/target chain independently and approve the final real installed inventory and selection digest; source CI contains disposable fixture hashes, not live installed hashes. Preserve all prior operations and their uncertainty, original systemd fragment and four drop-ins, actual runtime, and complete protected rollback. Successful symlink treatment addresses only the prior inventory blocker: systemd 252 drop-in selection, recovery, RECORD attestation, nonroot peer-to-child evidence and Fonts authorization are separate gates.
+
+
+## November 21 — new selected runtime: link-free Python 3.12 staging
+
+The selected immutable runtime remains strictly no-symlink. On the NEW release only, staging invokes `/usr/bin/python3.12 -m venv --copies` and inspects fresh venv-generated links before pip installation. Only `bin/python`, `bin/python3`, `bin/python3.12`, and `lib64 -> lib` patterns are recognized. Interpreter links are replaced with real executable copies of already present in-venv interpreter files; the redundant lib64 alias is removed only when lib is a real directory. Foreign, escaping, absolute or unexpected new links HOLD.
+
+The original runtime and its four approved legacy virtualenv symlinks remain untouched. The selected runtime still undergoes its existing strict `_inventory` after real pip installation; dependency-created links are rejected, not normalized.
+
+The pinned box-control installable project is under the checkout's nested `box-control/` directory, not its repository root. Staging now installs the exact root-control, nested box-control, and image-build source projects, runs pip check, and imports `zog.root_control`, `zog.box_control`, `zog.image_build` and `zog.image_build.remote_operations` with isolated Python.
+
+The dedicated CI job `amazon-linux-2023-real-runtime` uses the Amazon Linux 2023 container and `/usr/bin/python3.12`; it runs real venv creation, actual dependency installation, import checks, and strict full-runtime inventory, then discards the candidate. This job does not touch the live Host or its service.
+
+Native Work selection and restore are separately gated on the approved inactive maintenance window and independent installed-RECORD, effective fragment/drop-in, persistent mask/reboot and non-root child verification. No Fonts activation or build is authorized by this source change.
