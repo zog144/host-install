@@ -191,6 +191,9 @@ def test_stage_three_sources_into_isolated_release_without_selecting(setup, monk
         + candidate.encode() + b"/bin/root-control\n"
     )
     monkeypatch.setattr(installer, "verify_sources", lambda sources: None)
+    mock_box = root / "checkout-box-control"
+    (mock_box / "box-control").mkdir(parents=True)
+    (mock_box / "box-control/pyproject.toml").write_text("[build-system]\n")
     commands = []
 
     def runner(argv, check):
@@ -206,7 +209,7 @@ def test_stage_three_sources_into_isolated_release_without_selecting(setup, monk
     result = installer.stage(
         candidate,
         {"root-control": "/review/root-control",
-         "box-control": "/review/box-control",
+         "box-control": str(mock_box),
          "image-build": "/review/image-build"},
         python="/usr/bin/python3.12",
         service=service,
@@ -228,7 +231,7 @@ def test_stage_three_sources_into_isolated_release_without_selecting(setup, monk
         installer.stage(
             candidate,
             {"root-control": "/review/root-control",
-             "box-control": "/review/box-control",
+             "box-control": str(mock_box),
              "image-build": "/review/image-build"},
             python="/usr/bin/python3.12",
             service=service,
