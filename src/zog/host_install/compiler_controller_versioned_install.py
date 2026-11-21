@@ -270,8 +270,9 @@ def stage(release, checkouts, *, python, service, executable, unit_template,
     invoke([venv_python, "-m", "pip", "check"])
     verify_sources(checkouts)
     launcher = venv / "bin" / executable
-    require(launcher.is_file() and not launcher.is_symlink(),
-            "selected installed controller launcher missing")
+    require(launcher.is_file() and not launcher.is_symlink()
+            and (launcher.stat().st_mode & stat.S_IXUSR),
+            "selected installed controller launcher missing or not executable")
     bin_dir = dest / "bin"
     bin_dir.mkdir(mode=0o700)
     shutil.copy2(launcher, bin_dir / executable, follow_symlinks=False)
