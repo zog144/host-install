@@ -2,15 +2,18 @@ name: Task C selected root-control journal installation source
 
 on:
   push:
-    branches: [regular/task-c-root-journal-install-20261119]
+    branches: [regular/task-c-root-journal-install-20261119, regular/task-c-versioned-runtime-rollback-20261121]
   pull_request:
     paths:
       - src/zog/host_install/task_c_local_install.py
+      - src/zog/host_install/task_c_versioned_runtime.py
       - src/zog/host_install/task_c_journal_directory.py
       - src/zog/host_install/systemd/task-c-local/zog-task-c-gateway.service
       - tests/test_task_c_local_install.py
+      - tests/test_task_c_versioned_runtime.py
       - tests/test_task_c_journal_directory.py
       - docs/host-install/TASK-C-ROOT-JOURNAL-INSTALL-2026-11-19.md
+      - docs/host-install/TASK-C-VERSIONED-ROLLBACK-2026-11-21.md
       - .github/workflows/task-c-root-journal-install.yml
   workflow_dispatch:
 
@@ -85,7 +88,8 @@ jobs:
         run: |
           sudo -E env PYTHONPATH="$PWD/src:$PWD/companions/root-control/src" "$(command -v python)" -m pytest -q -rs \
               tests/test_task_c_local_install.py \
-              tests/test_task_c_journal_directory.py
+              tests/test_task_c_journal_directory.py \
+              tests/test_task_c_versioned_runtime.py
       - name: Open selected real root-control journal on only a disposable pre-created directory
         run: |
           sudo -E env PYTHONPATH="$PWD/src:$PWD/companions/root-control/src" "$(command -v python)" - <<'PY'
@@ -114,6 +118,7 @@ jobs:
           with ZipFile(wheels[0]) as z:
               names=set(z.namelist())
               assert 'zog/host_install/task_c_journal_directory.py' in names
+              assert 'zog/host_install/task_c_versioned_runtime.py' in names
               unit=z.read('zog/host_install/systemd/task-c-local/zog-task-c-gateway.service').decode()
               assert 'ReadWritePaths=/var/lib/host-deploy-gateway /var/lib/zog-task-c/operations' in unit
               assert not any(line.strip() == '[Install]' for line in unit.splitlines())
