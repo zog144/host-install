@@ -347,14 +347,14 @@ def select(selection_file, expected_sha256, *, root=Path("/"), runner=subprocess
     service = selection["service"]["name"]
     with _lock(root):
         _inactive(root, service, runner)
-        verifier.inspect_installed(selection, phase="staged")
-        active = host_path(root, selection["service"]["active_unit"])
-        previous = _regular(root, active)
-        new_unit = _regular(root, host_path(root, selection["service"]["staged_unit"]))
         backup = host_path(root, BACKUPS / release)
         record = backup / "selection-transaction.json"
         require(not record.exists() and not record.is_symlink(),
                 "previous or interrupted compiler selection requires recovery")
+        verifier.inspect_installed(selection, phase="staged")
+        active = host_path(root, selection["service"]["active_unit"])
+        previous = _regular(root, active)
+        new_unit = _regular(root, host_path(root, selection["service"]["staged_unit"]))
         saved = _regular(root, backup / service)
         require(saved == previous and
                 hashlib.sha256(saved).hexdigest() == selection["rollback"]["unit_sha256"],
