@@ -248,6 +248,55 @@ def verify_sources(checkouts):
                 "compiler " + role + " checkout differs from pinned source")
 
 
+def _normalize_new_venv(venv):
+    """Normalize only links emitted by fresh Python 3.12 venv --copies."""
+    venv = Path(venv)
+    allowed = {
+        "bin/python": {"python3", "python3.12"},
+        "bin/python3": {"python3.12"},
+        "bin/python3.12": {"python3", "python"},
+        "lib64": {"lib"},
+    }
+    encountered = []
+    for folder, dirs, files in os.walk(venv, followlinks=False):
+        dirs.sort()
+        files.sort()
+        for name in dirs + files:
+            item = Path(folder) / name
+            if not item.is_symlink():
+                continue
+            relative = item.relative_to(venv).as_posix()
+            target = os.readlink(item)
+            require(relative in allowed and target in allowed[relative],
+                    "unexpected link in newly created Python venv")
+            encountered.append((relative, target))
+            if name in dirs:
+                dirs.remove(name)
+    for relative, target in sorted(encountered, key=lambda x: x[0], reverse=True):
+        item = venv / relative
+        if relative == "lib64":
+            require((venv / "lib").is_dir() and
+                    not (venv / "lib").is_symlink(), "invalid venv lib64 link")
+            item.unlink()
+            continue
+        source = item.parent / target
+        require(source.is_file(), "fresh venv interpreter link is dangling")
+        resolved = source.resolve(strict=True)
+        require(resolved.is_relative_to(venv) and resolved.is_file() and
+                not resolved.is_symlink(), "fresh venv interpreter escapes release")
+        temporary = item.with_name("." + item.name + ".copy-" + uuid.uuid4().hex)
+        try:
+            shutil.copy2(resolved, temporary, follow_symlinks=False)
+            require(temporary.is_file() and not temporary.is_symlink() and
+                    temporary.stat().st_mode & stat.S_IXUSR,
+                    "new venv interpreter copy not executable")
+            os.replace(temporary, item)
+        finally:
+            if temporary.exists():
+                temporary.unlink()
+    return sorted(relative for relative, _ in encountered)
+
+
 def stage(release, checkouts, *, python, service, executable, unit_template,
           dropins_directory=None, root=Path("/"), runner=subprocess.run):
     """Install isolated exact tuple. No selection, rollback, service or SSM."""
@@ -277,12 +326,16 @@ def stage(release, checkouts, *, python, service, executable, unit_template,
         result = runner(list(map(str, args)), check=False)
         require(result.returncode == 0, "isolated controller installation failed")
     invoke([python, "-m", "venv", "--copies", venv])
+    _normalize_new_venv(venv)
     venv_python = venv / "bin/python"
     require(venv_python.is_file(), "versioned interpreter absent")
     invoke([venv_python, "-m", "pip", "install", "--no-cache-dir",
             checkouts["root-control"], checkouts["box-control"],
             checkouts["image-build"]])
     invoke([venv_python, "-m", "pip", "check"])
+    invoke([venv_python, "-I", "-B", "-c",
+            "import zog.root_control, zog.box_control, zog.image_build; "
+            "import zog.image_build.remote_operations"])
     verify_sources(checkouts)
     launcher = venv / "bin" / executable
     require(launcher.is_file() and not launcher.is_symlink()
