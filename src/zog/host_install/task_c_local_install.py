@@ -348,17 +348,29 @@ def main(argv=None):
     action = parser.add_mutually_exclusive_group(required=True)
     action.add_argument("--plan", action="store_true")
     action.add_argument("--stage", action="store_true")
+    action.add_argument("--prepare-version", metavar="RELEASE",
+                        help="prepare isolated version without selecting it")
+    action.add_argument("--select-version", metavar="RELEASE",
+                        help="atomically select a preverified version")
+    action.add_argument("--restore-version", action="store_true",
+                        help="restore protected previous unit selection")
     action.add_argument("--inspect-state", action="store_true",
                         help="read-only existing canonical installation/STATE")
     args = parser.parse_args(argv)
     if args.inspect_state:
         result = inspect_local_host_state()
+    elif args.restore_version:
+        from . import task_c_versioned_runtime as versioned
+        result = versioned.restore()
+    elif args.select_version:
+        from . import task_c_versioned_runtime as versioned
+        result = versioned.select(args.select_version)
     else:
         if any(not value for value in (
                 args.host_deploy_source, args.host_install_source,
                 args.root_control_source, args.box_control_source,
                 args.image_build_source, args.python)):
-            parser.error("--plan/--stage require host-deploy, host-install, root-control, box-control, image-build and --python")
+            parser.error("--plan/--stage/--prepare-version require host-deploy, host-install, root-control, box-control, image-build and --python")
         selected = source_plan(
             host_deploy=args.host_deploy_source,
             host_install=args.host_install_source,
@@ -366,7 +378,11 @@ def main(argv=None):
             box_control=args.box_control_source,
             image_build=args.image_build_source,
             python=args.python)
-        result = stage(selected) if args.stage else selected
+        if args.prepare_version:
+            from . import task_c_versioned_runtime as versioned
+            result = versioned.prepare(selected, args.prepare_version)
+        else:
+            result = stage(selected) if args.stage else selected
     print(json.dumps(result, sort_keys=True))
     return 0
 
