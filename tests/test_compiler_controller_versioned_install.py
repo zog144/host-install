@@ -191,6 +191,8 @@ def test_stage_three_sources_into_isolated_release_without_selecting(setup, monk
         + candidate.encode() + b"/bin/root-control\n"
     )
     monkeypatch.setattr(installer, "verify_sources", lambda sources: None)
+    monkeypatch.setattr(installer, "_snapshot_sources",
+                        lambda sources, destination: sources)
     mock_box = root / "checkout-box-control"
     (mock_box / "box-control").mkdir(parents=True)
     (mock_box / "box-control/pyproject.toml").write_text("[build-system]\n")
