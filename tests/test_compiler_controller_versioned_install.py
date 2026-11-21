@@ -35,6 +35,7 @@ def setup(tmp_path, monkeypatch):
             "name": service,
             "active_unit": str(installer.UNIT_DIR / service),
             "staged_unit": str(installer.VERSIONS / release / "systemd" / service),
+            "staged_sha256": hashlib.sha256(staged).hexdigest(),
         },
         "composition": {
             "original_dropins": [], "selected_dropins": [],
