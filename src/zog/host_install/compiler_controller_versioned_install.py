@@ -327,19 +327,19 @@ def _reviewed(selection_file, expected_sha256):
     return verifier, selection
 
 
-def select(selection_file, expected_sha256, *, runner=subprocess.run):
+def select(selection_file, expected_sha256, *, root=Path("/"), runner=subprocess.run):
     """Live-only atomic unit selection after independent installed inspection."""
-    root = _require_root(Path("/"))
+    root = _require_root(root)
     verifier, selection = _reviewed(selection_file, expected_sha256)
     release = selection["release_id"]
     service = selection["service"]["name"]
     with _lock(root):
         _inactive(root, service, runner)
         verifier.inspect_installed(selection, phase="staged")
-        active = Path(selection["service"]["active_unit"])
+        active = host_path(root, selection["service"]["active_unit"])
         previous = _regular(root, active)
-        new_unit = _regular(root, Path(selection["service"]["staged_unit"]))
-        backup = BACKUPS / release
+        new_unit = _regular(root, host_path(root, selection["service"]["staged_unit"]))
+        backup = host_path(root, BACKUPS / release)
         record = backup / "selection-transaction.json"
         require(not record.exists() and not record.is_symlink(),
                 "previous or interrupted compiler selection requires recovery")
@@ -369,9 +369,9 @@ def select(selection_file, expected_sha256, *, runner=subprocess.run):
         return tx
 
 
-def restore(selection_file, expected_sha256, *, runner=subprocess.run):
+def restore(selection_file, expected_sha256, *, root=Path("/"), runner=subprocess.run):
     """Restore independent original unit. No service start or job replay."""
-    root = _require_root(Path("/"))
+    root = _require_root(root)
     verifier, selection = _reviewed(selection_file, expected_sha256)
     release = selection["release_id"]
     service = selection["service"]["name"]
@@ -388,7 +388,7 @@ def restore(selection_file, expected_sha256, *, runner=subprocess.run):
         saved = _regular(root, backup / service)
         require(hashlib.sha256(saved).hexdigest() == tx["old_unit_sha256"],
                 "original unit differs from protected rollback")
-        require(verifier._retained_tree_sha256(selection["rollback"]["saved_runtime_root"])
+        require(verifier._retained_tree_sha256(host_path(root, selection["rollback"]["saved_runtime_root"]))
                 == selection["rollback"]["runtime_tree_sha256"],
                 "protected original runtime differs")
         active = Path(selection["service"]["active_unit"])
