@@ -497,3 +497,16 @@ def test_changed_external_python_blocks_explicit_restore(setup):
                        match="protected original runtime or external Python changed"):
         installer.restore("reviewed.json", "f" * 64, root=root)
     assert unit.read_bytes() == staged
+
+
+
+def test_zero_length_legacy_regular_file_is_allowed(setup):
+    root, release, service, unit, original, staged, old, data, inspector = setup
+    (old / "venv").mkdir()
+    (old / "venv/__init__.py").touch()
+    receipt = installer.preserve(
+        release, service=service, original_runtime="/opt/old", root=root)
+    copy = installer.host_path(root, installer.BACKUPS / release / "previous-runtime")
+    assert (copy / "venv/__init__.py").stat().st_size == 0
+    assert installer.legacy_rollback.assert_copy(root, old, copy)[
+        "inventory_sha256"] == receipt["legacy_inventory_sha256"]
