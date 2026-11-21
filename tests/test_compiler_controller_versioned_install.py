@@ -371,7 +371,7 @@ def test_existing_old_python_symlink_still_denied_without_rewrite(setup):
     root, release, service, unit, original, staged, old, data, inspector = setup
     python = old / "bin/python"
     python.symlink_to("python3.12")
-    with pytest.raises(installer.CompilerInstallerHold, match="unexpected legacy runtime symlink"):
+    with pytest.raises(installer.legacy_rollback.LegacyHold, match="unexpected legacy runtime symlink"):
         installer.preserve(release, service=service,
                            original_runtime="/opt/old", root=root)
     assert python.is_symlink() and python.readlink() == Path("python3.12")
@@ -436,14 +436,13 @@ def test_unreviewed_or_escaping_legacy_link_holds(setup, path, target):
 def test_external_python_target_change_blocks_restore(setup):
     root, release, service, unit, original, staged, old, data, inspector = setup
     _four_links(old)
-    installer.preserve(release, service=service, original_runtime="/opt/old", root=root)
+    receipt = installer.preserve(
+        release, service=service, original_runtime="/opt/old", root=root)
     ext = root / "usr/bin/python3.12"
     ext.write_bytes(b"different interpreter")
-    with pytest.raises(installer.legacy_rollback.LegacyHold, match=""):
-        installer.legacy_rollback.assert_copy(
-            root, old,
-            installer.host_path(root, installer.BACKUPS / release / "previous-runtime"),
-            expected={"impossible": True})
+    changed = installer.legacy_rollback.inventory(root, old)
+    assert changed["python_interpreter_chain"] != receipt["python_interpreter_chain"]
+    assert changed["inventory_sha256"] != receipt["legacy_inventory_sha256"]
 
 
 def test_external_interpreter_symlink_chain_is_attested(setup):
