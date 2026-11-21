@@ -330,6 +330,12 @@ def preserve(release, *, service, original_runtime, root=Path("/"),
         digest = _inventory(root, old)
         unit = host_path(root, UNIT_DIR / service)
         unit_body = _regular(root, unit)
+        info = unit.lstat()
+        unit_metadata = {"sha256": hashlib.sha256(unit_body).hexdigest(),
+                         "size": len(unit_body),
+                         "mode": stat.S_IMODE(info.st_mode),
+                         "uid": info.st_uid if root == Path("/") else 0,
+                         "gid": info.st_gid if root == Path("/") else 0}
         # The main fragment may name an obsolete command; ordered drop-ins
         # (notably 60/70) determine the *effective* current ExecStart.
         backup = host_path(root, BACKUPS / release)
@@ -340,7 +346,7 @@ def preserve(release, *, service, original_runtime, root=Path("/"),
         shutil.copytree(old, retained, symlinks=True)
         require(_inventory(root, retained) == digest,
                 "rollback runtime copy differs from original")
-        _atomic(backup / service, unit_body, 0o600)
+        _atomic(backup / service, unit_body, unit_metadata["mode"])
         active_dropins = host_path(root, UNIT_DIR / (service + ".d"))
         preserved_dropins = backup / (service + ".d")
         selected_dropins = _dropins(root, active_dropins)
@@ -372,6 +378,7 @@ def preserve(release, *, service, original_runtime, root=Path("/"),
                    "service": service, "original_runtime": str(original_runtime),
                    "runtime_tree_sha256": digest,
                    "unit_sha256": hashlib.sha256(unit_body).hexdigest(),
+                   "original_fragment": unit_metadata,
                    "original_dropins": selected_dropins,
                    "original_effective_execstart": observed_command}
         _atomic(backup / "preservation.json", _json(receipt))
@@ -512,6 +519,8 @@ def select(selection_file, expected_sha256, *, root=Path("/"), runner=subprocess
                 and receipt.get("service") == service
                 and receipt.get("original_dropins") == composition["original_dropins"]
                 and receipt.get("unit_sha256") == hashlib.sha256(current).hexdigest()
+                and receipt.get("original_fragment", {}).get("sha256")
+                    == hashlib.sha256(current).hexdigest()
                 and current == original_unit
                 and hashlib.sha256(new_unit).hexdigest() ==
                     selection["service"]["staged_sha256"],
@@ -593,7 +602,11 @@ def restore(selection_file, expected_sha256, *, root=Path("/"),
         active_dir = host_path(root, UNIT_DIR / (service + ".d"))
         _restore_dropins(root, active_dir, original_dir, composition)
         _assert_masked(root, service, runner)
-        _atomic(active, original, 0o644)
+        receipt = json.loads(_regular(root, backup / "preservation.json"))
+        unit_mode = receipt.get("original_fragment", {}).get("mode")
+        require(type(unit_mode) is int and unit_mode in (0o600, 0o640, 0o644),
+                "unreviewed original fragment mode")
+        _atomic(active, original, unit_mode)
         _reload(root, runner)
         _inactive(root, service, runner)
         if root == Path("/"):
