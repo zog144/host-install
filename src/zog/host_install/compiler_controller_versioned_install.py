@@ -7,6 +7,7 @@ compiler execution. Neither a build nor a service start is performed here.
 from __future__ import annotations
 
 import argparse
+import io
 from contextlib import contextmanager
 import fcntl
 import hashlib
@@ -17,6 +18,8 @@ import re
 import shutil
 import stat
 import subprocess
+import tarfile
+import tempfile
 import uuid
 
 from . import compiler_legacy_rollback as legacy_rollback
@@ -248,6 +251,27 @@ def verify_sources(checkouts):
                 "compiler " + role + " checkout differs from pinned source")
 
 
+def _snapshot_sources(checkouts, destination):
+    """Build from disposable Git HEAD archives; never dirty pinned checkouts."""
+    result = {}
+    for role in SOURCES:
+        copied = Path(destination) / role
+        copied.mkdir(mode=0o700)
+        archive = subprocess.run(
+            ["git", "-C", str(checkouts[role]), "archive", "--format=tar", "HEAD"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            check=False, timeout=60,
+        )
+        require(archive.returncode == 0, "cannot snapshot verified source " + role)
+        with tarfile.open(fileobj=io.BytesIO(archive.stdout), mode="r:") as tar:
+            tar.extractall(path=copied, filter="data")
+        require((copied / ("box-control/pyproject.toml"
+                            if role == "box-control" else "pyproject.toml")).is_file(),
+                "snapshotted source packaging missing: " + role)
+        result[role] = copied
+    return result
+
+
 def _normalize_new_venv(venv):
     """Normalize only links emitted by fresh Python 3.12 venv --copies."""
     venv = Path(venv)
@@ -329,13 +353,14 @@ def stage(release, checkouts, *, python, service, executable, unit_template,
     _normalize_new_venv(venv)
     venv_python = venv / "bin/python"
     require(venv_python.is_file(), "versioned interpreter absent")
-    box_project = Path(checkouts["box-control"]) / "box-control"
-    require((box_project / "pyproject.toml").is_file() and
-            not (box_project / "pyproject.toml").is_symlink(),
-            "pinned box-control project packaging missing")
-    invoke([venv_python, "-m", "pip", "install", "--no-cache-dir",
-            checkouts["root-control"], box_project,
-            checkouts["image-build"]])
+    with tempfile.TemporaryDirectory(prefix="zog-compiler-source-") as scratch:
+        copies = _snapshot_sources(checkouts, scratch)
+        box_project = copies["box-control"] / "box-control"
+        require((box_project / "pyproject.toml").is_file()
+                and not (box_project / "pyproject.toml").is_symlink(),
+                "pinned box-control project packaging missing")
+        invoke([venv_python, "-m", "pip", "install", "--no-cache-dir",
+                copies["root-control"], box_project, copies["image-build"]])
     invoke([venv_python, "-m", "pip", "check"])
     invoke([venv_python, "-I", "-B", "-c",
             "import zog.root_control, zog.box_control, zog.image_build; "
