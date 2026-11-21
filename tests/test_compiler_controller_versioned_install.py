@@ -36,6 +36,10 @@ def setup(tmp_path, monkeypatch):
             "active_unit": str(installer.UNIT_DIR / service),
             "staged_unit": str(installer.VERSIONS / release / "systemd" / service),
         },
+        "composition": {
+            "original_dropins": [], "selected_dropins": [],
+            "original_effective": {}, "selected_effective": {},
+        },
         "rollback": {
             "unit_sha256": hashlib.sha256(original).hexdigest(),
             "saved_runtime_root": str(installer.BACKUPS / release / "previous-runtime"),
