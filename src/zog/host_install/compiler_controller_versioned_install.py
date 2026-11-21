@@ -255,6 +255,9 @@ def stage(release, checkouts, *, python, service, executable, unit_template,
     require(EXECUTABLE_NAME.fullmatch(executable) is not None,
             "invalid selected controller executable")
     verify_sources(checkouts)
+    if service == "zog-certbot-seed-root.service":
+        require(dropins_directory is not None,
+                "compiler successor must explicitly stage reviewed drop-ins")
     unit_template = bytes(unit_template)
     expected = (str(VERSIONS / release / "bin" / executable)).encode()
     require(unit_template.count(b"ExecStart=") == 1
@@ -350,6 +353,8 @@ def preserve(release, *, service, original_runtime, root=Path("/"),
         active_dropins = host_path(root, UNIT_DIR / (service + ".d"))
         preserved_dropins = backup / (service + ".d")
         selected_dropins = _dropins(root, active_dropins)
+        loaded_properties = _current_manager_composition(
+            root, service, unit, selected_dropins, runner)
         def effective_command():
             chosen = []
             for raw in [unit_body] + [
@@ -380,10 +385,36 @@ def preserve(release, *, service, original_runtime, root=Path("/"),
                    "unit_sha256": hashlib.sha256(unit_body).hexdigest(),
                    "original_fragment": unit_metadata,
                    "original_dropins": selected_dropins,
-                   "original_effective_execstart": observed_command}
+                   "original_effective_execstart": observed_command,
+                   "original_loaded_properties": loaded_properties}
         _atomic(backup / "preservation.json", _json(receipt))
         _fsync_directory(backup)
         return receipt
+
+
+def _current_manager_composition(root, service, fragment, dropins, runner):
+    """Read actual loaded service, fail on additional /run or /usr drop-ins."""
+    if root != Path("/"):
+        return None
+    keys = ("ExecStart", "ExecStartPre", "ReadOnlyPaths",
+            "Requires", "After", "DropInPaths", "FragmentPath", "LoadState")
+    result = runner(["/usr/bin/systemctl", "show", "--no-pager",
+                     "--property=" + ",".join(keys), service],
+                    check=False, capture_output=True, text=True)
+    require(result.returncode == 0, "cannot read original loaded compiler composition")
+    props = {}
+    for line in result.stdout.splitlines():
+        key, sep, value = line.partition("=")
+        require(bool(sep) and key not in props,
+                "invalid manager loaded composition")
+        props[key] = value
+    require(set(props) == set(keys) and props["LoadState"] == "loaded"
+            and props["FragmentPath"] == str(fragment)
+            and set(props["DropInPaths"].split()) ==
+                {str(fragment) + ".d/" + item["name"] for item in dropins},
+            "original manager composition differs from protected files")
+    return {key: props[key] for key in
+            ("ExecStart", "ExecStartPre", "ReadOnlyPaths", "Requires", "After")}
 
 
 def _dropins(root, directory):
@@ -518,6 +549,9 @@ def select(selection_file, expected_sha256, *, root=Path("/"), runner=subprocess
                 and receipt.get("release_id") == release
                 and receipt.get("service") == service
                 and receipt.get("original_dropins") == composition["original_dropins"]
+                and (root != Path("/") or
+                     receipt.get("original_loaded_properties") ==
+                         composition["original_effective"])
                 and receipt.get("unit_sha256") == hashlib.sha256(current).hexdigest()
                 and receipt.get("original_fragment", {}).get("sha256")
                     == hashlib.sha256(current).hexdigest()
