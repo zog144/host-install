@@ -156,3 +156,75 @@ def test_unknown_executable_refused_before_installer(setup, monkeypatch):
         installer.stage("b" * 32, {}, python="/usr/bin/python3",
                         service=service, executable="root-control",
                         unit_template=staged, root=root)
+
+
+
+def test_stage_three_sources_into_isolated_release_without_selecting(setup, monkeypatch):
+    root, release, service, unit, original, staged, old, data, inspector = setup
+    candidate = "b" * 32
+    expected = (
+        b"[Service]\nExecStart=/opt/zog/compiler-runtime/versions/"
+        + candidate.encode() + b"/bin/root-control\n"
+    )
+    monkeypatch.setattr(installer, "verify_sources", lambda sources: None)
+    commands = []
+
+    def runner(argv, check):
+        commands.append([str(arg) for arg in argv])
+        if len(argv) >= 4 and argv[1:3] == ["-m", "venv"]:
+            venv = Path(argv[-1])
+            (venv / "bin").mkdir(parents=True)
+            (venv / "bin/python").write_bytes(b"python-executable")
+            (venv / "bin/root-control").write_bytes(b"selected-console-entrypoint")
+        return SimpleNamespace(returncode=0)
+
+    result = installer.stage(
+        candidate,
+        {"root-control": "/review/root-control",
+         "box-control": "/review/box-control",
+         "image-build": "/review/image-build"},
+        python="/usr/bin/python3.12",
+        service=service,
+        executable="root-control",
+        unit_template=expected,
+        root=root,
+        runner=runner,
+    )
+    candidate_root = installer.host_path(root, installer.VERSIONS / candidate)
+    assert result["release_id"] == candidate
+    assert result["execution_authorized"] is False
+    assert result["installed_selection_reviewed"] is False
+    assert (candidate_root / "systemd" / service).read_bytes() == expected
+    assert (candidate_root / "bin/root-control").read_bytes() == b"selected-console-entrypoint"
+    assert unit.read_bytes() == original
+    assert (old / "bin/root-control").read_bytes() == b"original daemon"
+    assert any(command[1:4] == ["-m", "pip", "check"] for command in commands)
+    with pytest.raises(installer.CompilerInstallerHold, match="release already staged"):
+        installer.stage(
+            candidate,
+            {"root-control": "/review/root-control",
+             "box-control": "/review/box-control",
+             "image-build": "/review/image-build"},
+            python="/usr/bin/python3.12",
+            service=service,
+            executable="root-control",
+            unit_template=expected,
+            root=root,
+            runner=runner,
+        )
+
+
+def test_original_runtime_cannot_alias_rollback_root(setup):
+    root, release, service, unit, original, staged, old, data, inspector = setup
+    with pytest.raises(installer.CompilerInstallerHold, match="aliases selected"):
+        installer.preserve(release, service=service,
+                           original_runtime=str(installer.BACKUPS), root=root)
+    assert unit.read_bytes() == original
+
+
+def test_original_unit_must_point_to_preserved_runtime(setup):
+    root, release, service, unit, original, staged, old, data, inspector = setup
+    unit.write_bytes(b"[Service]\nExecStart=/opt/somewhere-else/root-control\n")
+    with pytest.raises(installer.CompilerInstallerHold, match="does not reference"):
+        installer.preserve(release, service=service,
+                           original_runtime="/opt/old", root=root)
