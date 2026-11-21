@@ -334,7 +334,8 @@ def preserve(release, *, service, original_runtime, root=Path("/"),
         unit = host_path(root, UNIT_DIR / service)
         unit_body = _regular(root, unit)
         info = unit.lstat()
-        unit_metadata = {"sha256": hashlib.sha256(unit_body).hexdigest(),
+        unit_metadata = {"path": str(UNIT_DIR / service),
+                         "sha256": hashlib.sha256(unit_body).hexdigest(),
                          "size": len(unit_body),
                          "mode": stat.S_IMODE(info.st_mode),
                          "uid": info.st_uid if root == Path("/") else 0,
@@ -548,13 +549,25 @@ def select(selection_file, expected_sha256, *, root=Path("/"), runner=subprocess
         verifier.inspect_installed(selection, phase="staged")
         active = host_path(root, selection["service"]["active_unit"])
         current = _regular(root, active)
-        new_unit = _regular(root, host_path(root, selection["service"]["staged_unit"]))
+        staged_file = host_path(root, selection["service"]["staged_unit"])
+        new_unit = _regular(root, staged_file)
+        staged_info = staged_file.lstat()
+        chosen = composition["selected_fragment"]
+        require(chosen == {
+            "path": selection["service"]["staged_unit"],
+            "sha256": hashlib.sha256(new_unit).hexdigest(),
+            "size": len(new_unit), "mode": stat.S_IMODE(staged_info.st_mode),
+            "uid": staged_info.st_uid if root == Path("/") else 0,
+            "gid": staged_info.st_gid if root == Path("/") else 0},
+            "staged compiler fragment metadata differs from reviewed selection")
         original_unit = _regular(root, backup / service)
         receipt = json.loads(_regular(root, backup / "preservation.json"))
         require(receipt.get("schema") == SCHEMA
                 and receipt.get("release_id") == release
                 and receipt.get("service") == service
                 and receipt.get("original_dropins") == composition["original_dropins"]
+                and receipt.get("original_fragment") ==
+                    composition["original_fragment"]
                 and (root != Path("/") or
                      receipt.get("original_loaded_properties") ==
                          composition["original_effective"])
