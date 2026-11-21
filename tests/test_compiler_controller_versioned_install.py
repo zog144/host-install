@@ -38,6 +38,14 @@ def setup(tmp_path, monkeypatch):
             "staged_sha256": hashlib.sha256(staged).hexdigest(),
         },
         "composition": {
+            "original_fragment": {
+                "path": str(installer.UNIT_DIR / service),
+                "sha256": hashlib.sha256(original).hexdigest(),
+                "size": len(original), "mode": 0o644, "uid": 0, "gid": 0},
+            "selected_fragment": {
+                "path": str(installer.VERSIONS / release / "systemd" / service),
+                "sha256": hashlib.sha256(staged).hexdigest(),
+                "size": len(staged), "mode": 0o644, "uid": 0, "gid": 0},
             "original_dropins": [], "selected_dropins": [],
             "original_effective": {}, "selected_effective": {},
         },
