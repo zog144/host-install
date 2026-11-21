@@ -329,8 +329,12 @@ def stage(release, checkouts, *, python, service, executable, unit_template,
     _normalize_new_venv(venv)
     venv_python = venv / "bin/python"
     require(venv_python.is_file(), "versioned interpreter absent")
+    box_project = Path(checkouts["box-control"]) / "box-control"
+    require((box_project / "pyproject.toml").is_file() and
+            not (box_project / "pyproject.toml").is_symlink(),
+            "pinned box-control project packaging missing")
     invoke([venv_python, "-m", "pip", "install", "--no-cache-dir",
-            checkouts["root-control"], checkouts["box-control"],
+            checkouts["root-control"], box_project,
             checkouts["image-build"]])
     invoke([venv_python, "-m", "pip", "check"])
     invoke([venv_python, "-I", "-B", "-c",
