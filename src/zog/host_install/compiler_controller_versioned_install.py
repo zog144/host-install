@@ -247,7 +247,7 @@ def verify_sources(checkouts):
 
 
 def stage(release, checkouts, *, python, service, executable, unit_template,
-          root=Path("/"), runner=subprocess.run):
+          dropins_directory=None, root=Path("/"), runner=subprocess.run):
     """Install isolated exact tuple. No selection, rollback, service or SSM."""
     root = _require_root(root)
     _check_id(release)
@@ -289,6 +289,19 @@ def stage(release, checkouts, *, python, service, executable, unit_template,
     unit_dir = dest / "systemd"
     unit_dir.mkdir(mode=0o700)
     _atomic(unit_dir / service, unit_template, 0o644)
+    if dropins_directory is not None:
+        # Candidate drop-ins are source material, not a live systemd directory.
+        source_dropins = Path(dropins_directory).absolute()
+        require(source_dropins.is_dir() and not source_dropins.is_symlink(),
+                "invalid reviewed candidate drop-in directory")
+        selected = _dropins(source_dropins.parent, source_dropins)
+        target = unit_dir / (service + ".d")
+        _safe_directory(root, target, create=True)
+        for entry in selected:
+            _atomic(target / entry["name"],
+                    _regular(source_dropins.parent, source_dropins / entry["name"]),
+                    entry["mode"])
+        _dropin_names(root, target, selected)
     _inventory(root, dest)
     return {"schema": SCHEMA, "release_id": release, "service": service,
             "staged_unit_sha256": hashlib.sha256(unit_template).hexdigest(),
@@ -328,10 +341,17 @@ def preserve(release, *, service, original_runtime, root=Path("/"),
         require(_inventory(root, retained) == digest,
                 "rollback runtime copy differs from original")
         _atomic(backup / service, unit_body, 0o600)
+        active_dropins = host_path(root, UNIT_DIR / (service + ".d"))
+        preserved_dropins = backup / (service + ".d")
+        selected_dropins = _dropins(root, active_dropins)
+        _safe_directory(root, preserved_dropins, create=True)
+        _copy_dropins(root, active_dropins, preserved_dropins,
+                      selected_dropins)
         receipt = {"schema": SCHEMA, "release_id": release,
                    "service": service, "original_runtime": str(original_runtime),
                    "runtime_tree_sha256": digest,
-                   "unit_sha256": hashlib.sha256(unit_body).hexdigest()}
+                   "unit_sha256": hashlib.sha256(unit_body).hexdigest(),
+                   "original_dropins": selected_dropins}
         _atomic(backup / "preservation.json", _json(receipt))
         _fsync_directory(backup)
         return receipt
@@ -516,6 +536,8 @@ def main(argv=None):
     parser.add_argument("--image-build-source")
     parser.add_argument("--python")
     parser.add_argument("--unit-template")
+    parser.add_argument("--dropins-directory",
+                        help="explicitly reviewed successor service drop-in directory")
     parser.add_argument("--executable")
     parser.add_argument("--service")
     parser.add_argument("--original-runtime")
@@ -533,7 +555,8 @@ def main(argv=None):
             "image-build": args.image_build_source,
         }, python=args.python, service=args.service,
             executable=args.executable,
-            unit_template=Path(args.unit_template).read_bytes())
+            unit_template=Path(args.unit_template).read_bytes(),
+            dropins_directory=args.dropins_directory)
     elif args.preserve:
         if not args.service or not args.original_runtime:
             parser.error("--preserve requires service and original runtime path")
