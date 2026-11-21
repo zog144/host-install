@@ -231,7 +231,7 @@ def test_original_runtime_cannot_alias_rollback_root(setup):
 def test_original_unit_must_point_to_preserved_runtime(setup):
     root, release, service, unit, original, staged, old, data, inspector = setup
     unit.write_bytes(b"[Service]\nExecStart=/opt/somewhere-else/root-control\n")
-    with pytest.raises(installer.CompilerInstallerHold, match="does not reference"):
+    with pytest.raises(installer.CompilerInstallerHold, match="does not name retained runtime"):
         installer.preserve(release, service=service,
                            original_runtime="/opt/old", root=root)
 
