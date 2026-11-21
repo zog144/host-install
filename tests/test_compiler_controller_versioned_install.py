@@ -20,6 +20,9 @@ def setup(tmp_path, monkeypatch):
     old = installer.host_path(tmp_path, "/opt/old")
     (old / "bin").mkdir(parents=True)
     (old / "bin/root-control").write_bytes(b"original daemon")
+    external_python = tmp_path / "usr/bin/python3.12"
+    external_python.parent.mkdir(parents=True)
+    external_python.write_bytes(b"verified python interpreter")
     new = installer.host_path(tmp_path, installer.VERSIONS / release)
     (new / "bin").mkdir(parents=True)
     staged = (
@@ -53,6 +56,10 @@ def setup(tmp_path, monkeypatch):
             "unit_sha256": hashlib.sha256(original).hexdigest(),
             "saved_runtime_root": str(installer.BACKUPS / release / "previous-runtime"),
             "runtime_tree_sha256": "will-fill-after-preserve",
+            "original_runtime": "/opt/old",
+            "legacy_inventory_schema": installer.legacy_rollback.SCHEMA,
+            "legacy_inventory_sha256": "will-fill",
+            "python_interpreter_chain": [],
         }
     }
 
@@ -76,8 +83,12 @@ def preserved(setup):
     root, release, service, unit, original, staged, old, data, inspector = setup
     installer.preserve(release, service=service,
                        original_runtime="/opt/old", root=root)
-    data["rollback"]["runtime_tree_sha256"] = installer._inventory(
+    evidence = installer.legacy_rollback.inventory(
         root, installer.host_path(root, data["rollback"]["saved_runtime_root"]))
+    data["rollback"].update({
+        "runtime_tree_sha256": evidence["tree_sha256"],
+        "legacy_inventory_sha256": evidence["inventory_sha256"],
+        "python_interpreter_chain": evidence["python_interpreter_chain"]})
     return setup
 
 
@@ -128,7 +139,7 @@ def test_tampered_retained_runtime_refuses_restore(setup):
     installer.select("reviewed.json", "f" * 64, root=root)
     copied = installer.host_path(root, installer.BACKUPS / release / "previous-runtime")
     (copied / "bin/root-control").write_bytes(b"tampered")
-    with pytest.raises(installer.CompilerInstallerHold, match="protected original runtime"):
+    with pytest.raises(installer.CompilerInstallerHold, match="legacy rollback copy differs|protected original runtime"):
         installer.restore("reviewed.json", "f" * 64, root=root)
 
 
@@ -148,7 +159,7 @@ def test_release_id_invalid(setup):
 def test_no_symlinks_in_retained_runtime(setup):
     root, release, service, unit, original, staged, old, data, inspector = setup
     (old / "bin/linked").symlink_to("root-control")
-    with pytest.raises(installer.CompilerInstallerHold, match="linked, foreign or mutable runtime file"):
+    with pytest.raises(installer.CompilerInstallerHold, match="unexpected legacy runtime symlink"):
         installer.preserve(release, service=service, original_runtime="/opt/old", root=root)
     assert unit.read_bytes() == original
 
@@ -292,8 +303,12 @@ def test_all_original_dropins_preserved_then_selected_and_restored(setup):
     backup_dir = installer.host_path(
         root, installer.BACKUPS / release / (service + ".d"))
     assert installer._dropins(root, backup_dir) == originals
-    data["rollback"]["runtime_tree_sha256"] = installer._inventory(
+    evidence = installer.legacy_rollback.inventory(
         root, installer.host_path(root, data["rollback"]["saved_runtime_root"]))
+    data["rollback"].update({
+        "runtime_tree_sha256": evidence["tree_sha256"],
+        "legacy_inventory_sha256": evidence["inventory_sha256"],
+        "python_interpreter_chain": evidence["python_interpreter_chain"]})
     installer.select("reviewed.json", "f" * 64, root=root)
     assert installer._dropins(root, original_dir) == successors
     assert "60-boot-a-restrictive-import.conf" not in [
@@ -310,8 +325,12 @@ def test_interrupted_dropin_switch_is_masked_and_explicitly_recoverable(
         with_realistic_dropins(setup))
     installer.preserve(release, service=service,
                        original_runtime="/opt/old", root=root)
-    data["rollback"]["runtime_tree_sha256"] = installer._inventory(
+    evidence = installer.legacy_rollback.inventory(
         root, installer.host_path(root, data["rollback"]["saved_runtime_root"]))
+    data["rollback"].update({
+        "runtime_tree_sha256": evidence["tree_sha256"],
+        "legacy_inventory_sha256": evidence["inventory_sha256"],
+        "python_interpreter_chain": evidence["python_interpreter_chain"]})
     actual_switch = installer._switch_dropins
 
     def interrupted(root, active_dir, existing, wanted_dir, wanted):
@@ -334,8 +353,12 @@ def test_foreign_dropin_prevents_selection_and_cannot_be_erased(setup):
         with_realistic_dropins(setup))
     installer.preserve(release, service=service,
                        original_runtime="/opt/old", root=root)
-    data["rollback"]["runtime_tree_sha256"] = installer._inventory(
+    evidence = installer.legacy_rollback.inventory(
         root, installer.host_path(root, data["rollback"]["saved_runtime_root"]))
+    data["rollback"].update({
+        "runtime_tree_sha256": evidence["tree_sha256"],
+        "legacy_inventory_sha256": evidence["inventory_sha256"],
+        "python_interpreter_chain": evidence["python_interpreter_chain"]})
     unexpected = unit.with_name(service + ".d") / "90-foreign.conf"
     unexpected.write_bytes(b"[Service]\nExecStart=/foreign\n")
     with pytest.raises(installer.CompilerInstallerHold, match="drop-in"):
@@ -348,7 +371,7 @@ def test_existing_old_python_symlink_still_denied_without_rewrite(setup):
     root, release, service, unit, original, staged, old, data, inspector = setup
     python = old / "bin/python"
     python.symlink_to("python3.12")
-    with pytest.raises(installer.CompilerInstallerHold, match="linked"):
+    with pytest.raises(installer.CompilerInstallerHold, match="unexpected legacy runtime symlink"):
         installer.preserve(release, service=service,
                            original_runtime="/opt/old", root=root)
     assert python.is_symlink() and python.readlink() == Path("python3.12")
