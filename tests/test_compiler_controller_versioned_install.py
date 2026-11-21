@@ -176,6 +176,7 @@ def test_stage_three_sources_into_isolated_release_without_selecting(setup, monk
             (venv / "bin").mkdir(parents=True)
             (venv / "bin/python").write_bytes(b"python-executable")
             (venv / "bin/root-control").write_bytes(b"selected-console-entrypoint")
+            (venv / "bin/root-control").chmod(0o755)
         return SimpleNamespace(returncode=0)
 
     result = installer.stage(
