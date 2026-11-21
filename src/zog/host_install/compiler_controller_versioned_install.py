@@ -6,6 +6,7 @@ compiler execution. Neither a build nor a service start is performed here.
 """
 from __future__ import annotations
 
+import argparse
 from contextlib import contextmanager
 import fcntl
 import hashlib
@@ -323,6 +324,12 @@ def preserve(release, *, service, original_runtime, root=Path("/"),
 def _reviewed(selection_file, expected_sha256):
     """Use the actual host-deploy PR35 independently reviewed inspector."""
     from zog.host_deploy import fonts_versioned_runtime as verifier
+    require(verifier.SCHEMA == "zog-first-fonts-versioned-controller-selection-v1"
+            and verifier.CONTRACT == "zog-build-inherited-peer-v2"
+            and verifier.SELECTED_SOURCES == {
+                role: {"revision": pair[0], "source_tree_sha256": pair[1]}
+                for role, pair in SOURCES.items()},
+            "installed host-deploy verifier does not match selected compiler contract")
     selection = verifier.load_reviewed_selection(str(selection_file), expected_sha256)
     return verifier, selection
 
@@ -402,3 +409,53 @@ def restore(selection_file, expected_sha256, *, root=Path("/"), runner=subproces
         tx["state"] = "restored"
         _atomic(tx_path, _json(tx))
         return tx
+
+
+
+def main(argv=None):
+    """Operator-facing separate compiler runtime actions; no activation."""
+    parser = argparse.ArgumentParser(description="Versioned compiler-controller installer")
+    actions = parser.add_mutually_exclusive_group(required=True)
+    actions.add_argument("--stage", metavar="RELEASE")
+    actions.add_argument("--preserve", metavar="RELEASE")
+    actions.add_argument("--select", action="store_true")
+    actions.add_argument("--restore", action="store_true")
+    parser.add_argument("--root-control-source")
+    parser.add_argument("--box-control-source")
+    parser.add_argument("--image-build-source")
+    parser.add_argument("--python")
+    parser.add_argument("--unit-template")
+    parser.add_argument("--executable")
+    parser.add_argument("--service")
+    parser.add_argument("--original-runtime")
+    parser.add_argument("--selection")
+    parser.add_argument("--expected-selection-sha256")
+    args = parser.parse_args(argv)
+    if args.stage:
+        if not all((args.root_control_source, args.box_control_source,
+                    args.image_build_source, args.python, args.unit_template,
+                    args.executable, args.service)):
+            parser.error("--stage needs three sources, python, unit template, executable and service")
+        result = stage(args.stage, {
+            "root-control": args.root_control_source,
+            "box-control": args.box_control_source,
+            "image-build": args.image_build_source,
+        }, python=args.python, service=args.service,
+            executable=args.executable,
+            unit_template=Path(args.unit_template).read_bytes())
+    elif args.preserve:
+        if not args.service or not args.original_runtime:
+            parser.error("--preserve requires service and original runtime path")
+        result = preserve(args.preserve, service=args.service,
+                          original_runtime=args.original_runtime)
+    else:
+        if not args.selection or not args.expected_selection_sha256:
+            parser.error("--select/--restore require independently reviewed selection and SHA256")
+        result = (select(args.selection, args.expected_selection_sha256)
+                  if args.select else restore(args.selection, args.expected_selection_sha256))
+    print(json.dumps(result, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
