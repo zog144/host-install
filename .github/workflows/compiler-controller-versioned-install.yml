@@ -5,6 +5,7 @@ on:
   pull_request:
     paths:
       - src/zog/host_install/compiler_controller_versioned_install.py
+      - src/zog/host_install/compiler_legacy_rollback.py
       - tests/test_compiler_controller_versioned_install.py
       - docs/host-install/COMPILER-CONTROLLER-VERSIONED-INSTALL-2026-11-21.md
       - .github/workflows/compiler-controller-versioned-install.yml
@@ -59,7 +60,7 @@ jobs:
           python -m pytest -q -rs tests/test_compiler_controller_versioned_install.py
       - name: Compile and wheel source
         run: |
-          python -m compileall -q src/zog/host_install/compiler_controller_versioned_install.py
+          python -m compileall -q src/zog/host_install/compiler_controller_versioned_install.py src/zog/host_install/compiler_legacy_rollback.py
           python -m pip wheel --no-deps . -w /tmp/compiler-wheel
           python - <<'PY'
           from pathlib import Path
