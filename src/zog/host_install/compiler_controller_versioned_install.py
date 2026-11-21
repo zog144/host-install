@@ -268,6 +268,7 @@ def stage(release, checkouts, *, python, service, executable, unit_template,
             checkouts["root-control"], checkouts["box-control"],
             checkouts["image-build"]])
     invoke([venv_python, "-m", "pip", "check"])
+    verify_sources(checkouts)
     launcher = venv / "bin" / executable
     require(launcher.is_file() and not launcher.is_symlink(),
             "selected installed controller launcher missing")
@@ -295,14 +296,18 @@ def preserve(release, *, service, original_runtime, root=Path("/"),
     _check_service(service)
     old = host_path(root, original_runtime)
     require(Path(original_runtime).is_absolute()
-            and old != host_path(root, VERSIONS / release)
-            and old != host_path(root, BACKUPS / release),
+            and ".." not in Path(original_runtime).parts
+            and not any(old == area or old in area.parents or area in old.parents
+                        for area in (host_path(root, VERSIONS),
+                                     host_path(root, BACKUPS))),
             "old runtime aliases selected or rollback location")
     with _lock(root):
         _inactive(root, service, runner)
         digest = _inventory(root, old)
         unit = host_path(root, UNIT_DIR / service)
         unit_body = _regular(root, unit)
+        require(str(original_runtime).encode("utf-8") in unit_body,
+                "original service does not reference selected old runtime")
         backup = host_path(root, BACKUPS / release)
         require(not backup.exists() and not backup.is_symlink(),
                 "rollback snapshot already exists")
