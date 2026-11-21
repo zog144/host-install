@@ -25,3 +25,24 @@ The distinct source program is `python -m zog.host_install.compiler_controller_v
 The selected **compiler-controller service name, original runtime root, actual unit template, installed launcher**, and installed-byte/RECORD values must be independently observed from the compiler Host and reviewed; they are not inferred from a historical Task C gateway. Native Work must verify the real local root-owned installed host-deploy verifier supports the pinned PR #35 inspection contract, the complete package/RECORD closure, root/box/image producer imports, file ownership and absence of mutable links, and native systemd 252 reload/rollback behavior. Test unit selection and recovery after interruption/reboot, preserve original journal and operation records, and separately prove the actual nonroot SO_PEERCRED-bound child UID/GID, cgroup, InvocationID, argv and namespace contract. No Fonts activation, compilation, service start/restart or SSM fallback is authorized here.
 
 The companion GitHub Actions workflow tests clean exact source tuples and disposable source rollback transitions without any AWS or Host operation. A green source workflow is not installed-controller acceptance.
+
+
+## November 21: observed complete compiler service composition
+
+Service: zog-certbot-seed-root.service. Fragment: /etc/systemd/system/zog-certbot-seed-root.service.
+Observed fragment SHA-256: ee3284eb9c317092312bc632ac2eebb68c4c5d36684ad4b5e86c6dd129a2d72d.
+Manager-effective ExecStart: /opt/zog/fonts-controller-d9dfd6c0-20261114/venv/bin/python -I -B /opt/zog/fonts-controller-d9dfd6c0-20261114/bootstrap.py.
+
+Four active drop-ins in /etc/systemd/system/zog-certbot-seed-root.service.d/:
+- 60-boot-a-restrictive-import.conf: f9152af9b90fd632ca5eeb280c0e592503bf04aabe8d71303b673aa5aac88bce; ExecStart reset, ReadOnlyPaths.
+- 70-fonts-combined-runtime.conf: 26902a509f10bc5adcef2a86080ae6925fe02f2b424144735445293af2a9571d; ExecStart reset to old interpreter, ReadOnlyPaths.
+- gateway-mounts.conf: 15d00d89d2af03ca5779ae549755afda34bbf41f2d715d4ac2b4f8670b9a6782; Requires/After.
+- issuer-persistence.conf: 364366b3b49fca2349cb6aa8c5f6f3ec59d49aa08b6273dc02fd6543ce33c6ef; ExecStartPre and ReadOnlyPaths.
+
+Both fragments and all active drop-ins are now preserved as bytes plus owner, group, mode, size and SHA-256, with the manager's loaded properties retained. The successor must explicitly stage a reviewed drop-in directory; its entire sorted set and approved effective properties are bound to host-deploy PR #35's selection. Do not silently reuse or drop original mount dependencies, issuer guards, or read-only paths. No actual successor drop-in bytes have been fabricated by this source change.
+
+The compiler service was ACTIVE during the original observation: no staging, preservation, or selection against that running Host is authorized. Selection requires an approved inactive maintenance window, a protected pending transaction, persistent service mask, successful daemon-reload and LoadState=masked before changing the drop-in set, a reviewed final fragment plus drop-ins, readback of effective loaded properties, and durable explicit restore/recovery. The Task C Gateway remains a different service.
+
+Separate unresolved preservation HOLD: venv/lib64 -> lib; venv/bin/python -> python3.12; venv/bin/python3.12 -> /usr/bin/python3.12; venv/bin/python3 -> python3.12. The strict full-runtime inventory still rejects these four symlinks. No symlink rewrite, flatten, exemption or Host command is implied. Native reviewer must explicitly resolve this hold before any install.
+
+Evidence requirements for native Work: independent exact selected source tuple, actual staged module/RECORD hashes, complete unit and drop-in bytes, root ownership and modes, systemd 252 effective properties, rollback interruption/reboot and nonroot peer-to-child witness. No Fonts lane activation, service start, SSM or compilation is authorized.
