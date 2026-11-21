@@ -135,7 +135,7 @@ def test_release_id_invalid(setup):
 def test_no_symlinks_in_retained_runtime(setup):
     root, release, service, unit, original, staged, old, data, inspector = setup
     (old / "bin/linked").symlink_to("root-control")
-    with pytest.raises(installer.CompilerInstallerHold, match="linked or special"):
+    with pytest.raises(installer.CompilerInstallerHold, match="linked, foreign or mutable runtime file"):
         installer.preserve(release, service=service, original_runtime="/opt/old", root=root)
     assert unit.read_bytes() == original
 
