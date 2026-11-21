@@ -337,6 +337,81 @@ def preserve(release, *, service, original_runtime, root=Path("/"),
         return receipt
 
 
+def _dropins(root, directory):
+    """Exact files and metadata for the active/staged drop-in directory."""
+    if not directory.exists() and not directory.is_symlink():
+        return []
+    _safe_directory(root, directory)
+    result = []
+    for item in sorted(directory.iterdir()):
+        require(item.name.endswith(".conf") and item.name[0].isalnum()
+                and all(c.isalnum() or c in "._-" for c in item.name),
+                "foreign systemd drop-in path")
+        st = item.lstat()
+        require(stat.S_ISREG(st.st_mode) and st.st_nlink == 1
+                and not st.st_mode & 0o022
+                and (root != Path("/") or st.st_uid == st.st_gid == 0)
+                and 0 < st.st_size <= 1024 * 1024,
+                "unsafe compiler drop-in")
+        raw = _regular(root, item)
+        result.append({"name": item.name, "sha256": hashlib.sha256(raw).hexdigest(),
+                       "size": len(raw), "mode": stat.S_IMODE(st.st_mode),
+                       "uid": st.st_uid if root == Path("/") else 0,
+                       "gid": st.st_gid if root == Path("/") else 0})
+    require(len(result) <= 64, "too many compiler drop-ins")
+    return result
+
+
+def _dropin_names(root, directory, expected):
+    observed = _dropins(root, directory)
+    require(observed == expected, "unknown or changed compiler drop-in composition")
+
+
+def _copy_dropins(root, source, destination, expected):
+    """Publish complete exact set only while the unit is masked."""
+    _dropin_names(root, source, expected)
+    _safe_directory(root, destination, create=True)
+    require(not any(destination.iterdir()), "unreconciled destination drop-ins")
+    for entry in expected:
+        body = _regular(root, source / entry["name"])
+        _atomic(destination / entry["name"], body, entry["mode"])
+    _dropin_names(root, destination, expected)
+
+
+def _assert_masked(root, service, runner):
+    if root != Path("/"):
+        return
+    result = runner(["/usr/bin/systemctl", "show", "--property=LoadState",
+                     "--value", service], check=False, capture_output=True, text=True)
+    require(result.returncode == 0 and result.stdout.strip() == "masked",
+            "compiler service not reliably masked during transition")
+
+
+def _mask_unit(root, active, service, runner):
+    """Durable /etc mask survives a restart before drop-in composition changes."""
+    pending = active.with_name("." + active.name + "." + uuid.uuid4().hex + ".mask")
+    try:
+        os.symlink("/dev/null", pending)
+        os.replace(pending, active)
+        _fsync_directory(active.parent)
+    finally:
+        if pending.is_symlink():
+            pending.unlink()
+    _reload(root, runner)
+    _assert_masked(root, service, runner)
+    _inactive(root, service, runner)
+
+
+def _switch_dropins(root, active_dir, existing, wanted_dir, wanted):
+    """Masked-only: reject foreign files, then apply complete selected set."""
+    _dropin_names(root, active_dir, existing)
+    _safe_directory(root, active_dir, create=True)
+    for entry in existing:
+        (active_dir / entry["name"]).unlink()
+    _fsync_directory(active_dir)
+    _copy_dropins(root, wanted_dir, active_dir, wanted)
+
+
 def _reviewed(selection_file, expected_sha256):
     """Use the actual host-deploy PR35 independently reviewed inspector."""
     from zog.host_deploy import fonts_versioned_runtime as verifier
