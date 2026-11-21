@@ -132,7 +132,8 @@ def _tree_digest(path):
             else:
                 kind = b"d"
                 payload = b""
-            digest.update(kind + len(rel).to_bytes(4, "big") + rel
+            mode = stat.S_IMODE(info.st_mode).to_bytes(2, "big")
+            digest.update(kind + mode + len(rel).to_bytes(4, "big") + rel
                           + len(payload).to_bytes(8, "big") + payload)
     return digest.hexdigest()
 
