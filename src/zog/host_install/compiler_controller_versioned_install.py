@@ -355,7 +355,7 @@ def stage(release, checkouts, *, python, service, executable, unit_template,
     require(venv_python.is_file(), "versioned interpreter absent")
     with tempfile.TemporaryDirectory(prefix="zog-compiler-source-") as scratch:
         copies = _snapshot_sources(checkouts, scratch)
-        box_project = copies["box-control"] / "box-control"
+        box_project = Path(copies["box-control"]) / "box-control"
         require((box_project / "pyproject.toml").is_file()
                 and not (box_project / "pyproject.toml").is_symlink(),
                 "pinned box-control project packaging missing")
