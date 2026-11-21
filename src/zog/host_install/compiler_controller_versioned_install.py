@@ -19,6 +19,8 @@ import stat
 import subprocess
 import uuid
 
+from . import compiler_legacy_rollback as legacy_rollback
+
 SCHEMA = "zog-compiler-controller-versioned-installer-v1"
 VERSIONS = Path("/opt/zog/compiler-runtime/versions")
 BACKUPS = Path("/opt/zog/compiler-runtime/rollback")
@@ -330,7 +332,8 @@ def preserve(release, *, service, original_runtime, root=Path("/"),
             "old runtime aliases selected or rollback location")
     with _lock(root):
         _inactive(root, service, runner)
-        digest = _inventory(root, old)
+        legacy_evidence = legacy_rollback.inventory(root, old)
+        digest = legacy_evidence["tree_sha256"]
         unit = host_path(root, UNIT_DIR / service)
         unit_body = _regular(root, unit)
         info = unit.lstat()
@@ -348,8 +351,7 @@ def preserve(release, *, service, original_runtime, root=Path("/"),
         backup.mkdir(mode=0o700)
         retained = backup / "previous-runtime"
         shutil.copytree(old, retained, symlinks=True)
-        require(_inventory(root, retained) == digest,
-                "rollback runtime copy differs from original")
+        legacy_rollback.assert_copy(root, old, retained, expected=legacy_evidence)
         _atomic(backup / service, unit_body, unit_metadata["mode"])
         active_dropins = host_path(root, UNIT_DIR / (service + ".d"))
         preserved_dropins = backup / (service + ".d")
@@ -389,6 +391,9 @@ def preserve(release, *, service, original_runtime, root=Path("/"),
         receipt = {"schema": SCHEMA, "release_id": release,
                    "service": service, "original_runtime": str(original_runtime),
                    "runtime_tree_sha256": digest,
+                   "legacy_inventory_schema": legacy_rollback.SCHEMA,
+                   "legacy_inventory_sha256": legacy_evidence["inventory_sha256"],
+                   "python_interpreter_chain": legacy_evidence["python_interpreter_chain"],
                    "unit_sha256": hashlib.sha256(unit_body).hexdigest(),
                    "original_fragment": unit_metadata,
                    "original_dropins": selected_dropins,
@@ -568,6 +573,12 @@ def select(selection_file, expected_sha256, *, root=Path("/"), runner=subprocess
                 and receipt.get("original_dropins") == composition["original_dropins"]
                 and receipt.get("original_fragment") ==
                     composition["original_fragment"]
+                and receipt.get("legacy_inventory_schema") ==
+                    selection["rollback"]["legacy_inventory_schema"]
+                and receipt.get("legacy_inventory_sha256") ==
+                    selection["rollback"]["legacy_inventory_sha256"]
+                and receipt.get("python_interpreter_chain") ==
+                    selection["rollback"]["python_interpreter_chain"]
                 and (root != Path("/") or
                      receipt.get("original_loaded_properties") ==
                          composition["original_effective"])
@@ -639,10 +650,19 @@ def restore(selection_file, expected_sha256, *, root=Path("/"),
                 "original unit differs from protected rollback")
         original_dir = backup / (service + ".d")
         _dropin_names(root, original_dir, composition["original_dropins"])
-        require(verifier._retained_tree_sha256(
-                    host_path(root, selection["rollback"]["saved_runtime_root"]))
-                == selection["rollback"]["runtime_tree_sha256"],
-                "protected original runtime differs")
+        custody = json.loads(_regular(root, backup / "preservation.json"))
+        original_runtime = host_path(root, custody["original_runtime"])
+        copied_runtime = host_path(root, selection["rollback"]["saved_runtime_root"])
+        require(custody.get("original_runtime") == selection["rollback"]["original_runtime"],
+                "rollback original path differs")
+        legacy_evidence = legacy_rollback.assert_copy(
+            root, original_runtime, copied_runtime)
+        require(legacy_evidence["schema"] == selection["rollback"]["legacy_inventory_schema"]
+                and legacy_evidence["tree_sha256"] == selection["rollback"]["runtime_tree_sha256"]
+                and legacy_evidence["inventory_sha256"] == selection["rollback"]["legacy_inventory_sha256"]
+                and legacy_evidence["python_interpreter_chain"] ==
+                    selection["rollback"]["python_interpreter_chain"],
+                "protected original runtime or external Python changed")
         active = host_path(root, selection["service"]["active_unit"])
         if not _already_masked(active):
             current = _regular(root, active)
