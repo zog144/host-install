@@ -389,7 +389,7 @@ def restore(selection_file, expected_sha256, *, root=Path("/"), runner=subproces
     service = selection["service"]["name"]
     with _lock(root):
         _inactive(root, service, runner)
-        backup = BACKUPS / release
+        backup = host_path(root, BACKUPS / release)
         tx_path = backup / "selection-transaction.json"
         tx = json.loads(_regular(root, tx_path))
         require(tx.get("schema") == SCHEMA and tx.get("release_id") == release
@@ -403,7 +403,7 @@ def restore(selection_file, expected_sha256, *, root=Path("/"), runner=subproces
         require(verifier._retained_tree_sha256(host_path(root, selection["rollback"]["saved_runtime_root"]))
                 == selection["rollback"]["runtime_tree_sha256"],
                 "protected original runtime differs")
-        active = Path(selection["service"]["active_unit"])
+        active = host_path(root, selection["service"]["active_unit"])
         current = _regular(root, active)
         require(hashlib.sha256(current).hexdigest() in
                 (tx["new_unit_sha256"], tx["old_unit_sha256"]),
