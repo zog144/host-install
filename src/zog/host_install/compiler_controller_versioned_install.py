@@ -445,82 +445,147 @@ def _reviewed(selection_file, expected_sha256):
     return verifier, selection
 
 
+def _restore_dropins(root, active_dir, original_dir, composition):
+    """Explicit recovery of a partial transition, never delete foreign files."""
+    before = {item["name"]: item for item in composition["original_dropins"]}
+    after = {item["name"]: item for item in composition["selected_dropins"]}
+    observed = _dropins(root, active_dir)
+    for item in observed:
+        matching = (before.get(item["name"]), after.get(item["name"]))
+        require(item in matching,
+                "unknown or modified drop-in during interrupted selection")
+    _safe_directory(root, active_dir, create=True)
+    for item in observed:
+        (active_dir / item["name"]).unlink()
+    _fsync_directory(active_dir)
+    _copy_dropins(root, original_dir, active_dir,
+                  composition["original_dropins"])
+
+
+def _already_masked(active):
+    return active.is_symlink() and os.readlink(active) == "/dev/null"
+
+
 def select(selection_file, expected_sha256, *, root=Path("/"), runner=subprocess.run):
-    """Live-only atomic unit selection after independent installed inspection."""
+    """Guarded multi-file selection, with persistent mask and durable recovery."""
     root = _require_root(root)
     verifier, selection = _reviewed(selection_file, expected_sha256)
     release = selection["release_id"]
     service = selection["service"]["name"]
+    composition = selection["composition"]
     with _lock(root):
         _inactive(root, service, runner)
         backup = host_path(root, BACKUPS / release)
-        record = backup / "selection-transaction.json"
-        require(not record.exists() and not record.is_symlink(),
+        transaction_path = backup / "selection-transaction.json"
+        require(not transaction_path.exists() and not transaction_path.is_symlink(),
                 "previous or interrupted compiler selection requires recovery")
         verifier.inspect_installed(selection, phase="staged")
         active = host_path(root, selection["service"]["active_unit"])
-        previous = _regular(root, active)
+        current = _regular(root, active)
         new_unit = _regular(root, host_path(root, selection["service"]["staged_unit"]))
-        saved = _regular(root, backup / service)
-        require(saved == previous and
-                hashlib.sha256(saved).hexdigest() == selection["rollback"]["unit_sha256"],
-                "protected original unit differs from active unit")
+        original_unit = _regular(root, backup / service)
+        receipt = json.loads(_regular(root, backup / "preservation.json"))
+        require(receipt.get("schema") == SCHEMA
+                and receipt.get("release_id") == release
+                and receipt.get("service") == service
+                and receipt.get("original_dropins") == composition["original_dropins"]
+                and receipt.get("unit_sha256") == hashlib.sha256(current).hexdigest()
+                and current == original_unit
+                and hashlib.sha256(new_unit).hexdigest() ==
+                    selection["service"]["staged_sha256"],
+                "reviewed original unit or drop-in preservation differs")
+        active_dir = host_path(root, UNIT_DIR / (service + ".d"))
+        staged_dir = host_path(root, VERSIONS / release / "systemd" / (service + ".d"))
+        _dropin_names(root, active_dir, composition["original_dropins"])
+        _dropin_names(root, staged_dir, composition["selected_dropins"])
         tx = {"schema": SCHEMA, "release_id": release, "service": service,
               "selection_sha256": expected_sha256,
-              "old_unit_sha256": hashlib.sha256(saved).hexdigest(),
+              "old_unit_sha256": hashlib.sha256(current).hexdigest(),
               "new_unit_sha256": hashlib.sha256(new_unit).hexdigest(),
+              "old_dropins": composition["original_dropins"],
+              "new_dropins": composition["selected_dropins"],
               "state": "pending"}
-        _atomic(record, _json(tx))
+        _atomic(transaction_path, _json(tx))
+        # The persistent /etc mask prevents service startup while multiple
+        # drop-in files are switched. No stop/start is invoked.
         _inactive(root, service, runner)
-        require(_regular(root, active) == previous, "unit changed before selection")
+        _mask_unit(root, active, service, runner)
         try:
+            _switch_dropins(root, active_dir, composition["original_dropins"],
+                            staged_dir, composition["selected_dropins"])
+            _assert_masked(root, service, runner)
             _atomic(active, new_unit, 0o644)
             _reload(root, runner)
             _inactive(root, service, runner)
             verifier.inspect_installed(selection, phase="selected")
         except Exception:
-            _atomic(active, saved, 0o644)
-            _reload(root, runner)
+            # Leave the persistent guard for explicit recovery. Never silently
+            # publish the old unit over an uncertain partially updated set.
+            if not _already_masked(active):
+                _mask_unit(root, active, service, runner)
             raise
         tx["state"] = "selected"
-        _atomic(record, _json(tx))
+        _atomic(transaction_path, _json(tx))
         return tx
 
 
-def restore(selection_file, expected_sha256, *, root=Path("/"), runner=subprocess.run):
-    """Restore independent original unit. No service start or job replay."""
+def restore(selection_file, expected_sha256, *, root=Path("/"),
+            runner=subprocess.run):
+    """Recover original unit+all drop-ins, including interrupted transactions."""
     root = _require_root(root)
     verifier, selection = _reviewed(selection_file, expected_sha256)
     release = selection["release_id"]
     service = selection["service"]["name"]
+    composition = selection["composition"]
     with _lock(root):
         _inactive(root, service, runner)
         backup = host_path(root, BACKUPS / release)
-        tx_path = backup / "selection-transaction.json"
-        tx = json.loads(_regular(root, tx_path))
+        transaction_path = backup / "selection-transaction.json"
+        tx = json.loads(_regular(root, transaction_path))
         require(tx.get("schema") == SCHEMA and tx.get("release_id") == release
                 and tx.get("service") == service
                 and tx.get("selection_sha256") == expected_sha256
+                and tx.get("old_dropins") == composition["original_dropins"]
+                and tx.get("new_dropins") == composition["selected_dropins"]
                 and tx.get("state") in ("pending", "selected"),
                 "unknown compiler rollback transaction")
-        saved = _regular(root, backup / service)
-        require(hashlib.sha256(saved).hexdigest() == tx["old_unit_sha256"],
+        original = _regular(root, backup / service)
+        require(hashlib.sha256(original).hexdigest() == tx["old_unit_sha256"]
+                == selection["rollback"]["unit_sha256"],
                 "original unit differs from protected rollback")
-        require(verifier._retained_tree_sha256(host_path(root, selection["rollback"]["saved_runtime_root"]))
+        original_dir = backup / (service + ".d")
+        _dropin_names(root, original_dir, composition["original_dropins"])
+        require(verifier._retained_tree_sha256(
+                    host_path(root, selection["rollback"]["saved_runtime_root"]))
                 == selection["rollback"]["runtime_tree_sha256"],
                 "protected original runtime differs")
         active = host_path(root, selection["service"]["active_unit"])
-        current = _regular(root, active)
-        require(hashlib.sha256(current).hexdigest() in
-                (tx["new_unit_sha256"], tx["old_unit_sha256"]),
-                "active compiler unit is foreign")
-        _atomic(active, saved, 0o644)
+        if not _already_masked(active):
+            current = _regular(root, active)
+            require(hashlib.sha256(current).hexdigest() in
+                    (tx["new_unit_sha256"], tx["old_unit_sha256"]),
+                    "active compiler unit is foreign")
+            _mask_unit(root, active, service, runner)
+        else:
+            _assert_masked(root, service, runner)
+        active_dir = host_path(root, UNIT_DIR / (service + ".d"))
+        _restore_dropins(root, active_dir, original_dir, composition)
+        _assert_masked(root, service, runner)
+        _atomic(active, original, 0o644)
         _reload(root, runner)
         _inactive(root, service, runner)
+        if root == Path("/"):
+            from zog.host_deploy import fonts_unit_composition as check
+            try:
+                check.verify_loaded(
+                    service, fragment=selection["service"]["active_unit"],
+                    names=[e["name"] for e in composition["original_dropins"]],
+                    expected=composition["original_effective"])
+            except check.CompositionHold as error:
+                raise CompilerInstallerHold(str(error)) from error
         tx["state"] = "restored"
-        _atomic(tx_path, _json(tx))
+        _atomic(transaction_path, _json(tx))
         return tx
-
 
 
 def main(argv=None):
