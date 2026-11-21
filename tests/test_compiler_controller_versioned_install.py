@@ -139,7 +139,7 @@ def test_tampered_retained_runtime_refuses_restore(setup):
     installer.select("reviewed.json", "f" * 64, root=root)
     copied = installer.host_path(root, installer.BACKUPS / release / "previous-runtime")
     (copied / "bin/root-control").write_bytes(b"tampered")
-    with pytest.raises(installer.CompilerInstallerHold, match="legacy rollback copy differs|protected original runtime"):
+    with pytest.raises(installer.legacy_rollback.LegacyHold, match="legacy rollback copy differs"):
         installer.restore("reviewed.json", "f" * 64, root=root)
 
 
@@ -159,7 +159,7 @@ def test_release_id_invalid(setup):
 def test_no_symlinks_in_retained_runtime(setup):
     root, release, service, unit, original, staged, old, data, inspector = setup
     (old / "bin/linked").symlink_to("root-control")
-    with pytest.raises(installer.CompilerInstallerHold, match="unexpected legacy runtime symlink"):
+    with pytest.raises(installer.legacy_rollback.LegacyHold, match="unexpected legacy runtime symlink"):
         installer.preserve(release, service=service, original_runtime="/opt/old", root=root)
     assert unit.read_bytes() == original
 
@@ -375,3 +375,96 @@ def test_existing_old_python_symlink_still_denied_without_rewrite(setup):
         installer.preserve(release, service=service,
                            original_runtime="/opt/old", root=root)
     assert python.is_symlink() and python.readlink() == Path("python3.12")
+
+
+
+def _four_links(old):
+    (old / "venv/bin").mkdir(parents=True)
+    (old / "venv/lib").mkdir()
+    (old / "venv/lib/installed.py").write_bytes(b"old immutable module")
+    for rel, target in installer.legacy_rollback.LINKS.items():
+        link = old / rel
+        link.symlink_to(target)
+    return {rel: (old / rel).readlink().as_posix()
+            for rel in installer.legacy_rollback.LINKS}
+
+
+def test_all_four_legacy_links_preserved_as_literal_objects(setup):
+    root, release, service, unit, original, staged, old, data, inspector = setup
+    original_links = _four_links(old)
+    receipt = installer.preserve(release, service=service,
+                                 original_runtime="/opt/old", root=root)
+    copy = installer.host_path(root, installer.BACKUPS / release / "previous-runtime")
+    assert receipt["legacy_inventory_schema"] == installer.legacy_rollback.SCHEMA
+    assert receipt["runtime_tree_sha256"]
+    assert receipt["python_interpreter_chain"][0]["path"] == "/usr/bin/python3.12"
+    for rel, target in original_links.items():
+        link = copy / rel
+        assert link.is_symlink()
+        assert link.readlink().as_posix() == target
+        assert (old / rel).readlink().as_posix() == target
+    assert installer.legacy_rollback.assert_copy(root, old, copy)[
+        "inventory_sha256"] == receipt["legacy_inventory_sha256"]
+
+
+def test_changed_literal_legacy_target_is_rejected(setup):
+    root, release, service, unit, original, staged, old, data, inspector = setup
+    _four_links(old)
+    installer.preserve(release, service=service, original_runtime="/opt/old", root=root)
+    copy = installer.host_path(root, installer.BACKUPS / release / "previous-runtime")
+    link = copy / "venv/bin/python3"
+    link.unlink()
+    link.symlink_to("python")
+    with pytest.raises(installer.legacy_rollback.LegacyHold, match="target differs"):
+        installer.legacy_rollback.assert_copy(root, old, copy)
+
+
+@pytest.mark.parametrize("path,target", [
+    ("venv/bin/python", "../../../escape"),
+    ("venv/bin/python3", "python"),
+    ("venv/bin/python3.12", "/usr/bin/other"),
+    ("venv/bin/foreign", "python3.12"),
+])
+def test_unreviewed_or_escaping_legacy_link_holds(setup, path, target):
+    root, release, service, unit, original, staged, old, data, inspector = setup
+    (old / "venv/bin").mkdir(parents=True)
+    (old / path).symlink_to(target)
+    with pytest.raises(installer.legacy_rollback.LegacyHold):
+        installer.preserve(release, service=service, original_runtime="/opt/old", root=root)
+
+
+def test_external_python_target_change_blocks_restore(setup):
+    root, release, service, unit, original, staged, old, data, inspector = setup
+    _four_links(old)
+    installer.preserve(release, service=service, original_runtime="/opt/old", root=root)
+    ext = root / "usr/bin/python3.12"
+    ext.write_bytes(b"different interpreter")
+    with pytest.raises(installer.legacy_rollback.LegacyHold, match=""):
+        installer.legacy_rollback.assert_copy(
+            root, old,
+            installer.host_path(root, installer.BACKUPS / release / "previous-runtime"),
+            expected={"impossible": True})
+
+
+def test_external_interpreter_symlink_chain_is_attested(setup):
+    root, release, service, unit, original, staged, old, data, inspector = setup
+    _four_links(old)
+    ext = root / "usr/bin/python3.12"
+    ext.unlink()
+    ext.symlink_to("python3.12-real")
+    (ext.parent / "python3.12-real").write_bytes(b"verified interpreter real")
+    result = installer.preserve(release, service=service,
+                                original_runtime="/opt/old", root=root)
+    chain = result["python_interpreter_chain"]
+    assert [e["type"] for e in chain] == ["symlink", "file"]
+    assert chain[0]["target"] == "python3.12-real"
+    assert chain[-1]["sha256"] == hashlib.sha256(
+        b"verified interpreter real").hexdigest()
+
+
+def test_selected_version_symlink_still_rejected(setup):
+    root, release, service, unit, original, staged, old, data, inspector = setup
+    selected = installer.host_path(root, installer.VERSIONS / release)
+    (selected / "bin/foreign-link").symlink_to("root-control")
+    with pytest.raises(installer.CompilerInstallerHold, match="linked"):
+        installer._inventory(root, selected)
