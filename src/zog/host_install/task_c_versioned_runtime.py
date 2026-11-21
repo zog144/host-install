@@ -115,6 +115,7 @@ def _check_tree(path, root):
 def _tree_digest(path):
     digest = hashlib.sha256()
     for parent, dirs, files in os.walk(path, followlinks=False):
+        dirs.sort()
         for name in sorted(dirs + files):
             child = Path(parent) / name
             rel = child.relative_to(path).as_posix().encode()
