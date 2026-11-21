@@ -467,3 +467,33 @@ def test_selected_version_symlink_still_rejected(setup):
     (selected / "bin/foreign-link").symlink_to("root-control")
     with pytest.raises(installer.CompilerInstallerHold, match="linked"):
         installer._inventory(root, selected)
+
+
+
+def test_restore_with_four_links_keeps_original_runtime_path(setup):
+    root, release, service, unit, original, staged, old, data, inspector = setup
+    links = _four_links(old)
+    preserved(setup)
+    installer.select("reviewed.json", "f" * 64, root=root)
+    assert installer.restore("reviewed.json", "f" * 64, root=root)[
+        "state"] == "restored"
+    assert unit.read_bytes() == original
+    assert data["rollback"]["original_runtime"] == "/opt/old"
+    for rel, target in links.items():
+        assert (old / rel).readlink().as_posix() == target
+    copied = installer.host_path(
+        root, installer.BACKUPS / release / "previous-runtime")
+    assert installer.legacy_rollback.assert_copy(root, old, copied)[
+        "inventory_sha256"] == data["rollback"]["legacy_inventory_sha256"]
+
+
+def test_changed_external_python_blocks_explicit_restore(setup):
+    root, release, service, unit, original, staged, old, data, inspector = setup
+    _four_links(old)
+    preserved(setup)
+    installer.select("reviewed.json", "f" * 64, root=root)
+    (root / "usr/bin/python3.12").write_bytes(b"replaced external interpreter")
+    with pytest.raises(installer.CompilerInstallerHold,
+                       match="protected original runtime or external Python changed"):
+        installer.restore("reviewed.json", "f" * 64, root=root)
+    assert unit.read_bytes() == staged
