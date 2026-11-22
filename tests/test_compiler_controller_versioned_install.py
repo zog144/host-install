@@ -791,3 +791,32 @@ def test_foreign_startup_permit_blocks_selection(setup):
     with pytest.raises(installer.CompilerInstallerHold, match="startup permit"):
         installer.select("reviewed.json", "f" * 64, root=root)
     assert unit.read_bytes() == original
+
+
+
+def test_restore_guard_is_loaded_before_marking_transaction_incomplete(
+        setup, monkeypatch):
+    root, release, service, unit, original, staged, old, data, inspector = preserved(setup)
+    installer.select("reviewed.json", "f" * 64, root=root)
+    check = installer._confirm_guard_loaded
+
+    def simulated_reboot(root_arg, service_arg, directory, runner):
+        if (directory / "zzzz-zog-compiler-transaction-guard.conf").exists():
+            raise KeyboardInterrupt("crash-before-restoring-commit")
+        return check(root_arg, service_arg, directory, runner)
+
+    monkeypatch.setattr(installer, "_confirm_guard_loaded", simulated_reboot)
+    with pytest.raises(KeyboardInterrupt, match="crash-before-restoring-commit"):
+        installer.restore("reviewed.json", "f" * 64, root=root)
+    receipt = installer.host_path(
+        root, installer.BACKUPS / release / "selection-transaction.json")
+    assert json.loads(receipt.read_text())["state"] == "selected"
+    assert unit.read_bytes() == staged
+    guard = unit.with_name(service + ".d") / (
+        "zzzz-zog-compiler-transaction-guard.conf")
+    assert guard.is_file()
+    assert b"ConditionPathExists=" in guard.read_bytes()
+    monkeypatch.setattr(installer, "_confirm_guard_loaded", check)
+    assert installer.restore("reviewed.json", "f" * 64, root=root)["state"] == "restored"
+    assert unit.read_bytes() == original
+    assert not guard.exists()
