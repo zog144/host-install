@@ -820,3 +820,74 @@ def test_restore_guard_is_loaded_before_marking_transaction_incomplete(
     assert installer.restore("reviewed.json", "f" * 64, root=root)["state"] == "restored"
     assert unit.read_bytes() == original
     assert not guard.exists()
+
+
+
+def test_crash_after_arming_before_guard_does_not_claim_pending(
+        setup, monkeypatch):
+    root, release, service, unit, original, staged, old, data, inspector = preserved(setup)
+    guard = unit.with_name(service + ".d") / (
+        "zzzz-zog-compiler-transaction-guard.conf")
+    receipt = installer.host_path(
+        root, installer.BACKUPS / release / "selection-transaction.json")
+    actual_guard = installer._startup_guard
+
+    def crash_before_guard(*args, **kwargs):
+        raise KeyboardInterrupt("crash-before-durable-startup-guard")
+
+    monkeypatch.setattr(installer, "_startup_guard", crash_before_guard)
+    with pytest.raises(KeyboardInterrupt, match="crash-before-durable"):
+        installer.select("reviewed.json", "f" * 64, root=root)
+    assert json.loads(receipt.read_text())["state"] == "arming"
+    assert unit.read_bytes() == original
+    assert not guard.exists()
+    monkeypatch.setattr(installer, "_startup_guard", actual_guard)
+    assert installer.restore("reviewed.json", "f" * 64, root=root)["state"] == "aborted"
+    assert unit.read_bytes() == original
+    assert not guard.exists()
+
+
+def test_crash_after_guard_before_pending_keeps_original_and_recovers(
+        setup, monkeypatch):
+    root, release, service, unit, original, staged, old, data, inspector = preserved(setup)
+    guard = unit.with_name(service + ".d") / (
+        "zzzz-zog-compiler-transaction-guard.conf")
+    receipt = installer.host_path(
+        root, installer.BACKUPS / release / "selection-transaction.json")
+    actual_loaded = installer._confirm_guard_loaded
+
+    def crash_after_load(*args, **kwargs):
+        raise KeyboardInterrupt("crash-after-guard-before-pending")
+
+    monkeypatch.setattr(installer, "_confirm_guard_loaded", crash_after_load)
+    with pytest.raises(KeyboardInterrupt, match="crash-after-guard"):
+        installer.select("reviewed.json", "f" * 64, root=root)
+    assert json.loads(receipt.read_text())["state"] == "arming"
+    assert unit.read_bytes() == original
+    assert guard.is_file()
+    assert not installer.host_path(
+        root, installer.BACKUPS / release / "startup-permit").exists()
+    monkeypatch.setattr(installer, "_confirm_guard_loaded", actual_loaded)
+    assert installer.restore("reviewed.json", "f" * 64, root=root)["state"] == "aborted"
+    assert unit.read_bytes() == original
+    assert not guard.exists()
+
+
+def test_arming_recovery_without_guard_does_not_require_inactive_original(
+        setup, monkeypatch):
+    root, release, service, unit, original, staged, old, data, inspector = preserved(setup)
+    real_guard = installer._startup_guard
+    monkeypatch.setattr(
+        installer, "_startup_guard",
+        lambda *args, **kwargs: (_ for _ in ()).throw(KeyboardInterrupt("reboot")))
+    with pytest.raises(KeyboardInterrupt, match="reboot"):
+        installer.select("reviewed.json", "f" * 64, root=root)
+    monkeypatch.setattr(installer, "_startup_guard", real_guard)
+    # Simulate a boot-triggered original unit. Recovery may ABORT a wholly
+    # unmodified arming selection rather than insist that it is inactive.
+    monkeypatch.setattr(
+        installer, "_inactive",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("arming recovery must not require inactivity")))
+    assert installer.restore("reviewed.json", "f" * 64, root=root)["state"] == "aborted"
+    assert unit.read_bytes() == original
