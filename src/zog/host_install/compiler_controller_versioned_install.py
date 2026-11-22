@@ -773,26 +773,38 @@ def select(selection_file, expected_sha256, *, root=Path("/"), runner=subprocess
               "new_dropins": composition["selected_dropins"],
               "state": "pending"}
         _atomic(transaction_path, _json(tx))
-        # The persistent /etc mask prevents service startup while multiple
-        # drop-in files are switched. No stop/start is invoked.
+        # The permanent on-disk ConditionPathExists guard survives reboot
+        # independently of the temporary /dev/null fragment mask. Its
+        # startup-permit marker is deliberately absent and never created.
+        guard = _startup_guard(root, release, active_dir)
+        _reload(root, runner)
         _inactive(root, service, runner)
+        _confirm_guard_loaded(root, service, active_dir, runner)
         _mask_unit(root, active, service, runner)
         try:
             _switch_dropins(root, active_dir, composition["original_dropins"],
-                            staged_dir, composition["selected_dropins"])
+                            staged_dir, composition["selected_dropins"], guard)
             _assert_masked(root, service, runner)
             _atomic(active, new_unit, 0o644)
             _reload(root, runner)
             _inactive(root, service, runner)
-            verifier.inspect_installed(selection, phase="selected")
+            _confirm_guard_loaded(root, service, active_dir, runner)
+            verifier.inspect_installed(selection, phase="selected",
+                                       transaction_guard=True)
         except Exception:
-            # Leave the persistent guard for explicit recovery. Never silently
-            # publish the old unit over an uncertain partially updated set.
+            # Do not remove the persistent guard on failure or interruption.
+            # Even when the fragment has been unmasked, reboot cannot start
+            # the pending composition while its permit remains absent.
             if not _already_masked(active):
                 _mask_unit(root, active, service, runner)
             raise
         tx["state"] = "selected"
         _atomic(transaction_path, _json(tx))
+        # Fully verified and durably selected BEFORE allowing any start.
+        # If interrupted here, the verified release remains guarded and
+        # explicit restore/recovery can still inspect the transaction.
+        _remove_guard(root, release, active_dir, service, runner)
+        verifier.inspect_installed(selection, phase="selected")
         return tx
 
 
@@ -814,7 +826,7 @@ def restore(selection_file, expected_sha256, *, root=Path("/"),
                 and tx.get("selection_sha256") == expected_sha256
                 and tx.get("old_dropins") == composition["original_dropins"]
                 and tx.get("new_dropins") == composition["selected_dropins"]
-                and tx.get("state") in ("pending", "selected"),
+                and tx.get("state") in ("pending", "selected", "restoring"),
                 "unknown compiler rollback transaction")
         original = _regular(root, backup / service)
         require(hashlib.sha256(original).hexdigest() == tx["old_unit_sha256"]
