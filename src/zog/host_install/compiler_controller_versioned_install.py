@@ -868,15 +868,37 @@ def restore(selection_file, expected_sha256, *, root=Path("/"),
         if tx["state"] == "restored":
             require(_regular(root, active) == original,
                     "already restored compiler fragment differs")
-            # Reboot after the durable restored commit may leave only the
-            # guard cleanup unfinished; finish that conservatively.
-            if (active_dir / "zzzz-zog-compiler-transaction-guard.conf").exists():
+            # Reboot after durable restore may leave only guard cleanup.
+            # Independently re-attest loaded original properties before
+            # permitting any startup; never rely on a stale pre-reboot check.
+            from zog.host_deploy import fonts_unit_composition as check
+            guarded = (active_dir / check.GUARD_NAME).exists()
+            if guarded:
+                guard = _startup_guard(root, release, active_dir)
                 _dropin_names(root, active_dir, sorted(
-                    [*composition["original_dropins"],
-                     _startup_guard(root, release, active_dir)],
+                    [*composition["original_dropins"], guard],
                     key=lambda entry: entry["name"]))
+                if root == Path("/"):
+                    try:
+                        check.verify_loaded(
+                            service, fragment=selection["service"]["active_unit"],
+                            names=[*[e["name"] for e in
+                                     composition["original_dropins"]],
+                                   check.GUARD_NAME],
+                            expected=composition["original_effective"])
+                    except check.CompositionHold as error:
+                        raise CompilerInstallerHold(str(error)) from error
                 _remove_guard(root, release, active_dir, service, runner)
             _dropin_names(root, active_dir, composition["original_dropins"])
+            if root == Path("/"):
+                try:
+                    check.verify_loaded(
+                        service, fragment=selection["service"]["active_unit"],
+                        names=[e["name"] for e in
+                               composition["original_dropins"]],
+                        expected=composition["original_effective"])
+                except check.CompositionHold as error:
+                    raise CompilerInstallerHold(str(error)) from error
             return tx
         if not _already_masked(active):
             current = _regular(root, active)
