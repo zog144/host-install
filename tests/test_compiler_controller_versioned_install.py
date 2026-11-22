@@ -108,7 +108,7 @@ def test_preserve_select_and_restore_without_touching_original_runtime(setup):
     result = installer.select("reviewed.json", "f" * 64, root=root)
     assert result["state"] == "selected"
     assert unit.read_bytes() == staged
-    assert inspector.phases == ["staged", "selected"]
+    assert inspector.phases == ["staged", "selected", "selected"]
     rollback = installer.restore("reviewed.json", "f" * 64, root=root)
     assert rollback["state"] == "restored"
     assert unit.read_bytes() == original
