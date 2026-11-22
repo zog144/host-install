@@ -891,3 +891,61 @@ def test_arming_recovery_without_guard_does_not_require_inactive_original(
             AssertionError("arming recovery must not require inactivity")))
     assert installer.restore("reviewed.json", "f" * 64, root=root)["state"] == "aborted"
     assert unit.read_bytes() == original
+
+
+def _approved_dependency_identity():
+    from zog.host_deploy import fonts_unit_composition as composition
+    raw = _manager_properties()
+    raw["After"] = "network.target dbus.socket state.mount"
+    raw["Requires"] = "state.mount dbus.socket network.target"
+    stable, _ = composition.normalize_loaded_commands(raw)
+    return stable
+
+
+@pytest.mark.parametrize("field", ["After", "Requires"])
+def test_rollback_identity_accepts_reordered_dependencies_without_mutation(field):
+    approved = _approved_dependency_identity()
+    receipt = dict(approved)
+    receipt[field] = " ".join(reversed(approved[field].split()))
+    original_receipt = receipt.copy()
+    original_approved = approved.copy()
+    assert receipt[field] != approved[field]
+    # Selection and restoration both call this exact same predicate.
+    assert installer._effective_equivalent(receipt, approved)
+    assert installer._effective_equivalent(approved, receipt)
+    assert receipt == original_receipt
+    assert approved == original_approved
+
+
+@pytest.mark.parametrize("field", ["After", "Requires"])
+def test_rollback_identity_rejects_missing_extra_or_duplicate_dependencies(field):
+    approved = _approved_dependency_identity()
+    for replacement in ("state.mount dbus.socket",
+                        "state.mount dbus.socket foreign.mount network.target",
+                        "state.mount dbus.socket network.target state.mount"):
+        observed = dict(approved, **{field: replacement})
+        assert not installer._effective_equivalent(observed, approved)
+
+
+@pytest.mark.parametrize("changed", ["ExecStart", "ExecStartPre", "ReadOnlyPaths"])
+def test_rollback_identity_requires_exact_commands_and_restrictions(changed):
+    approved = _approved_dependency_identity()
+    observed = dict(approved)
+    if changed == "ExecStart":
+        observed[changed] = [{**approved[changed][0], "argv": "/foreign"}]
+    elif changed == "ExecStartPre":
+        observed[changed] = [{**approved[changed][0], "argv": "/foreign"}]
+    else:
+        observed[changed] = "/foreign"
+    assert not installer._effective_equivalent(observed, approved)
+
+
+def test_rollback_identity_rejects_missing_foreign_and_malformed_fields():
+    approved = _approved_dependency_identity()
+    assert not installer._effective_equivalent(None, approved)
+    assert not installer._effective_equivalent(
+        {k: v for k, v in approved.items() if k != "After"}, approved)
+    assert not installer._effective_equivalent(
+        dict(approved, Unexpected="value"), approved)
+    assert not installer._effective_equivalent(
+        dict(approved, Requires=["state.mount", "network.target"]), approved)
