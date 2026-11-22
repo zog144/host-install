@@ -46,7 +46,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: zog144/host-deploy
-          ref: bf4ce21bfe466942d78ff8184e40b8d4d28668a6
+          ref: 09f02df723c1f6773cf936107641de688c90e862
           path: companions/host-deploy
           persist-credentials: false
       - uses: actions/setup-python@v5
