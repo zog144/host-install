@@ -5,6 +5,9 @@ build/install and imports from the three exact source checkouts. It never
 inspects or changes a Host systemd service.
 """
 import os
+import hashlib
+import json
+import tarfile
 from pathlib import Path
 import subprocess
 import tempfile
@@ -23,7 +26,8 @@ for path in checkouts.values():
     subprocess.run(["git", "config", "--global", "--add",
                     "safe.directory", str(path)], check=True)
 installer.verify_sources(checkouts)
-release = "a1" * 16
+# Distinct candidate identity derived from exact 4-component reviewed source tuple.
+release = "be8d28824d3e3880f901b4c9c58af3ab"
 service = "zog-root-control.service"
 unit = (f"[Service]\nExecStart=/opt/zog/compiler-runtime/versions/"
         f"{release}/bin/root-control\n").encode()
@@ -49,6 +53,33 @@ with tempfile.TemporaryDirectory(prefix="compiler-al2023-") as tmp:
     assert not any(item.is_symlink() for directory, dirs, files in
                    os.walk(selected) for item in
                    [Path(directory) / name for name in dirs + files])
+    # Store a distinct, unapproved source-built candidate in the Actions
+    # artifact store. No Host unit, rollback tree or historical record is used.
+    artifact_dir = Path("/work/candidate-out")
+    artifact_dir.mkdir(exist_ok=True)
+    candidate = artifact_dir / ("compiler-runtime-" + release + ".tar.gz")
+    with tarfile.open(candidate, mode="w:gz", dereference=False) as archive:
+        archive.add(selected, arcname="versions/" + release)
+    release_bytes = candidate.read_bytes()
+    manifest = {
+        "schema": "zog-compiler-disposable-candidate-v1",
+        "release_id": release,
+        "native_installed": False,
+        "selection_approved": False,
+        "execution_authorized": False,
+        "service_unit_fixture_only": True,
+        "requires_reviewed_real_unit_and_dropins": True,
+        "source_revisions": {role: pins[0] for role, pins in installer.SOURCES.items()},
+        "source_inventory_sha256": {role: pins[1] for role, pins in installer.SOURCES.items()},
+        "host_deploy_verifier_revision": "8a00b0f9b55416aca11aea6a4940236690f4ab9f",
+        "runtime_tree_sha256": installer._inventory(root, selected),
+        "archive_sha256": hashlib.sha256(release_bytes).hexdigest(),
+        "archive_size": len(release_bytes),
+        "archive_name": candidate.name,
+    }
+    (artifact_dir / "candidate-manifest.json").write_text(
+        json.dumps(manifest, sort_keys=True, indent=2) + "\\n", encoding="utf-8")
     print("ZOG_AL2023_REAL_COMPILER_STAGE_PASS")
     print("release:", release)
+    print("candidate_archive_sha256:", manifest["archive_sha256"])
     print("strict_inventory_sha256:", installer._inventory(root, selected))
