@@ -589,6 +589,8 @@ def _startup_guard(root, release, active_dir):
         _safe_directory(root, active_dir, create=True)
         _atomic(guard, expected, 0o644)
     items = _dropins(root, active_dir)
+    require(all(entry["name"] <= name for entry in items),
+            "drop-in ordered after protective startup guard")
     matching = [entry for entry in items if entry["name"] == name]
     require(len(matching) == 1, "missing durable compiler startup guard")
     return matching[0]
@@ -604,7 +606,7 @@ def _confirm_guard_loaded(root, service, active_dir, runner):
     props = dict(line.split("=", 1) for line in result.stdout.splitlines()
                  if "=" in line)
     require(props.get("LoadState") == "loaded"
-            and str(active_dir / "00-zog-compiler-selection-guard.conf")
+            and str(active_dir / "zzzz-zog-compiler-transaction-guard.conf")
                 in props.get("DropInPaths", "").split(),
             "persistent startup guard is not manager-loaded")
 
@@ -868,7 +870,7 @@ def restore(selection_file, expected_sha256, *, root=Path("/"),
                     "already restored compiler fragment differs")
             # Reboot after the durable restored commit may leave only the
             # guard cleanup unfinished; finish that conservatively.
-            if (active_dir / "00-zog-compiler-selection-guard.conf").exists():
+            if (active_dir / "zzzz-zog-compiler-transaction-guard.conf").exists():
                 _dropin_names(root, active_dir, sorted(
                     [*composition["original_dropins"],
                      _startup_guard(root, release, active_dir)],
