@@ -701,3 +701,93 @@ def test_manager_unknown_command_metadata_fails_closed():
     with pytest.raises(installer.CompilerInstallerHold, match="unknown or incomplete"):
         installer._current_manager_composition(
             Path("/"), service, fragment, [], runner)
+
+
+
+def test_reboot_after_unmask_before_selected_inspection_keeps_start_blocked(
+        setup, monkeypatch):
+    """Simulated process death bypasses exception cleanup; guard survives."""
+    root, release, service, unit, original, staged, old, data, inspector = preserved(setup)
+    original_inspect = inspector.inspect_installed
+
+    def interrupted(selection, phase, transaction_guard=False):
+        if phase == "selected" and transaction_guard:
+            raise KeyboardInterrupt("simulated-crash-before-selected-inspection")
+        return original_inspect(selection, phase,
+                                transaction_guard=transaction_guard)
+
+    monkeypatch.setattr(inspector, "inspect_installed", interrupted)
+    with pytest.raises(KeyboardInterrupt, match="simulated-crash"):
+        installer.select("reviewed.json", "f" * 64, root=root)
+    # The selected main fragment has already replaced the temporary mask,
+    # but the independently persisted condition still denies startup.
+    assert unit.read_bytes() == staged
+    guard = unit.with_name(service + ".d") / (
+        "00-zog-compiler-selection-guard.conf")
+    assert guard.is_file()
+    assert b"ConditionPathExists=" in guard.read_bytes()
+    assert not installer.host_path(
+        root, installer.BACKUPS / release / "startup-permit").exists()
+    transaction = installer.host_path(
+        root, installer.BACKUPS / release / "selection-transaction.json")
+    assert json.loads(transaction.read_text())["state"] == "pending"
+    monkeypatch.setattr(inspector, "inspect_installed", original_inspect)
+    assert installer.restore("reviewed.json", "f" * 64, root=root)["state"] == "restored"
+    assert unit.read_bytes() == original
+    assert not guard.exists()
+
+
+def test_reboot_during_restore_after_unmask_still_denies_start(
+        setup, monkeypatch):
+    root, release, service, unit, original, staged, old, data, inspector = preserved(setup)
+    installer.select("reviewed.json", "f" * 64, root=root)
+    active_dir = unit.with_name(service + ".d")
+    guard = active_dir / "00-zog-compiler-selection-guard.conf"
+    confirm = installer._confirm_guard_loaded
+
+    def die_after_original_loaded(root_arg, service_arg, directory, runner):
+        if unit.is_file() and not unit.is_symlink() and unit.read_bytes() == original:
+            raise KeyboardInterrupt("simulated-restore-reboot")
+        return confirm(root_arg, service_arg, directory, runner)
+
+    monkeypatch.setattr(installer, "_confirm_guard_loaded", die_after_original_loaded)
+    with pytest.raises(KeyboardInterrupt, match="simulated-restore-reboot"):
+        installer.restore("reviewed.json", "f" * 64, root=root)
+    assert unit.read_bytes() == original
+    assert guard.is_file()
+    assert json.loads(installer.host_path(
+        root, installer.BACKUPS / release /
+        "selection-transaction.json").read_text())["state"] == "restoring"
+    monkeypatch.setattr(installer, "_confirm_guard_loaded", confirm)
+    assert installer.restore("reviewed.json", "f" * 64, root=root)["state"] == "restored"
+    assert not guard.exists()
+
+
+def test_reboot_after_restored_commit_completes_guard_cleanup(
+        setup, monkeypatch):
+    root, release, service, unit, original, staged, old, data, inspector = preserved(setup)
+    installer.select("reviewed.json", "f" * 64, root=root)
+    actual_remove = installer._remove_guard
+
+    def die_before_release(*args, **kwargs):
+        raise KeyboardInterrupt("power-loss-after-durable-restore")
+
+    monkeypatch.setattr(installer, "_remove_guard", die_before_release)
+    with pytest.raises(KeyboardInterrupt, match="power-loss-after-durable"):
+        installer.restore("reviewed.json", "f" * 64, root=root)
+    assert unit.read_bytes() == original
+    guard = unit.with_name(service + ".d") / (
+        "00-zog-compiler-selection-guard.conf")
+    assert guard.is_file()
+    monkeypatch.setattr(installer, "_remove_guard", actual_remove)
+    assert installer.restore("reviewed.json", "f" * 64, root=root)["state"] == "restored"
+    assert not guard.exists()
+
+
+def test_foreign_startup_permit_blocks_selection(setup):
+    root, release, service, unit, original, staged, old, data, inspector = preserved(setup)
+    permit = installer.host_path(root, installer.BACKUPS / release / "startup-permit")
+    permit.write_text("foreign-permit")
+    with pytest.raises(installer.CompilerInstallerHold, match="startup permit"):
+        installer.select("reviewed.json", "f" * 64, root=root)
+    assert unit.read_bytes() == original
