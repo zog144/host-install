@@ -46,7 +46,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: zog144/host-deploy
-          ref: 15ea92a76242941d3d31aeb58282418aee54b321
+          ref: caa87434cf3c0556084d62642d66b47a348e26a9
           path: companions/host-deploy
           persist-credentials: false
       - uses: actions/setup-python@v5
@@ -118,7 +118,7 @@ jobs:
       - name: Preserve new disposable immutable runtime candidate
         uses: actions/upload-artifact@v4
         with:
-          name: compiler-runtime-7b71ad0227c792d9f6f71785c568181f
+          name: compiler-runtime-3aa6ab5e221a81b3fd7962ec8d91faf9
           path: candidate-out/
           if-no-files-found: error
           retention-days: 30
