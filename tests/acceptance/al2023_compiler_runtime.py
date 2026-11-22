@@ -78,7 +78,7 @@ with tempfile.TemporaryDirectory(prefix="compiler-al2023-") as tmp:
         "archive_name": candidate.name,
     }
     (artifact_dir / "candidate-manifest.json").write_text(
-        json.dumps(manifest, sort_keys=True, indent=2) + "\\n", encoding="utf-8")
+        json.dumps(manifest, sort_keys=True, indent=2) + "\n", encoding="utf-8")
     print("ZOG_AL2023_REAL_COMPILER_STAGE_PASS")
     print("release:", release)
     print("candidate_archive_sha256:", manifest["archive_sha256"])
