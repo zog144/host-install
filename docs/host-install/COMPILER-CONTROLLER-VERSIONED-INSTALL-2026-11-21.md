@@ -132,3 +132,18 @@ The other exact companions remain:
 The AL2023 acceptance job builds all three real source packages into an isolated Python 3.12 virtual environment with actual pip installation and imports, checks the authenticated root peer API in the installed interpreter, runs `pip check`, and enforces the existing no-symlink full runtime inventory. It now exports the new runtime as an **unapproved, disposable GitHub Actions artifact**, with `candidate-manifest.json` recording all exact source revisions/inventories, the actual release runtime tree hash, archive SHA-256 and size. The CI-built archive includes a **test-only unit fixture**, not a reviewed real `zog-certbot-seed-root.service` fragment and complete successor drop-ins. Never select this fixture onto the compiler Host. Work must author/review the exact real unit/drop-in composition separately and produce an independently attested Host-installed manifest/RECORD before any native selection.
 
 All earlier staged releases, protected rollback copies, original live service and historical operations remain unchanged; this source-only candidate creates a *distinct* release ID and CI artifact without modifying the actual Host. The protected select/restore/arming/pending/guard interruption regressions remain mandatory. This candidate is not a production approval and does not authorize compilation, job replay, or Fonts activation.
+
+
+## November 22 — joint PR55/PR35 pin and single matching candidate
+
+**Supersedes the earlier source-built candidate:** `be8d28824d3e3880f901b4c9c58af3ab` remains unchanged as historical CI evidence. The **new matching, separately numbered candidate** is `3aa6ab5e221a81b3fd7962ec8d91faf9`. Neither ID authorizes native installation; this only produces a disposable release and independently verifiable hash manifest.
+
+**Both repositories must agree on the exact root-control pin:**
+- root-control PR #55: `a672f007b33f83bf70970e3a571fd443366bd93f`; clean tracked-byte SHA-256 `c9475afdc6545adc963203f1ef00f77bd5aa542e2bf6337f660a5b64d0800989`.
+- box-control: `ad61fa6a4e9c3176149720868cb008e0512dbec9`; clean tracked-byte SHA-256 `9bd5484b47e80d96569c7dad4a15b61061919bf013bb0e40e810b906b9c1df00`.
+- image-build: `ff968a431dd2067e7d0e1f17d6e547f2779f647a`; clean tracked-byte SHA-256 `e0aacfb08a8b0ef9b1883080ece7d93673906263bee30caa09a285e7a1466310`.
+- host-deploy PR #35 exact matched verifier: `caa87434cf3c0556084d62642d66b47a348e26a9`.
+
+The source-only workflow checks the three clean source checkout inventories, pins the verifier checkout by exact SHA, and additionally imports host-deploy's `SELECTED_SOURCES` from the **actual pinned verifier checkout** to compare every SHA and inventory with the installer `SOURCES`. Amazon Linux 2023's real Python 3.12 runtime-build test independently repeats the comparison against the same checked-out verifier, then builds/pip-installs the three packages, checks imports, `authenticated_build_peer((0,0))`, `pip check`, and the strict link-free installed runtime inventory. The artifact includes the new release runtime and an inventory manifest recording all four revisions, the runtime-tree SHA-256 and the archive SHA-256.
+
+This archive still has a disposable **test-only service unit**. It is not a reviewed real compiler-controller unit/drop-in composition or a native installation receipt. A separate verified selected manifest/RECORD and systemd 252 maintenance-window acceptance are still required. The existing staged release and rollback copy, prior CI candidate, existing service and all historical operations must remain preserved.
