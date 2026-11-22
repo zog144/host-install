@@ -30,7 +30,7 @@ VERSIONS = Path("/opt/zog/compiler-runtime/versions")
 BACKUPS = Path("/opt/zog/compiler-runtime/rollback")
 UNIT_DIR = Path("/etc/systemd/system")
 SOURCES = {
-    "root-control": ("58b5a94311d771bb1c5f4c3e9c6191b44d6565c9",
+    "root-control": ("fd23fb464ebd73e7dce867b2e061dc1467f18d95",
                      "0ffddcfb39a9cc5295cc67196362e2dcb57301ed70199c502af1203e20c2d097"),
     "box-control": ("ad61fa6a4e9c3176149720868cb008e0512dbec9",
                     "9bd5484b47e80d96569c7dad4a15b61061919bf013bb0e40e810b906b9c1df00"),
