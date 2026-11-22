@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: zog144/root-control
-          ref: fd23fb464ebd73e7dce867b2e061dc1467f18d95
+          ref: a672f007b33f83bf70970e3a571fd443366bd93f
           path: companions/root-control
           persist-credentials: false
       - uses: actions/checkout@v4
@@ -46,7 +46,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: zog144/host-deploy
-          ref: 8a00b0f9b55416aca11aea6a4940236690f4ab9f
+          ref: 15ea92a76242941d3d31aeb58282418aee54b321
           path: companions/host-deploy
           persist-credentials: false
       - uses: actions/setup-python@v5
@@ -90,7 +90,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: zog144/root-control
-          ref: fd23fb464ebd73e7dce867b2e061dc1467f18d95
+          ref: a672f007b33f83bf70970e3a571fd443366bd93f
           path: companions/root-control
           persist-credentials: false
       - uses: actions/checkout@v4
@@ -118,7 +118,7 @@ jobs:
       - name: Preserve new disposable immutable runtime candidate
         uses: actions/upload-artifact@v4
         with:
-          name: compiler-runtime-be8d28824d3e3880f901b4c9c58af3ab
+          name: compiler-runtime-7b71ad0227c792d9f6f71785c568181f
           path: candidate-out/
           if-no-files-found: error
           retention-days: 30
