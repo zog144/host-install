@@ -826,7 +826,9 @@ def restore(selection_file, expected_sha256, *, root=Path("/"),
     service = selection["service"]["name"]
     composition = selection["composition"]
     with _lock(root):
-        _inactive(root, service, runner)
+        # An interrupted pre-guard arming transaction can have started the
+        # ORIGINAL unchanged unit at boot. Only pending/restoring require
+        # inactivity; arming recovery must not pretend otherwise.
         backup = host_path(root, BACKUPS / release)
         transaction_path = backup / "selection-transaction.json"
         tx = json.loads(_regular(root, transaction_path))
@@ -835,7 +837,7 @@ def restore(selection_file, expected_sha256, *, root=Path("/"),
                 and tx.get("selection_sha256") == expected_sha256
                 and tx.get("old_dropins") == composition["original_dropins"]
                 and tx.get("new_dropins") == composition["selected_dropins"]
-                and tx.get("state") in ("pending", "selected", "restoring", "restored"),
+                and tx.get("state") in ("arming", "pending", "selected", "restoring", "restored"),
                 "unknown compiler rollback transaction")
         original = _regular(root, backup / service)
         require(hashlib.sha256(original).hexdigest() == tx["old_unit_sha256"]
@@ -872,6 +874,49 @@ def restore(selection_file, expected_sha256, *, root=Path("/"),
                 "protected original runtime or external Python changed")
         active = host_path(root, selection["service"]["active_unit"])
         active_dir = host_path(root, UNIT_DIR / (service + ".d"))
+        if tx["state"] == "arming":
+            # No unit or reviewed drop-in has been changed in arming. The
+            # original service may have booted if the guard was not loaded.
+            require(_regular(root, active) == original,
+                    "arming original fragment has changed")
+            from zog.host_deploy import fonts_unit_composition as check
+            guard_file = active_dir / check.GUARD_NAME
+            if guard_file.exists() or guard_file.is_symlink():
+                # If the guard was written but not loaded at crash, install
+                # its protection before cleanup; never unguard an active unit.
+                guard = _startup_guard(root, release, active_dir)
+                _dropin_names(root, active_dir, sorted(
+                    [*composition["original_dropins"], guard],
+                    key=lambda entry: entry["name"]))
+                _inactive(root, service, runner)
+                _reload(root, runner)
+                _confirm_guard_loaded(root, service, active_dir, runner)
+                if root == Path("/"):
+                    try:
+                        check.verify_loaded(
+                            service, fragment=selection["service"]["active_unit"],
+                            names=[e["name"] for e in
+                                   composition["original_dropins"]] +
+                                  [check.GUARD_NAME],
+                            expected=composition["original_effective"])
+                    except check.CompositionHold as error:
+                        raise CompilerInstallerHold(str(error)) from error
+                _remove_guard(root, release, active_dir, service, runner)
+            else:
+                _dropin_names(root, active_dir, composition["original_dropins"])
+            if root == Path("/"):
+                try:
+                    check.verify_loaded(
+                        service, fragment=selection["service"]["active_unit"],
+                        names=[e["name"] for e in
+                               composition["original_dropins"]],
+                        expected=composition["original_effective"])
+                except check.CompositionHold as error:
+                    raise CompilerInstallerHold(str(error)) from error
+            tx["state"] = "aborted"
+            _atomic(transaction_path, _json(tx))
+            return tx
+        _inactive(root, service, runner)
         if tx["state"] == "restored":
             require(_regular(root, active) == original,
                     "already restored compiler fragment differs")
