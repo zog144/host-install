@@ -15,6 +15,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import stat
 import subprocess
@@ -451,11 +452,36 @@ def preserve(release, *, service, original_runtime, root=Path("/"),
                     unit_body, ordered_dropins, loaded_properties[0])
             except composition.CompositionHold as error:
                 raise CompilerInstallerHold(str(error)) from error
-            original_commands = loaded_properties[0]["ExecStart"]
-            require(type(original_commands) is list and len(original_commands) == 1
-                    and str(original_runtime) in
-                        original_commands[0]["argv"].split(),
-                    "original effective ExecStart does not name retained runtime")
+            selected_argv = loaded_properties[0]["ExecStart"][0]["argv"]
+        else:
+            # A disposable-root fixture has no systemd manager. This checks
+            # the old runtime path, but is NOT an admission substitute for the
+            # live normalized command + complete prestart verification above.
+            lines = [unit_body, *ordered_dropins]
+            effective = []
+            for raw in lines:
+                in_service = False
+                for line in raw.decode("utf-8").splitlines():
+                    line = line.strip()
+                    if line.startswith("[") and line.endswith("]"):
+                        in_service = line == "[Service]"
+                    elif in_service and line.startswith("ExecStart="):
+                        value = line.partition("=")[2].strip()
+                        if value:
+                            effective.append(value)
+                        else:
+                            effective.clear()
+            require(len(effective) == 1,
+                    "original effective ExecStart is ambiguous")
+            selected_argv = effective[0]
+        try:
+            parsed_argv = shlex.split(selected_argv)
+        except ValueError as error:
+            raise CompilerInstallerHold("ambiguous original command argv") from error
+        require(any(arg == str(original_runtime) or
+                    arg.startswith(str(original_runtime).rstrip("/") + "/")
+                    for arg in parsed_argv),
+                "original effective ExecStart does not name retained runtime")
         _safe_directory(root, preserved_dropins, create=True)
         _copy_dropins(root, active_dropins, preserved_dropins,
                       selected_dropins)
