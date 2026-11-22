@@ -27,7 +27,7 @@ for path in checkouts.values():
                     "safe.directory", str(path)], check=True)
 installer.verify_sources(checkouts)
 # Distinct candidate identity derived from exact 4-component reviewed source tuple.
-release = "be8d28824d3e3880f901b4c9c58af3ab"
+release = "7b71ad0227c792d9f6f71785c568181f"
 service = "zog-root-control.service"
 unit = (f"[Service]\nExecStart=/opt/zog/compiler-runtime/versions/"
         f"{release}/bin/root-control\n").encode()
@@ -78,7 +78,7 @@ with tempfile.TemporaryDirectory(prefix="compiler-al2023-") as tmp:
         "requires_reviewed_real_unit_and_dropins": True,
         "source_revisions": {role: pins[0] for role, pins in installer.SOURCES.items()},
         "source_inventory_sha256": {role: pins[1] for role, pins in installer.SOURCES.items()},
-        "host_deploy_verifier_revision": "8a00b0f9b55416aca11aea6a4940236690f4ab9f",
+        "host_deploy_verifier_revision": "15ea92a76242941d3d31aeb58282418aee54b321",
         "runtime_tree_sha256": installer._inventory(root, selected),
         "archive_sha256": hashlib.sha256(release_bytes).hexdigest(),
         "archive_size": len(release_bytes),
