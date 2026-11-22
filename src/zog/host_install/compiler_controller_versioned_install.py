@@ -733,6 +733,25 @@ def _already_masked(active):
     return active.is_symlink() and os.readlink(active) == "/dev/null"
 
 
+def _issuer_replacement_binding(root, selection, approval_digest, custody,
+                                original_dir, selected_dir):
+    """Bind approved selected unit hash without changing the issuer baseline.
+
+    The existing issuer guard owner must still validate the binding at
+    startup and independently perform storage/STATE mount checks.
+    """
+    if selection["service"]["name"] != "zog-certbot-seed-root.service":
+        return None
+    from . import compiler_issuer_persistence_binding as issuer
+    try:
+        return issuer.reviewed_replacement_binding(
+            selection, approval_digest, custody,
+            _regular(root, original_dir / issuer.ISSUER_DROPIN),
+            _regular(root, selected_dir / issuer.ISSUER_DROPIN))
+    except issuer.IssuerBindingHold as error:
+        raise CompilerInstallerHold(str(error)) from error
+
+
 def select(selection_file, expected_sha256, *, root=Path("/"), runner=subprocess.run):
     """Guarded multi-file selection, with persistent mask and durable recovery."""
     root = _require_root(root)
@@ -791,6 +810,9 @@ def select(selection_file, expected_sha256, *, root=Path("/"), runner=subprocess
         staged_dir = host_path(root, VERSIONS / release / "systemd" / (service + ".d"))
         _dropin_names(root, active_dir, composition["original_dropins"])
         _dropin_names(root, staged_dir, composition["selected_dropins"])
+        issuer_binding = _issuer_replacement_binding(
+            root, selection, expected_sha256, receipt,
+            backup / (service + ".d"), staged_dir)
         tx = {"schema": SCHEMA, "release_id": release, "service": service,
               "selection_sha256": expected_sha256,
               "old_unit_sha256": hashlib.sha256(current).hexdigest(),
@@ -798,6 +820,10 @@ def select(selection_file, expected_sha256, *, root=Path("/"), runner=subprocess
               "old_dropins": composition["original_dropins"],
               "new_dropins": composition["selected_dropins"],
               "state": "arming"}
+        if issuer_binding is not None:
+            # This is an independently re-verifiable selection binding, NOT
+            # permission to bypass the existing issuer persistence guard.
+            tx["issuer_replacement_binding"] = issuer_binding
         # Arming is NOT an incomplete selection: the original, unchanged
         # fragment and drop-ins may still boot. A crash before the guard is
         # manager-loaded must never produce a pending transaction.
@@ -885,6 +911,14 @@ def restore(selection_file, expected_sha256, *, root=Path("/"),
                     and type(custody.get("original_loaded_process_metadata")) is dict)),
                 "protected original stable command identity differs")
         custody = json.loads(_regular(root, backup / "preservation.json"))
+        selected_dir = host_path(root, selection["service"]["staged_unit"] + ".d")
+        issuer_binding = _issuer_replacement_binding(
+            root, selection, expected_sha256, custody,
+            original_dir, selected_dir)
+        require(tx.get("issuer_replacement_binding") == issuer_binding
+                if issuer_binding is not None
+                else "issuer_replacement_binding" not in tx,
+                "issuer replacement approval binding differs on recovery")
         original_runtime = host_path(root, custody["original_runtime"])
         copied_runtime = host_path(root, selection["rollback"]["saved_runtime_root"])
         require(custody.get("original_runtime") == selection["rollback"]["original_runtime"],
