@@ -72,7 +72,7 @@ def setup(tmp_path, monkeypatch):
             assert current == (original if phase == "staged" else staged)
             if transaction_guard:
                 guard = unit.with_name(service + ".d") / (
-                    "00-zog-compiler-selection-guard.conf")
+                    "zzzz-zog-compiler-transaction-guard.conf")
                 assert guard.is_file() and not guard.is_symlink()
                 assert (b"ConditionPathExists=" in guard.read_bytes())
                 assert not installer.host_path(
@@ -723,7 +723,7 @@ def test_reboot_after_unmask_before_selected_inspection_keeps_start_blocked(
     # but the independently persisted condition still denies startup.
     assert unit.read_bytes() == staged
     guard = unit.with_name(service + ".d") / (
-        "00-zog-compiler-selection-guard.conf")
+        "zzzz-zog-compiler-transaction-guard.conf")
     assert guard.is_file()
     assert b"ConditionPathExists=" in guard.read_bytes()
     assert not installer.host_path(
@@ -742,7 +742,7 @@ def test_reboot_during_restore_after_unmask_still_denies_start(
     root, release, service, unit, original, staged, old, data, inspector = preserved(setup)
     installer.select("reviewed.json", "f" * 64, root=root)
     active_dir = unit.with_name(service + ".d")
-    guard = active_dir / "00-zog-compiler-selection-guard.conf"
+    guard = active_dir / "zzzz-zog-compiler-transaction-guard.conf"
     confirm = installer._confirm_guard_loaded
 
     def die_after_original_loaded(root_arg, service_arg, directory, runner):
@@ -777,7 +777,7 @@ def test_reboot_after_restored_commit_completes_guard_cleanup(
         installer.restore("reviewed.json", "f" * 64, root=root)
     assert unit.read_bytes() == original
     guard = unit.with_name(service + ".d") / (
-        "00-zog-compiler-selection-guard.conf")
+        "zzzz-zog-compiler-transaction-guard.conf")
     assert guard.is_file()
     monkeypatch.setattr(installer, "_remove_guard", actual_remove)
     assert installer.restore("reviewed.json", "f" * 64, root=root)["state"] == "restored"
