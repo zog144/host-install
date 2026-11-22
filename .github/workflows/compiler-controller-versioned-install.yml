@@ -7,6 +7,8 @@ on:
       - src/zog/host_install/compiler_controller_versioned_install.py
       - src/zog/host_install/compiler_legacy_rollback.py
       - tests/test_compiler_controller_versioned_install.py
+      - tests/test_compiler_issuer_persistence_binding.py
+      - src/zog/host_install/compiler_issuer_persistence_binding.py
       - tests/acceptance/al2023_compiler_runtime.py
       - .github/workflows/compiler-controller-versioned-install.yml
       - docs/host-install/COMPILER-CONTROLLER-VERSIONED-INSTALL-2026-11-21.md
@@ -75,10 +77,10 @@ jobs:
           PY
       - name: Run disposable compiler rollback regressions
         run: |
-          PYTHONPATH="$PWD/companions/host-deploy/src:$PWD/src" python -m pytest -q -rs tests/test_compiler_controller_versioned_install.py
+          PYTHONPATH="$PWD/companions/host-deploy/src:$PWD/src" python -m pytest -q -rs tests/test_compiler_controller_versioned_install.py tests/test_compiler_issuer_persistence_binding.py
       - name: Compile and wheel source
         run: |
-          python -m compileall -q src/zog/host_install/compiler_controller_versioned_install.py src/zog/host_install/compiler_legacy_rollback.py
+          python -m compileall -q src/zog/host_install/compiler_controller_versioned_install.py src/zog/host_install/compiler_legacy_rollback.py src/zog/host_install/compiler_issuer_persistence_binding.py
           python -m pip wheel --no-deps . -w /tmp/compiler-wheel
           python - <<'PY'
           from pathlib import Path
