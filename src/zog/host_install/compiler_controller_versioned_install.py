@@ -826,7 +826,7 @@ def restore(selection_file, expected_sha256, *, root=Path("/"),
                 and tx.get("selection_sha256") == expected_sha256
                 and tx.get("old_dropins") == composition["original_dropins"]
                 and tx.get("new_dropins") == composition["selected_dropins"]
-                and tx.get("state") in ("pending", "selected", "restoring"),
+                and tx.get("state") in ("pending", "selected", "restoring", "restored"),
                 "unknown compiler rollback transaction")
         original = _regular(root, backup / service)
         require(hashlib.sha256(original).hexdigest() == tx["old_unit_sha256"]
@@ -862,16 +862,38 @@ def restore(selection_file, expected_sha256, *, root=Path("/"),
                     selection["rollback"]["python_interpreter_chain"],
                 "protected original runtime or external Python changed")
         active = host_path(root, selection["service"]["active_unit"])
+        active_dir = host_path(root, UNIT_DIR / (service + ".d"))
+        if tx["state"] == "restored":
+            require(_regular(root, active) == original,
+                    "already restored compiler fragment differs")
+            # Reboot after the durable restored commit may leave only the
+            # guard cleanup unfinished; finish that conservatively.
+            if (active_dir / "00-zog-compiler-selection-guard.conf").exists():
+                _dropin_names(root, active_dir, sorted(
+                    [*composition["original_dropins"],
+                     _startup_guard(root, release, active_dir)],
+                    key=lambda entry: entry["name"]))
+                _remove_guard(root, release, active_dir, service, runner)
+            _dropin_names(root, active_dir, composition["original_dropins"])
+            return tx
         if not _already_masked(active):
             current = _regular(root, active)
             require(hashlib.sha256(current).hexdigest() in
                     (tx["new_unit_sha256"], tx["old_unit_sha256"]),
                     "active compiler unit is foreign")
+        # Durable state change precedes any new mutation, so interruption
+        # can never be mistaken for a successfully restored composition.
+        tx["state"] = "restoring"
+        _atomic(transaction_path, _json(tx))
+        guard = _startup_guard(root, release, active_dir)
+        _reload(root, runner)
+        _inactive(root, service, runner)
+        if not _already_masked(active):
+            _confirm_guard_loaded(root, service, active_dir, runner)
             _mask_unit(root, active, service, runner)
         else:
             _assert_masked(root, service, runner)
-        active_dir = host_path(root, UNIT_DIR / (service + ".d"))
-        _restore_dropins(root, active_dir, original_dir, composition)
+        _restore_dropins(root, active_dir, original_dir, composition, guard)
         _assert_masked(root, service, runner)
         receipt = json.loads(_regular(root, backup / "preservation.json"))
         unit_mode = receipt.get("original_fragment", {}).get("mode")
@@ -880,8 +902,21 @@ def restore(selection_file, expected_sha256, *, root=Path("/"),
         _atomic(active, original, unit_mode)
         _reload(root, runner)
         _inactive(root, service, runner)
+        _confirm_guard_loaded(root, service, active_dir, runner)
         if root == Path("/"):
             from zog.host_deploy import fonts_unit_composition as check
+            try:
+                check.verify_loaded(
+                    service, fragment=selection["service"]["active_unit"],
+                    names=[*[e["name"] for e in composition["original_dropins"]],
+                           check.GUARD_NAME],
+                    expected=composition["original_effective"])
+            except check.CompositionHold as error:
+                raise CompilerInstallerHold(str(error)) from error
+        tx["state"] = "restored"
+        _atomic(transaction_path, _json(tx))
+        _remove_guard(root, release, active_dir, service, runner)
+        if root == Path("/"):
             try:
                 check.verify_loaded(
                     service, fragment=selection["service"]["active_unit"],
@@ -889,8 +924,6 @@ def restore(selection_file, expected_sha256, *, root=Path("/"),
                     expected=composition["original_effective"])
             except check.CompositionHold as error:
                 raise CompilerInstallerHold(str(error)) from error
-        tx["state"] = "restored"
-        _atomic(transaction_path, _json(tx))
         return tx
 
 
