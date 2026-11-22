@@ -63,6 +63,16 @@ jobs:
               'image-build': 'companions/image-build',
           })
           PY
+      - name: Require exact verifier and installer source tuple agreement
+        run: |
+          PYTHONPATH="$PWD/companions/host-deploy/src:$PWD/src" python - <<'PY'
+          from zog.host_install.compiler_controller_versioned_install import SOURCES
+          from zog.host_deploy.fonts_versioned_runtime import SELECTED_SOURCES
+          expected = {role: {"revision": pair[0], "source_tree_sha256": pair[1]}
+                      for role, pair in SOURCES.items()}
+          assert SELECTED_SOURCES == expected, (SELECTED_SOURCES, expected)
+          print("ZOG_MATCHED_COMPILER_INSPECTOR_TUPLE", expected)
+          PY
       - name: Run disposable compiler rollback regressions
         run: |
           PYTHONPATH="$PWD/companions/host-deploy/src:$PWD/src" python -m pytest -q -rs tests/test_compiler_controller_versioned_install.py
@@ -105,6 +115,12 @@ jobs:
           ref: ff968a431dd2067e7d0e1f17d6e547f2779f647a
           path: companions/image-build
           persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: zog144/host-deploy
+          ref: caa87434cf3c0556084d62642d66b47a348e26a9
+          path: companions/host-deploy
+          persist-credentials: false
       - name: Real Amazon Linux 2023 Python 3.12 venv/pip/install/import acceptance
         run: |
           docker run --rm \
@@ -112,7 +128,7 @@ jobs:
             amazonlinux:2023 bash -euc '
               dnf -y install python3.12 python3.12-pip git
               /usr/bin/python3.12 --version
-              PYTHONPATH=/work/src /usr/bin/python3.12 \
+              PYTHONPATH=/work/src:/work/companions/host-deploy/src /usr/bin/python3.12 \
                 /work/tests/acceptance/al2023_compiler_runtime.py
             '
       - name: Preserve new disposable immutable runtime candidate
