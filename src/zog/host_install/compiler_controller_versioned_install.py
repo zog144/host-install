@@ -883,15 +883,20 @@ def restore(selection_file, expected_sha256, *, root=Path("/"),
             require(hashlib.sha256(current).hexdigest() in
                     (tx["new_unit_sha256"], tx["old_unit_sha256"]),
                     "active compiler unit is foreign")
-        # Durable state change precedes any new mutation, so interruption
-        # can never be mistaken for a successfully restored composition.
-        tx["state"] = "restoring"
-        _atomic(transaction_path, _json(tx))
+        # Establish the reboot-persistent deny-by-default guard BEFORE
+        # committing a restoring state. A crash prior to that commit then
+        # leaves either a complete previously selected service or a masked
+        # pending service, never an unguarded incomplete restoration.
         guard = _startup_guard(root, release, active_dir)
         _reload(root, runner)
         _inactive(root, service, runner)
         if not _already_masked(active):
             _confirm_guard_loaded(root, service, active_dir, runner)
+        else:
+            _assert_masked(root, service, runner)
+        tx["state"] = "restoring"
+        _atomic(transaction_path, _json(tx))
+        if not _already_masked(active):
             _mask_unit(root, active, service, runner)
         else:
             _assert_masked(root, service, runner)
