@@ -113,6 +113,9 @@ def reviewed_replacement_binding(selection, approved_sha256, receipt,
     selected_issuer = _member(comp.get("selected_dropins"))
     _need(original_issuer == selected_issuer,
           "issuer storage/mount guard drop-in was changed")
+    _need(type(preserved_issuer_dropin) is bytes and
+          type(selected_issuer_dropin) is bytes,
+          "issuer persistence drop-in must be exact bytes")
     _need(hashlib.sha256(preserved_issuer_dropin).hexdigest() ==
           original_issuer["sha256"] and
           preserved_issuer_dropin == selected_issuer_dropin,
