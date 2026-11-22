@@ -49,6 +49,13 @@ with tempfile.TemporaryDirectory(prefix="compiler-al2023-") as tmp:
                     "assert sys.version_info[:2] == (3, 12)"],
                    check=True)
     subprocess.run([str(python), "-m", "pip", "check"], check=True)
+    # This is the corrected compiler peer contract, not just an import:
+    # exact authenticated 0:0 is admissible; partial-zero identities are not.
+    subprocess.run([str(python), "-I", "-B", "-c",
+                    "from zog.root_control.build import authenticated_build_peer; "
+                    "assert authenticated_build_peer((0, 0)) == (0, 0); "
+                    "assert authenticated_build_peer((1234, 1234)) == (1234, 1234)"],
+                   check=True)
     assert (selected / "bin/root-control").is_file()
     assert not any(item.is_symlink() for directory, dirs, files in
                    os.walk(selected) for item in
