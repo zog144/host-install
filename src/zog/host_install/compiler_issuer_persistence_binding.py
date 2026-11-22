@@ -14,7 +14,7 @@ import re
 SCHEMA = "zog-compiler-issuer-replacement-unit-binding-v1"
 ISSUER_DROPIN = "issuer-persistence.conf"
 COMPILER_UNIT = "zog-certbot-seed-root.service"
-_SHA = re.compile(r"[0-9a-f]{64}\\Z")
+_SHA = re.compile(r"[0-9a-f]{64}\Z")
 
 
 class IssuerBindingHold(RuntimeError):
