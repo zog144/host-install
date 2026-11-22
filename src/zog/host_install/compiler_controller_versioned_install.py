@@ -440,33 +440,22 @@ def preserve(release, *, service, original_runtime, root=Path("/"),
         selected_dropins = _dropins(root, active_dropins)
         loaded_properties = _current_manager_composition(
             root, service, unit, selected_dropins, runner)
-        def effective_command():
-            chosen = []
-            for raw in [unit_body] + [
-                    _regular(root, active_dropins / entry["name"])
-                    for entry in selected_dropins]:
-                section = False
-                for line in raw.decode("utf-8").splitlines():
-                    line = line.strip()
-                    if line.startswith("[") and line.endswith("]"):
-                        section = line == "[Service]"
-                    elif section and line.startswith("ExecStart="):
-                        command = line.partition("=")[2].strip()
-                        if not command:
-                            chosen.clear()
-                        else:
-                            chosen.append(command)
-            require(len(chosen) == 1, "original effective ExecStart is ambiguous")
-            return chosen[0]
-        observed_command = effective_command()
+        ordered_dropins = [
+            _regular(root, active_dropins / entry["name"])
+            for entry in selected_dropins
+        ]
         if loaded_properties is not None:
-            # systemctl show reports the effective argv after ordered resets.
-            # Reject a mismatch between inspected files and manager state.
-            match = re.search(r"argv\[\]=(.+?)\s+;", loaded_properties["ExecStart"])
-            require(match is not None and match.group(1) == observed_command,
-                    "loaded compiler argv differs from preserved composition")
-        require(str(original_runtime) in observed_command,
-                "original effective ExecStart does not name retained runtime")
+            from zog.host_deploy import fonts_unit_composition as composition
+            try:
+                composition.verify_composed(
+                    unit_body, ordered_dropins, loaded_properties[0])
+            except composition.CompositionHold as error:
+                raise CompilerInstallerHold(str(error)) from error
+            original_commands = loaded_properties[0]["ExecStart"]
+            require(type(original_commands) is list and len(original_commands) == 1
+                    and str(original_runtime) in
+                        original_commands[0]["argv"].split(),
+                    "original effective ExecStart does not name retained runtime")
         _safe_directory(root, preserved_dropins, create=True)
         _copy_dropins(root, active_dropins, preserved_dropins,
                       selected_dropins)
@@ -479,8 +468,10 @@ def preserve(release, *, service, original_runtime, root=Path("/"),
                    "unit_sha256": hashlib.sha256(unit_body).hexdigest(),
                    "original_fragment": unit_metadata,
                    "original_dropins": selected_dropins,
-                   "original_effective_execstart": observed_command,
-                   "original_loaded_properties": loaded_properties}
+                   "original_loaded_properties":
+                       loaded_properties[0] if loaded_properties is not None else None,
+                   "original_loaded_process_metadata":
+                       loaded_properties[1] if loaded_properties is not None else None}
         _atomic(backup / "preservation.json", _json(receipt))
         _fsync_directory(backup)
         return receipt
@@ -507,8 +498,12 @@ def _current_manager_composition(root, service, fragment, dropins, runner):
             and set(props["DropInPaths"].split()) ==
                 {str(fragment) + ".d/" + item["name"] for item in dropins},
             "original manager composition differs from protected files")
-    return {key: props[key] for key in
-            ("ExecStart", "ExecStartPre", "ReadOnlyPaths", "Requires", "After")}
+    from zog.host_deploy import fonts_unit_composition as composition
+    try:
+        return composition.normalize_loaded_commands(
+            {key: props[key] for key in composition.KEYS})
+    except composition.CompositionHold as error:
+        raise CompilerInstallerHold(str(error)) from error
 
 
 def _dropins(root, directory):
@@ -661,9 +656,11 @@ def select(selection_file, expected_sha256, *, root=Path("/"), runner=subprocess
                     selection["rollback"]["legacy_inventory_sha256"]
                 and receipt.get("python_interpreter_chain") ==
                     selection["rollback"]["python_interpreter_chain"]
-                and (root != Path("/") or
-                     receipt.get("original_loaded_properties") ==
-                         composition["original_effective"])
+                and (root != Path("/") or (
+                     type(receipt.get("original_loaded_properties")) is dict
+                     and receipt["original_loaded_properties"] ==
+                         composition["original_effective"]
+                     and type(receipt.get("original_loaded_process_metadata")) is dict))
                 and receipt.get("unit_sha256") == hashlib.sha256(current).hexdigest()
                 and receipt.get("original_fragment", {}).get("sha256")
                     == hashlib.sha256(current).hexdigest()
@@ -732,6 +729,20 @@ def restore(selection_file, expected_sha256, *, root=Path("/"),
                 "original unit differs from protected rollback")
         original_dir = backup / (service + ".d")
         _dropin_names(root, original_dir, composition["original_dropins"])
+        custody = json.loads(_regular(root, backup / "preservation.json"))
+        require(custody.get("schema") == SCHEMA
+                and custody.get("release_id") == release
+                and custody.get("service") == service
+                and custody.get("original_dropins") ==
+                    composition["original_dropins"]
+                and custody.get("original_fragment") ==
+                    composition["original_fragment"]
+                and (root != Path("/") or (
+                    type(custody.get("original_loaded_properties")) is dict
+                    and custody["original_loaded_properties"] ==
+                        composition["original_effective"]
+                    and type(custody.get("original_loaded_process_metadata")) is dict)),
+                "protected original stable command identity differs")
         custody = json.loads(_regular(root, backup / "preservation.json"))
         original_runtime = host_path(root, custody["original_runtime"])
         copied_runtime = host_path(root, selection["rollback"]["saved_runtime_root"])
