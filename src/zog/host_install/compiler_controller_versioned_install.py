@@ -773,7 +773,10 @@ def select(selection_file, expected_sha256, *, root=Path("/"), runner=subprocess
               "new_unit_sha256": hashlib.sha256(new_unit).hexdigest(),
               "old_dropins": composition["original_dropins"],
               "new_dropins": composition["selected_dropins"],
-              "state": "pending"}
+              "state": "arming"}
+        # Arming is NOT an incomplete selection: the original, unchanged
+        # fragment and drop-ins may still boot. A crash before the guard is
+        # manager-loaded must never produce a pending transaction.
         _atomic(transaction_path, _json(tx))
         # The permanent on-disk ConditionPathExists guard survives reboot
         # independently of the temporary /dev/null fragment mask. Its
@@ -782,6 +785,10 @@ def select(selection_file, expected_sha256, *, root=Path("/"), runner=subprocess
         _reload(root, runner)
         _inactive(root, service, runner)
         _confirm_guard_loaded(root, service, active_dir, runner)
+        # Only the manager-confirmed persistent guard permits the stronger
+        # pending invariant: neither reboot nor start may execute this service.
+        tx["state"] = "pending"
+        _atomic(transaction_path, _json(tx))
         _mask_unit(root, active, service, runner)
         try:
             _switch_dropins(root, active_dir, composition["original_dropins"],
