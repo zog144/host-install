@@ -652,3 +652,44 @@ def test_preservation_rejects_changed_prestart_and_execution_flag(
                        match="composed ExecStart"):
         installer.preserve(release, service=service,
                            original_runtime="/opt/old", root=root)
+
+
+
+def test_read_manager_normalizes_systemd252_loaded_records_with_volatile_changes():
+    service = "zog-certbot-seed-root.service"
+    fragment = Path("/etc/systemd/system") / service
+    dropin = "issuer-persistence.conf"
+    def read(pid, stamp):
+        raw = _manager_properties(pid=pid, timestamp=stamp)
+        props = dict(raw, LoadState="loaded", FragmentPath=str(fragment),
+                     DropInPaths=str(fragment) + ".d/" + dropin)
+        def runner(args, **kwargs):
+            assert args[0:2] == ["/usr/bin/systemctl", "show"]
+            return SimpleNamespace(
+                returncode=0,
+                stdout="".join(k + "=" + v + "\n" for k, v in props.items()))
+        return installer._current_manager_composition(
+            Path("/"), service, fragment, [{"name": dropin}], runner)
+    first, process_a = read(100, "old")
+    second, process_b = read(999, "new")
+    assert first == second
+    assert process_a != process_b
+    assert first["ExecStart"][0]["flags"]["ignore_errors"] == "no"
+    assert first["ExecStartPre"][0]["path"] == "/usr/bin/test"
+
+
+def test_manager_unknown_command_metadata_fails_closed():
+    service = "zog-certbot-seed-root.service"
+    fragment = Path("/etc/systemd/system") / service
+    raw = _manager_properties()
+    raw["ExecStart"] = raw["ExecStart"].replace(
+        " ; code=exited", " ; unsupported=surprise ; code=exited")
+    props = dict(raw, LoadState="loaded", FragmentPath=str(fragment),
+                 DropInPaths="")
+    def runner(args, **kwargs):
+        return SimpleNamespace(
+            returncode=0,
+            stdout="".join(k + "=" + v + "\n" for k, v in props.items()))
+    with pytest.raises(installer.CompilerInstallerHold, match="unknown or incomplete"):
+        installer._current_manager_composition(
+            Path("/"), service, fragment, [], runner)
