@@ -8,6 +8,7 @@ on:
       - src/zog/host_install/compiler_legacy_rollback.py
       - tests/test_compiler_controller_versioned_install.py
       - tests/acceptance/al2023_compiler_runtime.py
+      - .github/workflows/compiler-controller-versioned-install.yml
       - docs/host-install/COMPILER-CONTROLLER-VERSIONED-INSTALL-2026-11-21.md
       - .github/workflows/compiler-controller-versioned-install.yml
   workflow_dispatch:
@@ -42,6 +43,12 @@ jobs:
           ref: ff968a431dd2067e7d0e1f17d6e547f2779f647a
           path: companions/image-build
           persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: zog144/host-deploy
+          ref: 1db5ec50989fcd345bfef6bba8f20efab6cb83cb
+          path: companions/host-deploy
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
@@ -58,7 +65,7 @@ jobs:
           PY
       - name: Run disposable compiler rollback regressions
         run: |
-          python -m pytest -q -rs tests/test_compiler_controller_versioned_install.py
+          PYTHONPATH="$PWD/companions/host-deploy/src:$PWD/src" python -m pytest -q -rs tests/test_compiler_controller_versioned_install.py
       - name: Compile and wheel source
         run: |
           python -m compileall -q src/zog/host_install/compiler_controller_versioned_install.py src/zog/host_install/compiler_legacy_rollback.py
