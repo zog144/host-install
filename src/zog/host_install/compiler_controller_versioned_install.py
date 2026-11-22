@@ -573,6 +573,53 @@ def _copy_dropins(root, source, destination, expected):
     _dropin_names(root, destination, expected)
 
 
+def _startup_guard(root, release, active_dir):
+    from zog.host_deploy import fonts_unit_composition as composition
+    expected = composition.transaction_guard_bytes(release)
+    name = composition.GUARD_NAME
+    permit = host_path(root, BACKUPS / release / "startup-permit")
+    require(not permit.exists() and not permit.is_symlink(),
+            "compiler startup permit unexpectedly exists")
+    guard = active_dir / name
+    if guard.exists() or guard.is_symlink():
+        require(_regular(root, guard) == expected
+                and stat.S_IMODE(guard.lstat().st_mode) == 0o644,
+                "existing compiler startup guard differs")
+    else:
+        _safe_directory(root, active_dir, create=True)
+        _atomic(guard, expected, 0o644)
+    items = _dropins(root, active_dir)
+    matching = [entry for entry in items if entry["name"] == name]
+    require(len(matching) == 1, "missing durable compiler startup guard")
+    return matching[0]
+
+
+def _confirm_guard_loaded(root, service, active_dir, runner):
+    if root != Path("/"):
+        return
+    result = runner(["/usr/bin/systemctl", "show", "--no-pager",
+                     "--property=DropInPaths", "--property=LoadState", service],
+                    check=False, capture_output=True, text=True)
+    require(result.returncode == 0, "cannot inspect loaded compiler guard")
+    props = dict(line.split("=", 1) for line in result.stdout.splitlines()
+                 if "=" in line)
+    require(props.get("LoadState") == "loaded"
+            and str(active_dir / "00-zog-compiler-selection-guard.conf")
+                in props.get("DropInPaths", "").split(),
+            "persistent startup guard is not manager-loaded")
+
+
+def _remove_guard(root, release, active_dir, service, runner):
+    from zog.host_deploy import fonts_unit_composition as composition
+    guard = _startup_guard(root, release, active_dir)
+    require(guard["name"] == composition.GUARD_NAME,
+            "foreign compiler guard")
+    (active_dir / composition.GUARD_NAME).unlink()
+    _fsync_directory(active_dir)
+    _reload(root, runner)
+    _inactive(root, service, runner)
+
+
 def _assert_masked(root, service, runner):
     if root != Path("/"):
         return
@@ -597,14 +644,24 @@ def _mask_unit(root, active, service, runner):
     _inactive(root, service, runner)
 
 
-def _switch_dropins(root, active_dir, existing, wanted_dir, wanted):
-    """Masked-only: reject foreign files, then apply complete selected set."""
-    _dropin_names(root, active_dir, existing)
+def _switch_dropins(root, active_dir, existing, wanted_dir, wanted, guard):
+    """Keep the permanent startup guard while changing all other drop-ins."""
+    require(guard["name"] not in {e["name"] for e in [*existing, *wanted]},
+            "reviewed composition conflicts with transaction guard")
+    _dropin_names(root, active_dir,
+                  sorted([*existing, guard], key=lambda e: e["name"]))
     _safe_directory(root, active_dir, create=True)
+    _dropin_names(root, wanted_dir, wanted)
     for entry in existing:
         (active_dir / entry["name"]).unlink()
     _fsync_directory(active_dir)
-    _copy_dropins(root, wanted_dir, active_dir, wanted)
+    for entry in wanted:
+        _atomic(active_dir / entry["name"],
+                _regular(root, wanted_dir / entry["name"]), entry["mode"])
+    _dropin_names(root, active_dir,
+                  sorted([*wanted, guard], key=lambda e: e["name"]))
+
+
 
 
 def _reviewed(selection_file, expected_sha256):
@@ -620,21 +677,31 @@ def _reviewed(selection_file, expected_sha256):
     return verifier, selection
 
 
-def _restore_dropins(root, active_dir, original_dir, composition):
-    """Explicit recovery of a partial transition, never delete foreign files."""
+def _restore_dropins(root, active_dir, original_dir, composition, guard):
+    """Restore original set while retaining the deny-by-default guard."""
     before = {item["name"]: item for item in composition["original_dropins"]}
     after = {item["name"]: item for item in composition["selected_dropins"]}
     observed = _dropins(root, active_dir)
+    require(guard in observed, "persistent guard missing during recovery")
     for item in observed:
-        matching = (before.get(item["name"]), after.get(item["name"]))
-        require(item in matching,
+        if item["name"] == guard["name"]:
+            continue
+        require(item in (before.get(item["name"]), after.get(item["name"])),
                 "unknown or modified drop-in during interrupted selection")
     _safe_directory(root, active_dir, create=True)
     for item in observed:
-        (active_dir / item["name"]).unlink()
+        if item["name"] != guard["name"]:
+            (active_dir / item["name"]).unlink()
     _fsync_directory(active_dir)
-    _copy_dropins(root, original_dir, active_dir,
-                  composition["original_dropins"])
+    _dropin_names(root, original_dir, composition["original_dropins"])
+    for entry in composition["original_dropins"]:
+        _atomic(active_dir / entry["name"],
+                _regular(root, original_dir / entry["name"]), entry["mode"])
+    _dropin_names(root, active_dir,
+                  sorted([*composition["original_dropins"], guard],
+                         key=lambda item: item["name"]))
+
+
 
 
 def _already_masked(active):
