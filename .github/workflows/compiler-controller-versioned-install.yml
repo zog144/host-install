@@ -115,3 +115,10 @@ jobs:
               PYTHONPATH=/work/src /usr/bin/python3.12 \
                 /work/tests/acceptance/al2023_compiler_runtime.py
             '
+      - name: Preserve new disposable immutable runtime candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: compiler-runtime-be8d28824d3e3880f901b4c9c58af3ab
+          path: candidate-out/
+          if-no-files-found: error
+          retention-days: 30
