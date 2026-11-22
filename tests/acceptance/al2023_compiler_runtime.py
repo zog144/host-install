@@ -22,7 +22,7 @@ checkouts = {
     "box-control": box_control,
     "image-build": image_build,
 }
-for path in checkouts.values():
+for path in [*checkouts.values(), Path("/work/companions/host-deploy")]:
     subprocess.run(["git", "config", "--global", "--add",
                     "safe.directory", str(path)], check=True)
 installer.verify_sources(checkouts)
