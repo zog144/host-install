@@ -56,8 +56,7 @@ jobs:
       - name: Check exact clean Git commits and source inventory
         run: |
           python - <<'PY'
-          from zog.host_install.compiler_controller_versioned_install import verify_sources, _source_inventory
-          print("ROOT_CONTROL_NEW_INVENTORY", _source_inventory('companions/root-control'), flush=True)
+          from zog.host_install.compiler_controller_versioned_install import verify_sources
           verify_sources({
               'root-control': 'companions/root-control',
               'box-control': 'companions/box-control',
