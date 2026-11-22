@@ -66,10 +66,18 @@ def setup(tmp_path, monkeypatch):
     class Inspector:
         def __init__(self):
             self.phases = []
-        def inspect_installed(self, selection, phase):
+        def inspect_installed(self, selection, phase, transaction_guard=False):
             self.phases.append(phase)
             current = unit.read_bytes()
             assert current == (original if phase == "staged" else staged)
+            if transaction_guard:
+                guard = unit.with_name(service + ".d") / (
+                    "00-zog-compiler-selection-guard.conf")
+                assert guard.is_file() and not guard.is_symlink()
+                assert (b"ConditionPathExists=" in guard.read_bytes())
+                assert not installer.host_path(
+                    tmp_path, installer.BACKUPS / release /
+                    "startup-permit").exists()
         def _retained_tree_sha256(self, path):
             return installer._inventory(tmp_path, path)
 
@@ -338,7 +346,7 @@ def test_interrupted_dropin_switch_is_masked_and_explicitly_recoverable(
         "python_interpreter_chain": evidence["python_interpreter_chain"]})
     actual_switch = installer._switch_dropins
 
-    def interrupted(root, active_dir, existing, wanted_dir, wanted):
+    def interrupted(root, active_dir, existing, wanted_dir, wanted, guard):
         # Simulate crash after mask and first unlink, before all successors.
         (active_dir / existing[0]["name"]).unlink()
         raise OSError("interrupted-after-first-dropin")
