@@ -631,20 +631,24 @@ def test_preservation_records_stable_identity_separately_from_process_evidence(
     assert "start_time" not in custody["original_loaded_properties"]["ExecStart"][0]
 
 
-def test_preservation_rejects_changed_prestart_and_execution_flag(setup, monkeypatch):
+@pytest.mark.parametrize("changes", [
+    {"pre_command": "/usr/bin/test -d /wrong"},
+    {"ignore": "yes"},
+    {"include_pre": False},
+])
+def test_preservation_rejects_changed_prestart_and_execution_flag(
+        setup, monkeypatch, changes):
     from zog.host_deploy import fonts_unit_composition as composition
     root, release, service, unit, original, staged, old, data, inspector = setup
     unit.with_name(service + ".d").mkdir()
     (unit.with_name(service + ".d") / "issuer.conf").write_bytes(
         b"[Service]\nExecStartPre=/usr/bin/test -d /state\n")
-    for changes in ({"pre_command": "/usr/bin/test -d /wrong"},
-                    {"ignore": "yes"}, {"include_pre": False}):
-        raw = _manager_properties(**changes)
-        raw.update(ReadOnlyPaths="", Requires="", After="")
-        monkeypatch.setattr(
-            installer, "_current_manager_composition",
-            lambda *args, raw=raw: composition.normalize_loaded_commands(raw))
-        with pytest.raises(installer.CompilerInstallerHold,
-                           match="composed ExecStart"):
-            installer.preserve(release, service=service,
-                               original_runtime="/opt/old", root=root)
+    raw = _manager_properties(**changes)
+    raw.update(ReadOnlyPaths="", Requires="", After="")
+    monkeypatch.setattr(
+        installer, "_current_manager_composition",
+        lambda *args: composition.normalize_loaded_commands(raw))
+    with pytest.raises(installer.CompilerInstallerHold,
+                       match="composed ExecStart"):
+        installer.preserve(release, service=service,
+                           original_runtime="/opt/old", root=root)
