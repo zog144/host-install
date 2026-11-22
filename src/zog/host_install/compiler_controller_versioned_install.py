@@ -503,6 +503,29 @@ def preserve(release, *, service, original_runtime, root=Path("/"),
         return receipt
 
 
+def _effective_equivalent(observed, reviewed):
+    """Match verifier semantics without rewriting protected evidence.
+
+    ExecStart, ExecStartPre and ReadOnlyPaths remain exact; systemd may
+    enumerate the same After/Requires dependencies in a different order.
+    """
+    from zog.host_deploy import fonts_unit_composition as composition
+    if type(observed) is not dict or type(reviewed) is not dict:
+        return False
+    if set(observed) != set(composition.KEYS) or set(reviewed) != set(composition.KEYS):
+        return False
+    for key in composition.KEYS:
+        actual, expected = observed[key], reviewed[key]
+        if key in ("After", "Requires"):
+            if type(actual) is not str or type(expected) is not str:
+                return False
+            if sorted(actual.split()) != sorted(expected.split()):
+                return False
+        elif actual != expected:
+            return False
+    return True
+
+
 def _current_manager_composition(root, service, fragment, dropins, runner):
     """Read actual loaded service, fail on additional /run or /usr drop-ins."""
     if root != Path("/"):
@@ -753,8 +776,9 @@ def select(selection_file, expected_sha256, *, root=Path("/"), runner=subprocess
                     selection["rollback"]["python_interpreter_chain"]
                 and (root != Path("/") or (
                      type(receipt.get("original_loaded_properties")) is dict
-                     and receipt["original_loaded_properties"] ==
-                         composition["original_effective"]
+                     and _effective_equivalent(
+                         receipt["original_loaded_properties"],
+                         composition["original_effective"])
                      and type(receipt.get("original_loaded_process_metadata")) is dict))
                 and receipt.get("unit_sha256") == hashlib.sha256(current).hexdigest()
                 and receipt.get("original_fragment", {}).get("sha256")
@@ -855,8 +879,9 @@ def restore(selection_file, expected_sha256, *, root=Path("/"),
                     composition["original_fragment"]
                 and (root != Path("/") or (
                     type(custody.get("original_loaded_properties")) is dict
-                    and custody["original_loaded_properties"] ==
-                        composition["original_effective"]
+                    and _effective_equivalent(
+                        custody["original_loaded_properties"],
+                        composition["original_effective"])
                     and type(custody.get("original_loaded_process_metadata")) is dict)),
                 "protected original stable command identity differs")
         custody = json.loads(_regular(root, backup / "preservation.json"))
