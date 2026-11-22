@@ -555,3 +555,96 @@ def test_fresh_venv_unexpected_or_escaping_link_holds_without_rewrite(tmp_path):
     with pytest.raises(installer.CompilerInstallerHold, match="unexpected link"):
         installer._normalize_new_venv(venv)
     assert (venv / "other").is_symlink()
+
+
+
+def _manager_properties(*, pid=101, timestamp="old", command="/opt/old/bin/root-control",
+                        pre_command="/usr/bin/test -d /state", ignore="no",
+                        include_pre=True):
+    def record(argv, *, pid, ignore):
+        executable = argv.split()[0]
+        return ("{ path=" + executable + " ; argv[]=" + argv
+                + " ; ignore_errors=" + ignore
+                + " ; pid=" + str(pid) + " ; start_time=" + timestamp
+                + " ; stop_time=" + timestamp
+                + " ; code=exited ; status=0 ; }")
+    return {
+        "ExecStart": record(command, pid=pid, ignore=ignore),
+        "ExecStartPre": record(pre_command, pid=pid+1, ignore="no")
+                        if include_pre else "",
+        "ReadOnlyPaths": "/state", "Requires": "state.mount",
+        "After": "state.mount",
+    }
+
+
+def test_manager_effective_identity_stable_across_process_changes():
+    from zog.host_deploy import fonts_unit_composition as composition
+    first, old_evidence = composition.normalize_loaded_commands(
+        _manager_properties(pid=12, timestamp="start-old"))
+    next_stable, new_evidence = composition.normalize_loaded_commands(
+        _manager_properties(pid=992, timestamp="start-new"))
+    assert first == next_stable
+    assert old_evidence != new_evidence
+    assert first["ExecStart"][0]["path"] == "/opt/old/bin/root-control"
+    assert len(first["ExecStartPre"]) == 1
+
+
+@pytest.mark.parametrize("overrides", [
+    {"command": "/opt/other/bin/root-control"},
+    {"pre_command": "/usr/bin/test -d /foreign"},
+    {"ignore": "yes"},
+    {"include_pre": False},
+])
+def test_manager_stable_identity_rejects_changed_commands(overrides):
+    from zog.host_deploy import fonts_unit_composition as composition
+    stable, _ = composition.normalize_loaded_commands(_manager_properties())
+    changed, _ = composition.normalize_loaded_commands(
+        _manager_properties(**overrides))
+    assert stable != changed
+
+
+def test_preservation_records_stable_identity_separately_from_process_evidence(
+        setup, monkeypatch):
+    from zog.host_deploy import fonts_unit_composition as composition
+    root, release, service, unit, original, staged, old, data, inspector = setup
+    original_dir = unit.with_name(service + ".d")
+    original_dir.mkdir()
+    pre = original_dir / "issuer-persistence.conf"
+    pre.write_bytes(b"[Service]\nExecStartPre=/usr/bin/test -d /state\n")
+    live = _manager_properties(pid=81)
+    # The effective configuration in this fixture is an old runtime command
+    # plus the exact prestart guard, just as in the unit file/drop-in.
+    live["ReadOnlyPaths"] = ""
+    live["Requires"] = ""
+    live["After"] = ""
+    def manager(*args):
+        return composition.normalize_loaded_commands(live)
+    monkeypatch.setattr(installer, "_current_manager_composition", manager)
+    custody = installer.preserve(release, service=service,
+                                 original_runtime="/opt/old", root=root)
+    assert custody["original_loaded_properties"]["ExecStart"][0]["path"] == (
+        "/opt/old/bin/root-control")
+    assert custody["original_loaded_properties"]["ExecStartPre"][0]["path"] == (
+        "/usr/bin/test")
+    assert custody["original_loaded_process_metadata"]["ExecStart"][0]["pid"] == "81"
+    assert custody["original_loaded_process_metadata"]["ExecStartPre"][0]["pid"] == "82"
+    assert "start_time" not in custody["original_loaded_properties"]["ExecStart"][0]
+
+
+def test_preservation_rejects_changed_prestart_and_execution_flag(setup, monkeypatch):
+    from zog.host_deploy import fonts_unit_composition as composition
+    root, release, service, unit, original, staged, old, data, inspector = setup
+    unit.with_name(service + ".d").mkdir()
+    (unit.with_name(service + ".d") / "issuer.conf").write_bytes(
+        b"[Service]\nExecStartPre=/usr/bin/test -d /state\n")
+    for changes in ({"pre_command": "/usr/bin/test -d /wrong"},
+                    {"ignore": "yes"}, {"include_pre": False}):
+        raw = _manager_properties(**changes)
+        raw.update(ReadOnlyPaths="", Requires="", After="")
+        monkeypatch.setattr(
+            installer, "_current_manager_composition",
+            lambda *args, raw=raw: composition.normalize_loaded_commands(raw))
+        with pytest.raises(installer.CompilerInstallerHold,
+                           match="composed ExecStart"):
+            installer.preserve(release, service=service,
+                               original_runtime="/opt/old", root=root)
