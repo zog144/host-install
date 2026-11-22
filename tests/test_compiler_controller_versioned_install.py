@@ -949,3 +949,45 @@ def test_rollback_identity_rejects_missing_foreign_and_malformed_fields():
         dict(approved, Unexpected="value"), approved)
     assert not installer._effective_equivalent(
         dict(approved, Requires=["state.mount", "network.target"]), approved)
+
+
+def test_issuer_selected_digest_binding_is_durable_and_old_receipt_unchanged(
+        setup, monkeypatch):
+    root, release, service, unit, original, staged, old, data, inspector = preserved(setup)
+    receipt = installer.host_path(
+        root, installer.BACKUPS / release / "preservation.json")
+    before = receipt.read_bytes()
+    binding = {
+        "schema": "zog-compiler-issuer-replacement-unit-binding-v1",
+        "approved_selection_sha256": "f" * 64,
+        "original_rollback_unit_sha256": hashlib.sha256(original).hexdigest(),
+        "approved_replacement_unit_sha256": hashlib.sha256(staged).hexdigest(),
+    }
+    monkeypatch.setattr(installer, "_issuer_replacement_binding",
+                        lambda *args: dict(binding))
+    assert installer.select("reviewed.json", "f" * 64, root=root)["state"] == "selected"
+    transaction = installer.host_path(
+        root, installer.BACKUPS / release / "selection-transaction.json")
+    assert json.loads(transaction.read_text())["issuer_replacement_binding"] == binding
+    assert receipt.read_bytes() == before
+    assert installer.restore("reviewed.json", "f" * 64, root=root)["state"] == "restored"
+    assert unit.read_bytes() == original
+    assert receipt.read_bytes() == before
+
+
+def test_issuer_replacement_binding_mismatch_blocks_restore_without_mutation(
+        setup, monkeypatch):
+    root, release, service, unit, original, staged, old, data, inspector = preserved(setup)
+    binding = {"approved_replacement_unit_sha256": hashlib.sha256(staged).hexdigest()}
+    monkeypatch.setattr(installer, "_issuer_replacement_binding",
+                        lambda *args: dict(binding))
+    installer.select("reviewed.json", "f" * 64, root=root)
+    transaction = installer.host_path(
+        root, installer.BACKUPS / release / "selection-transaction.json")
+    protected = json.loads(transaction.read_text())
+    protected["issuer_replacement_binding"]["approved_replacement_unit_sha256"] = (
+        "e" * 64)
+    transaction.write_text(json.dumps(protected))
+    with pytest.raises(installer.CompilerInstallerHold, match="issuer replacement"):
+        installer.restore("reviewed.json", "f" * 64, root=root)
+    assert unit.read_bytes() == staged
