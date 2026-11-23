@@ -55,7 +55,7 @@ Independent review found that accepting `systemctl is-active --quiet` exit codes
 
 - `Id=zog-certbot-seed-root.service` and `LoadState=loaded` (not masked, missing, invalid, or another unit);
 - `ActiveState=inactive` **and** `SubState=dead` (not starting, stopping, reloading, failed, or restarting);
-- `Job=0` or the systemd empty-job representation `Job=` (no enqueued unit start/stop job).
+- `Job=` (systemd 252's absent-job representation) or explicit `Job=0` (no enqueued unit start/stop job).
 
 A nonzero command exit, missing/duplicate/unknown property, or nonzero/malformed job fails closed. The native check runs at the beginning of **stage, activate, and restore**, and is repeated immediately before the atomic live-helper activation or rollback swap. The original issuer data, helper and policy source hashes, protected baseline and transaction remain unmodified by this correction.
 
