@@ -202,4 +202,4 @@ def test_replacement_denies_second_durably_selected_release(monkeypatch):
 def test_optimized_python_is_rejected_before_issuer_snapshot():
     source = (PACKAGE / "issuer_guard_successor.py").read_text()
     entry = source.split("if __name__=='__main__':", 1)[1]
-    assert entry.index("assert __debug__") < entry.index("actual=snapshot()")
+    assert entry.index("if not __debug__:raise RuntimeError") < entry.index("actual=snapshot()")
