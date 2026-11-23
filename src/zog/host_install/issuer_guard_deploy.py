@@ -47,8 +47,9 @@ def _read(root, file, *, expected_mode=None):
         if not parent.exists():
             raise HelperDeploymentHold("issuer helper parent missing: " + str(parent))
         st = parent.lstat()
-        require(stat.S_ISDIR(st.st_mode) and not (st.st_mode & 0o022)
-                and (root != Path("/") or st.st_uid == st.st_gid == 0),
+        require(stat.S_ISDIR(st.st_mode)
+                and (root != Path("/") or (
+                    not (st.st_mode & 0o022) and st.st_uid == st.st_gid == 0)),
                 "issuer helper parent path is unsafe")
     st = file.lstat()
     require(stat.S_ISREG(st.st_mode) and st.st_nlink == 1
