@@ -75,7 +75,7 @@ def selected_fixture(monkeypatch):
     assert hashlib.sha256(raw).hexdigest() == digest
     release = selected["release_id"]
     directory = guard.ROLLBACK / release
-    unit = b"[Service]\\nExecStart=/opt/selected/controller\\n"
+    unit = b"[Service]\nExecStart=/opt/selected/controller\n"
     staged = Path(selected["service"]["staged_unit"])
     files = {
         directory / "approved-selection.json": raw,
@@ -142,7 +142,7 @@ def test_replacement_denies_approvals_changed_on_disk(monkeypatch):
 
 def test_replacement_denies_active_byte_change(monkeypatch):
     selected, receipt, tx, files, current, expected = selected_fixture(monkeypatch)
-    files[guard.UNIT] = b"[Service]\\nExecStart=/unreviewed\\n"
+    files[guard.UNIT] = b"[Service]\nExecStart=/unreviewed\n"
     with pytest.raises(policy.IssuerBindingHold):
         guard.verify_snapshot(current, expected)
 
