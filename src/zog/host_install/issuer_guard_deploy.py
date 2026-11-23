@@ -150,8 +150,8 @@ def _inactive(root, runner):
             "expected issuer controller unit is not loaded")
     require(props["ActiveState"] == "inactive" and props["SubState"] == "dead",
             "issuer controller must be fully stopped for helper replacement")
-    # systemd 252 shows Job=0 for no enqueued unit job; some builds
-    # render an absent job as Job=. Never infer safety from a nonzero job.
+    # systemd 252 prints Job= for the zero-ID D-Bus job when --all is set;
+    # also accept an explicit numeric zero. Reject every nonzero job ID.
     require(props["Job"] in ("0", ""),
             "issuer controller has an enqueued systemd job")
 
