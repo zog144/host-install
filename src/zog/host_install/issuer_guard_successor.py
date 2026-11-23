@@ -42,6 +42,23 @@ ROLLBACK=Path('/opt/zog/compiler-runtime/rollback')
 VERSIONS=Path('/opt/zog/compiler-runtime/versions')
 ISSUER='issuer-persistence.conf'
 SERVICE=UNIT.name
+LIVE_ISSUER=UNIT.parent/(SERVICE+'.d')/ISSUER
+
+
+def _live_issuer_evidence():
+ # Read the *installed* drop-in, not just staged/rollback copies. _protected
+ # rejects symlinks, hardlinks, nonroot owners and writable ancestors/files.
+ body=_protected(LIVE_ISSUER)
+ before=LIVE_ISSUER.lstat()
+ assert stat.S_ISREG(before.st_mode) and before.st_nlink==1,'live issuer drop-in is not a regular single-link file'
+ assert before.st_uid==before.st_gid==0,'live issuer drop-in owner differs'
+ assert not(before.st_mode & 0o022),'live issuer drop-in is group/world writable'
+ after=LIVE_ISSUER.lstat()
+ assert (before.st_dev,before.st_ino,before.st_size,before.st_mode,before.st_uid,before.st_gid)==(after.st_dev,after.st_ino,after.st_size,after.st_mode,after.st_uid,after.st_gid),'live issuer drop-in metadata changed during read'
+ assert len(body)==before.st_size,'live issuer drop-in size differs'
+ return body,dict(name=ISSUER,sha256=hashlib.sha256(body).hexdigest(),
+                  size=before.st_size,mode=stat.S_IMODE(before.st_mode),
+                  uid=before.st_uid,gid=before.st_gid)
 
 
 def _protected(path):
@@ -122,9 +139,14 @@ def _selected_replacement(actual,expected):
  assert type(approved_sha) is str,'missing approved source selection digest'
  # The imported policy independently checks the exact manifest bytes,
  # protected old/new unit and drop-in metadata and durable selected state.
+ # Check the live systemd drop-in at the real effective drop-in path,
+ # including its SHA256, exact bytes, owner, mode and size.
+ live,live_meta=_live_issuer_evidence()
  evidence=verify_selected_replacement_digest(
-     selected,approved_sha,approved,receipt,tx,_protected(UNIT),before,after)
+     selected,approved_sha,approved,receipt,tx,_protected(UNIT),before,after,
+     live,live_meta)
  assert evidence.get('selected_transaction_verified') is True
+ assert evidence.get('live_issuer_dropin_verified') is True
  assert evidence['approved_replacement_unit_sha256']==actual['hashes'][key]
  assert evidence['original_rollback_unit_sha256']==expected['hashes'][key]
  return evidence
