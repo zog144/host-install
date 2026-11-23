@@ -11,7 +11,7 @@ The user-supplied recovered source is tracked verbatim as `src/zog/host_install/
 | Artifact | Expected installed SHA-256 | Size |
 | --- | --- | ---: |
 | Original guard and separate protected rollback copy | 990366a7e21dd89b1def0c1d9974c0e02586b8f5e2af32efa49874d926589d78 | 3,853 |
-| Reviewed successor guard.py | 1824e25c977617f610927fa4777e88e61d4fe674ab6738c3597bf222d38458b8 | 9,195 |
+| Reviewed successor guard.py | 0f7d1e2cd4010e62675e90baf36d6dfa440c5402a1c79c440c050a2df60588d8 | 9,215 |
 | Co-installed compiler_issuer_persistence_binding.py | d6e979e17b7301d49993bef44a7c66abe8d6eb92fb9c4b5fcf19b01209297b5d | 11,331 |
 
 The replacement preserves the existing issuer-persistence.conf bytes and original systemd 252 prestart command:
