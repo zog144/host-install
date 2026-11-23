@@ -68,6 +68,9 @@ def _json_strict(data):
 
 
 def _transactions():
+ if not ROLLBACK.exists():
+  assert not ROLLBACK.is_symlink(),'unsafe compiler rollback root'
+  return
  assert ROLLBACK.is_dir() and not ROLLBACK.is_symlink(),'missing compiler rollback'
  for directory in sorted(ROLLBACK.iterdir()):
   if directory.name.startswith('.'):continue
