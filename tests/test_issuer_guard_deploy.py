@@ -18,6 +18,7 @@ def installed(tmp_path):
     assert hashlib.sha256(original).hexdigest() == deploy.ORIGINAL_SHA256
     base = deploy._host(tmp_path, deploy.BASE)
     base.mkdir(parents=True)
+    deploy._host(tmp_path, deploy.ROLLBACK).parent.mkdir(parents=True)
     guard = base / "guard.py"
     guard.write_bytes(original)
     guard.chmod(0o444)
@@ -65,7 +66,7 @@ def test_selected_unit_prevents_original_helper_rollback(installed):
     deploy.activate(root=root)
     unit.write_bytes(b"[Service]\nExecStart=/replacement\n")
     with pytest.raises(deploy.HelperDeploymentHold,
-                       match="selected compiler unit remains"):
+                       match="original issuer unit has not been restored"):
         deploy.restore(root=root)
     assert guard.read_bytes() != original
     unit.write_bytes(old_unit)
@@ -131,3 +132,23 @@ def test_missing_live_guard_and_readonly_staging_hold(installed):
     guard.chmod(0o644)
     with pytest.raises(deploy.HelperDeploymentHold, match="mode"):
         deploy.stage(root=root)
+
+
+def test_original_helper_restore_denies_unfinished_selected_transaction(installed):
+    root, guard, unit, original, old_unit, base = installed
+    deploy.stage(root=root)
+    deploy.activate(root=root)
+    selected = deploy._host(root, Path("/opt/zog/compiler-runtime/rollback") / ("a"*32))
+    selected.mkdir(parents=True)
+    tx = selected / "selection-transaction.json"
+    tx.write_text(json.dumps({
+        "service": deploy.SERVICE, "release_id": "a"*32,
+        "state": "selected"}))
+    tx.chmod(0o600)
+    with pytest.raises(deploy.HelperDeploymentHold, match="incomplete compiler selection"):
+        deploy.restore(root=root)
+    assert guard.read_bytes() != original
+    tx.write_text(json.dumps({
+        "service": deploy.SERVICE, "release_id": "a"*32,
+        "state": "restored"}))
+    assert deploy.restore(root=root)["state"] == "restored"
