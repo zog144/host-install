@@ -164,3 +164,16 @@ def test_replacement_rejects_parallel_incomplete_operation(monkeypatch):
                         lambda: iter([(directory, tx), (guard.ROLLBACK / ("b"*32), other)]))
     with pytest.raises(AssertionError, match="interrupted"):
         guard.verify_snapshot(current, expected)
+
+
+def test_restored_transaction_original_startup_and_no_permit(monkeypatch):
+    old = _simple_identity()
+    path = guard.ROLLBACK / ("a" * 32)
+    tx = {"schema": "zog-compiler-controller-versioned-installer-v1",
+          "release_id": "a" * 32, "service": guard.SERVICE,
+          "state": "restored"}
+    monkeypatch.setattr(guard, "_transactions", lambda: iter([(path, tx)]))
+    assert guard.verify_snapshot(copy.deepcopy(old), old) == "original"
+    tx["state"] = "restoring"
+    with pytest.raises(AssertionError, match="interrupted"):
+        guard.verify_snapshot(copy.deepcopy(old), old)
