@@ -16,8 +16,8 @@ import subprocess
 import uuid
 
 ORIGINAL_SHA256 = "990366a7e21dd89b1def0c1d9974c0e02586b8f5e2af32efa49874d926589d78"
-SUCCESSOR_SHA256 = "0f7d1e2cd4010e62675e90baf36d6dfa440c5402a1c79c440c050a2df60588d8"
-POLICY_SHA256 = "d6e979e17b7301d49993bef44a7c66abe8d6eb92fb9c4b5fcf19b01209297b5d"
+SUCCESSOR_SHA256 = "313cb4d644b259ece175adea24f030d36c851c753f547288aad21359a8db686e"
+POLICY_SHA256 = "26c286dc72d772b68dd7a942ba08a77d900b9ac844f9401bd7c642ffda729a38"
 BASE = Path("/opt/zog/host-install-issuer-persistence-20261023")
 ROLLBACK = Path("/opt/zog/compiler-runtime/issuer-helper-rollback-20261123")
 SERVICE = "zog-certbot-seed-root.service"
