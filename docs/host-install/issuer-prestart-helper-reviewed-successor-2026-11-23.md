@@ -45,3 +45,20 @@ The original unit must still pass the **whole original snapshot**. For a replace
 - Python 3.12 and 3.13 source CI plus separate real AL2023 controller staging are required. Native systemd 252 issuer mount, cold reboot and fresh 0:0 execution have **not** been exercised by Regular.
 
 **Do not activate** merely because CI passed. The exact helper commit, both new SHA-256 values and original rollback SHA must be independently reviewed/attested before Work's inactive-window native run.
+
+
+## November 23 — native helper installation must observe fully stopped systemd unit
+
+Independent review found that accepting `systemctl is-active --quiet` exit codes 3 or 4 does not prove an expected unit exists or has finished stopping. In particular, `activating` and `deactivating` are transitional states, and a missing unit cannot qualify for safe installation.
+
+`issuer_guard_deploy._inactive()` now queries `systemctl --no-pager --all show --property=Id,LoadState,ActiveState,SubState,Job zog-certbot-seed-root.service` and **requires all of**:
+
+- `Id=zog-certbot-seed-root.service` and `LoadState=loaded` (not masked, missing, invalid, or another unit);
+- `ActiveState=inactive` **and** `SubState=dead` (not starting, stopping, reloading, failed, or restarting);
+- `Job=0` or the systemd empty-job representation `Job=` (no enqueued unit start/stop job).
+
+A nonzero command exit, missing/duplicate/unknown property, or nonzero/malformed job fails closed. The native check runs at the beginning of **stage, activate, and restore**, and is repeated immediately before the atomic live-helper activation or rollback swap. The original issuer data, helper and policy source hashes, protected baseline and transaction remain unmodified by this correction.
+
+These checks establish **observed manager state**, not a lock against a concurrent new unit start immediately after the query. Work must still use the approved inactive maintenance window and controlled native installation path to exclude unrelated start/stop actors; do not infer full race freedom from a one-time systemd readback.
+
+Source tests mock systemd 252 responses for loaded/inactive/dead/no-job, `activating`, `deactivating`, absent/masked/wrong units, queued start/stop jobs, partial or duplicate property readback, and a systemctl error. Each native entrypoint is required to deny unsafe states before touching deployment files. Real systemd 252 acceptance and service readback remain Work-owned.
