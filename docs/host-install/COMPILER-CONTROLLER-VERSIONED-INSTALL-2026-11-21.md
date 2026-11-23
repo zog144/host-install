@@ -215,7 +215,7 @@ regressions and real AL2023 acceptance, replacing `df3e2cca…`. This verifier
 independently requires the issuer prestart source/drop-in meaning to remain
 unweakened and separately disclaims native issuer storage verification.
 A **distinct disposable AL2023 source candidate**
-`d913b5f00c27488da7e1808ae219c325` is built against the new verifier.
+`e7b0d8394f25466c9c2d43b519fa68e0` is built against the new verifier.
 It contains a CI-only unit fixture, not an approved installed issuer helper
 or real selected compiler unit. The prior candidate `16ccd90f…`, original
 Host unit/runtime, issuer storage, rollback receipts, protected operation and
