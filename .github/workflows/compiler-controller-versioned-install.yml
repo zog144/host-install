@@ -9,6 +9,11 @@ on:
       - tests/test_compiler_controller_versioned_install.py
       - tests/test_compiler_issuer_persistence_binding.py
       - src/zog/host_install/compiler_issuer_persistence_binding.py
+      - src/zog/host_install/issuer_guard_original_20261023.py
+      - src/zog/host_install/issuer_guard_successor.py
+      - src/zog/host_install/issuer_guard_deploy.py
+      - tests/test_issuer_guard_successor.py
+      - tests/test_issuer_guard_deploy.py
       - tests/acceptance/al2023_compiler_runtime.py
       - .github/workflows/compiler-controller-versioned-install.yml
       - docs/host-install/COMPILER-CONTROLLER-VERSIONED-INSTALL-2026-11-21.md
@@ -77,10 +82,10 @@ jobs:
           PY
       - name: Run disposable compiler rollback regressions
         run: |
-          PYTHONPATH="$PWD/companions/host-deploy/src:$PWD/src" python -m pytest -q -rs tests/test_compiler_controller_versioned_install.py tests/test_compiler_issuer_persistence_binding.py
+          PYTHONPATH="$PWD/companions/host-deploy/src:$PWD/src" python -m pytest -q -rs tests/test_compiler_controller_versioned_install.py tests/test_compiler_issuer_persistence_binding.py tests/test_issuer_guard_successor.py tests/test_issuer_guard_deploy.py
       - name: Compile and wheel source
         run: |
-          python -m compileall -q src/zog/host_install/compiler_controller_versioned_install.py src/zog/host_install/compiler_legacy_rollback.py src/zog/host_install/compiler_issuer_persistence_binding.py
+          python -m compileall -q src/zog/host_install/compiler_controller_versioned_install.py src/zog/host_install/compiler_legacy_rollback.py src/zog/host_install/compiler_issuer_persistence_binding.py src/zog/host_install/issuer_guard_successor.py src/zog/host_install/issuer_guard_deploy.py
           python -m pip wheel --no-deps . -w /tmp/compiler-wheel
           python - <<'PY'
           from pathlib import Path
@@ -89,6 +94,9 @@ jobs:
           assert len(files) == 1
           with ZipFile(files[0]) as whl:
               assert 'zog/host_install/compiler_controller_versioned_install.py' in whl.namelist()
+              assert 'zog/host_install/issuer_guard_original_20261023.py' in whl.namelist()
+              assert 'zog/host_install/issuer_guard_successor.py' in whl.namelist()
+              assert 'zog/host_install/issuer_guard_deploy.py' in whl.namelist()
           PY
 
 
