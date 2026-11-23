@@ -37,7 +37,7 @@ verifier_revision = subprocess.check_output(
     text=True).strip()
 assert verifier_revision == "5b199ca39b04906423dea31c6d8f64443a0bf3ab"
 # Distinct candidate identity derived from exact 4-component reviewed source tuple.
-release = "d913b5f00c27488da7e1808ae219c325"
+release = "e7b0d8394f25466c9c2d43b519fa68e0"
 service = "zog-root-control.service"
 unit = (f"[Service]\nExecStart=/opt/zog/compiler-runtime/versions/"
         f"{release}/bin/root-control\n").encode()
