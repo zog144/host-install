@@ -140,7 +140,7 @@ def verify_snapshot(actual,expected):
  return 'reviewed-selected'
 
 if __name__=='__main__':
- assert __debug__,'issuer guard refuses optimized Python with assertions disabled'
+ if not __debug__:raise RuntimeError('issuer guard refuses optimized Python with assertions disabled')
  assert os.geteuid()==0
  assert len(sys.argv)==2 and sys.argv[1]=='verify','issuer baseline recapture disabled'
  actual=snapshot()
