@@ -208,7 +208,8 @@ def test_selected_digest_denies_foreign_original_or_missing_active_bytes(active)
     digest, transaction = _approved_selected_transaction(selection, original, issuer)
     with pytest.raises(binding.IssuerBindingHold, match="active compiler"):
         binding.verify_selected_replacement_digest(
-            selection, digest, original, transaction, active, issuer, issuer)
+            selection, digest, _selection_bytes(selection), original,
+            transaction, active, issuer, issuer)
 
 
 def test_selected_digest_denies_mismatched_issuer_storage_and_reviewed_approval():
