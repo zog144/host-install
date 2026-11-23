@@ -177,3 +177,29 @@ def test_restored_transaction_original_startup_and_no_permit(monkeypatch):
     tx["state"] = "restoring"
     with pytest.raises(AssertionError, match="interrupted"):
         guard.verify_snapshot(copy.deepcopy(old), old)
+
+
+def test_original_unit_denies_stale_selected_transaction(monkeypatch):
+    old = _simple_identity()
+    tx = {"schema": "zog-compiler-controller-versioned-installer-v1",
+          "release_id": "a"*32, "service": guard.SERVICE, "state": "selected"}
+    monkeypatch.setattr(guard, "_transactions",
+                        lambda: iter([(guard.ROLLBACK / ("a"*32), tx)]))
+    with pytest.raises(AssertionError, match="inconsistent"):
+        guard.verify_snapshot(copy.deepcopy(old), old)
+
+
+def test_replacement_denies_second_durably_selected_release(monkeypatch):
+    selected, receipt, tx, files, current, expected = selected_fixture(monkeypatch)
+    foreign = dict(tx, release_id="b"*32, new_unit_sha256="b"*64)
+    monkeypatch.setattr(guard, "_transactions", lambda: iter([
+        (guard.ROLLBACK / selected["release_id"], tx),
+        (guard.ROLLBACK / ("b"*32), foreign)]))
+    with pytest.raises(AssertionError, match="ambiguous"):
+        guard.verify_snapshot(current, expected)
+
+
+def test_optimized_python_is_rejected_before_issuer_snapshot():
+    source = (PACKAGE / "issuer_guard_successor.py").read_text()
+    entry = source.split("if __name__=='__main__':", 1)[1]
+    assert entry.index("assert __debug__") < entry.index("actual=snapshot()")
