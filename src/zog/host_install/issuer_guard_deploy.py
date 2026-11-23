@@ -16,6 +16,8 @@ import subprocess
 import uuid
 
 ORIGINAL_SHA256 = "990366a7e21dd89b1def0c1d9974c0e02586b8f5e2af32efa49874d926589d78"
+SUCCESSOR_SHA256 = "3a6b0c7ac7b4e6cdc52ff97a83706038f1cc28bdfb7f586a85ff1ce73274abee"
+POLICY_SHA256 = "d6e979e17b7301d49993bef44a7c66abe8d6eb92fb9c4b5fcf19b01209297b5d"
 BASE = Path("/opt/zog/host-install-issuer-persistence-20261023")
 ROLLBACK = Path("/opt/zog/compiler-runtime/issuer-helper-rollback-20261123")
 SERVICE = "zog-certbot-seed-root.service"
@@ -114,6 +116,9 @@ def _source_tuple():
     policy = _source_file(POLICY_FILE)
     require(len(original) == 3853 and _sha(original) == ORIGINAL_SHA256,
             "recovered original guard source does not match native evidence")
+    require(_sha(successor) == SUCCESSOR_SHA256 and
+            _sha(policy) == POLICY_SHA256,
+            "reviewed issuer helper source or binding SHA-256 differs")
     return original, successor, policy
 
 
