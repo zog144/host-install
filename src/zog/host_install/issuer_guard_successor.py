@@ -89,12 +89,12 @@ def _interrupted():
 
 
 def _selected_replacement(actual,expected):
- from compiler_issuer_persistence_binding import verify_selected_replacement_digest
  key=str(UNIT)
  assert type(actual) is dict and type(expected) is dict and set(actual)==set(expected),'issuer baseline schema changed'
  assert type(actual.get('hashes')) is dict and type(expected.get('hashes')) is dict,'issuer baseline hashes missing'
  assert set(actual['hashes'])==set(expected['hashes']) and key in expected['hashes'],'issuer baseline file set changed'
  assert actual['hashes'][key]!=expected['hashes'][key],'issuer replacement is not distinct'
+ from compiler_issuer_persistence_binding import verify_selected_replacement_digest
  for name in actual:
   if name!='hashes':assert actual[name]==expected[name],'issuer baseline storage or metadata differs'
  for name,value in actual['hashes'].items():
