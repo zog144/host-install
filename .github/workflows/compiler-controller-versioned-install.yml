@@ -80,9 +80,6 @@ jobs:
           assert SELECTED_SOURCES == expected, (SELECTED_SOURCES, expected)
           print("ZOG_MATCHED_COMPILER_INSPECTOR_TUPLE", expected)
           PY
-      - name: Run disposable compiler rollback regressions
-        run: |
-          PYTHONPATH="$PWD/companions/host-deploy/src:$PWD/src" python -m pytest -q -rs tests/test_compiler_controller_versioned_install.py tests/test_compiler_issuer_persistence_binding.py tests/test_issuer_guard_successor.py tests/test_issuer_guard_deploy.py
       - name: Check exact recovered helper and hash prepared successor
         run: |
           python - <<'PY'
@@ -96,6 +93,9 @@ jobs:
               value = (base / name).read_bytes()
               print('ISSUER_REVIEWED_SOURCE_SHA256', name, sha256(value).hexdigest(), len(value), flush=True)
           PY
+      - name: Run disposable compiler rollback regressions
+        run: |
+          PYTHONPATH="$PWD/companions/host-deploy/src:$PWD/src" python -m pytest -q -rs tests/test_compiler_controller_versioned_install.py tests/test_compiler_issuer_persistence_binding.py tests/test_issuer_guard_successor.py tests/test_issuer_guard_deploy.py
       - name: Compile and wheel source
         run: |
           python -m compileall -q src/zog/host_install/compiler_controller_versioned_install.py src/zog/host_install/compiler_legacy_rollback.py src/zog/host_install/compiler_issuer_persistence_binding.py src/zog/host_install/issuer_guard_successor.py src/zog/host_install/issuer_guard_deploy.py
