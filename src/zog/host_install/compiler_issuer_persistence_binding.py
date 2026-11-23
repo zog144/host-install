@@ -158,3 +158,54 @@ def reviewed_replacement_binding(selection, approved_sha256, receipt,
         "issuer_native_storage_rechecked": False,
         "startup_authorized": False,
     }
+
+
+
+def verify_selected_replacement_digest(selection, approved_sha256, receipt,
+                                       transaction, active_unit_bytes,
+                                       preserved_issuer_dropin,
+                                       selected_issuer_dropin):
+    """Strict selected-only replacement digest predicate for the future guard.
+
+    This function is NOT the installed ExecStartPre helper. It is a narrow
+    digest authorization *input* to that helper, and must be invoked only
+    alongside its independently attested issuer storage/mount/grant checks.
+    """
+    binding = reviewed_replacement_binding(
+        selection, approved_sha256, receipt, preserved_issuer_dropin,
+        selected_issuer_dropin)
+    _need(type(transaction) is dict,
+          "missing protected issuer selection transaction")
+    _need(transaction.get("state") == "selected",
+          "replacement digest requires durable selected transaction")
+    _need(transaction.get("schema") == "zog-compiler-controller-versioned-install-v1",
+          "replacement transaction schema differs")
+    _need(transaction.get("release_id") == binding["release_id"] and
+          transaction.get("service") == binding["service"] and
+          transaction.get("selection_sha256") == approved_sha256,
+          "replacement transaction is not bound to approved selection")
+    _need(transaction.get("issuer_replacement_binding") == binding and
+          transaction.get("old_unit_sha256") ==
+              binding["original_rollback_unit_sha256"] and
+          transaction.get("new_unit_sha256") ==
+              binding["approved_replacement_unit_sha256"],
+          "protected transaction replacement binding or rollback differs")
+    comp = selection["composition"]
+    _need(transaction.get("old_dropins") == comp["original_dropins"] and
+          transaction.get("new_dropins") == comp["selected_dropins"],
+          "replacement transaction drop-in set differs from approval")
+    _need(type(active_unit_bytes) is bytes and
+          hashlib.sha256(active_unit_bytes).hexdigest() ==
+              binding["approved_replacement_unit_sha256"],
+          "active compiler unit is not the approved replacement")
+    return {
+        "schema": "zog-compiler-issuer-selected-digest-evidence-v1",
+        "selection_sha256": approved_sha256,
+        "approved_replacement_unit_sha256":
+            binding["approved_replacement_unit_sha256"],
+        "original_rollback_unit_sha256":
+            binding["original_rollback_unit_sha256"],
+        "selected_transaction_verified": True,
+        "issuer_native_storage_rechecked": False,
+        "startup_authorized": False,
+    }
