@@ -123,3 +123,97 @@ def test_rejects_other_service_and_invalid_selection_digest():
     with pytest.raises(binding.IssuerBindingHold):
         binding.reviewed_replacement_binding(selected, "anything", original,
                                              issuer, issuer)
+
+
+
+def _approved_selected_transaction(selection, original, issuer):
+    digest = "f" * 64
+    reviewed = binding.reviewed_replacement_binding(
+        selection, digest, original, issuer, issuer)
+    transaction = {
+        "schema": "zog-compiler-controller-versioned-installer-v1",
+        "release_id": selection["release_id"],
+        "service": binding.COMPILER_UNIT,
+        "selection_sha256": digest,
+        "old_unit_sha256": original["unit_sha256"],
+        "new_unit_sha256": selection["service"]["staged_sha256"],
+        "old_dropins": copy.deepcopy(selection["composition"]["original_dropins"]),
+        "new_dropins": copy.deepcopy(selection["composition"]["selected_dropins"]),
+        "issuer_replacement_binding": reviewed,
+        "state": "selected",
+    }
+    return digest, transaction
+
+
+def test_selected_only_digest_evidence_retains_native_issuer_guard():
+    selection, original, issuer = fixture()
+    digest, transaction = _approved_selected_transaction(selection, original, issuer)
+    active = b"[Service]\nExecStart=/opt/selected/controller\n"
+    initial = copy.deepcopy(transaction)
+    evidence = binding.verify_selected_replacement_digest(
+        selection, digest, original, transaction, active, issuer, issuer)
+    assert evidence["selected_transaction_verified"] is True
+    assert evidence["approved_replacement_unit_sha256"] == hashlib.sha256(active).hexdigest()
+    assert evidence["original_rollback_unit_sha256"] == original["unit_sha256"]
+    assert evidence["issuer_native_storage_rechecked"] is False
+    assert evidence["startup_authorized"] is False
+    assert transaction == initial
+
+
+@pytest.mark.parametrize("state", ["arming", "pending", "restoring", "restored", "aborted", "", None])
+def test_replacement_digest_denied_before_or_after_selected_state(state):
+    selection, original, issuer = fixture()
+    digest, transaction = _approved_selected_transaction(selection, original, issuer)
+    transaction["state"] = state
+    with pytest.raises(binding.IssuerBindingHold, match="selected"):
+        binding.verify_selected_replacement_digest(
+            selection, digest, original, transaction,
+            b"[Service]\nExecStart=/opt/selected/controller\n", issuer, issuer)
+
+
+@pytest.mark.parametrize("attribute,value", [
+    ("schema", "zog-other-v1"),
+    ("release_id", "b" * 32),
+    ("service", "other.service"),
+    ("selection_sha256", "e" * 64),
+    ("old_unit_sha256", "e" * 64),
+    ("new_unit_sha256", "e" * 64),
+    ("old_dropins", []),
+    ("new_dropins", []),
+    ("issuer_replacement_binding", {}),
+])
+def test_selected_digest_denies_forged_transaction(attribute, value):
+    selection, original, issuer = fixture()
+    digest, transaction = _approved_selected_transaction(selection, original, issuer)
+    transaction[attribute] = value
+    with pytest.raises(binding.IssuerBindingHold):
+        binding.verify_selected_replacement_digest(
+            selection, digest, original, transaction,
+            b"[Service]\nExecStart=/opt/selected/controller\n", issuer, issuer)
+
+
+@pytest.mark.parametrize("active", [
+    b"[Service]\nExecStart=/opt/original/controller\n",
+    b"[Service]\nExecStart=/opt/unreviewed/controller\n",
+    b"",
+])
+def test_selected_digest_denies_foreign_original_or_missing_active_bytes(active):
+    selection, original, issuer = fixture()
+    digest, transaction = _approved_selected_transaction(selection, original, issuer)
+    with pytest.raises(binding.IssuerBindingHold, match="active compiler"):
+        binding.verify_selected_replacement_digest(
+            selection, digest, original, transaction, active, issuer, issuer)
+
+
+def test_selected_digest_denies_mismatched_issuer_storage_and_reviewed_approval():
+    selection, original, issuer = fixture()
+    digest, transaction = _approved_selected_transaction(selection, original, issuer)
+    with pytest.raises(binding.IssuerBindingHold):
+        binding.verify_selected_replacement_digest(
+            selection, "e"*64, original, transaction,
+            b"[Service]\nExecStart=/opt/selected/controller\n", issuer, issuer)
+    selection["composition"]["selected_effective"]["ReadOnlyPaths"] = "/tmp"
+    with pytest.raises(binding.IssuerBindingHold):
+        binding.verify_selected_replacement_digest(
+            selection, digest, original, transaction,
+            b"[Service]\nExecStart=/opt/selected/controller\n", issuer, issuer)
