@@ -16,7 +16,7 @@ import subprocess
 import uuid
 
 ORIGINAL_SHA256 = "990366a7e21dd89b1def0c1d9974c0e02586b8f5e2af32efa49874d926589d78"
-SUCCESSOR_SHA256 = "3a6b0c7ac7b4e6cdc52ff97a83706038f1cc28bdfb7f586a85ff1ce73274abee"
+SUCCESSOR_SHA256 = "1824e25c977617f610927fa4777e88e61d4fe674ab6738c3597bf222d38458b8"
 POLICY_SHA256 = "d6e979e17b7301d49993bef44a7c66abe8d6eb92fb9c4b5fcf19b01209297b5d"
 BASE = Path("/opt/zog/host-install-issuer-persistence-20261023")
 ROLLBACK = Path("/opt/zog/compiler-runtime/issuer-helper-rollback-20261123")
