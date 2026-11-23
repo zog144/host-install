@@ -188,7 +188,7 @@ jobs:
               'requires_reviewed_protected_native_install': True,
           }
           (target / 'issuer-helper-manifest.json').write_text(
-              json.dumps(meta, indent=2, sort_keys=True) + '\\n')
+              json.dumps(meta, indent=2, sort_keys=True) + '\n')
           print('ISSUER_REVIEWED_SOURCE_HELPER_MANIFEST', json.dumps(meta), flush=True)
           PY
       - name: Preserve unapproved issuer helper candidate and original byte rollback
