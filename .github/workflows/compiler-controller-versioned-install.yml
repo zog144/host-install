@@ -83,6 +83,19 @@ jobs:
       - name: Run disposable compiler rollback regressions
         run: |
           PYTHONPATH="$PWD/companions/host-deploy/src:$PWD/src" python -m pytest -q -rs tests/test_compiler_controller_versioned_install.py tests/test_compiler_issuer_persistence_binding.py tests/test_issuer_guard_successor.py tests/test_issuer_guard_deploy.py
+      - name: Check exact recovered helper and hash prepared successor
+        run: |
+          python - <<'PY'
+          from hashlib import sha256
+          from pathlib import Path
+          base = Path('src/zog/host_install')
+          old = (base / 'issuer_guard_original_20261023.py').read_bytes()
+          assert len(old) == 3853 and sha256(old).hexdigest() == (
+              '990366a7e21dd89b1def0c1d9974c0e02586b8f5e2af32efa49874d926589d78')
+          for name in ('issuer_guard_successor.py', 'compiler_issuer_persistence_binding.py'):
+              value = (base / name).read_bytes()
+              print('ISSUER_REVIEWED_SOURCE_SHA256', name, sha256(value).hexdigest(), len(value), flush=True)
+          PY
       - name: Compile and wheel source
         run: |
           python -m compileall -q src/zog/host_install/compiler_controller_versioned_install.py src/zog/host_install/compiler_legacy_rollback.py src/zog/host_install/compiler_issuer_persistence_binding.py src/zog/host_install/issuer_guard_successor.py src/zog/host_install/issuer_guard_deploy.py
@@ -141,6 +154,50 @@ jobs:
               PYTHONPATH=/work/src:/work/companions/host-deploy/src /usr/bin/python3.12 \
                 /work/tests/acceptance/al2023_compiler_runtime.py
             '
+      - name: Package independently reviewed issuer prestart helper candidate
+        run: |
+          python - <<'PY'
+          import json
+          from hashlib import sha256
+          from pathlib import Path
+          source = Path('src/zog/host_install')
+          target = Path('issuer-helper-out')
+          target.mkdir(exist_ok=False)
+          names = {
+              'issuer_guard_original_20261023.py': 'original-guard.py',
+              'issuer_guard_successor.py': 'guard.py',
+              'compiler_issuer_persistence_binding.py': 'compiler_issuer_persistence_binding.py',
+          }
+          hashes = {}
+          for name, output in names.items():
+              raw = (source / name).read_bytes()
+              (target / output).write_bytes(raw)
+              hashes[output] = {'sha256': sha256(raw).hexdigest(), 'size': len(raw)}
+          assert hashes['original-guard.py']['sha256'] == (
+              '990366a7e21dd89b1def0c1d9974c0e02586b8f5e2af32efa49874d926589d78')
+          meta = {
+              'schema': 'zog-issuer-helper-source-candidate-v1',
+              'native_installed': False, 'startup_approved': False,
+              'source_repo': 'zog144/host-install',
+              'source_commit': __import__('subprocess').check_output(
+                  ['git', 'rev-parse', 'HEAD'], text=True).strip(),
+              'python': '/usr/bin/python3.12',
+              'installed_path': '/opt/zog/host-install-issuer-persistence-20261023/guard.py',
+              'original_mode': '0444', 'new_guard_mode': '0444', 'new_policy_mode': '0444',
+              'files': hashes,
+              'requires_reviewed_protected_native_install': True,
+          }
+          (target / 'issuer-helper-manifest.json').write_text(
+              json.dumps(meta, indent=2, sort_keys=True) + '\\n')
+          print('ISSUER_REVIEWED_SOURCE_HELPER_MANIFEST', json.dumps(meta), flush=True)
+          PY
+      - name: Preserve unapproved issuer helper candidate and original byte rollback
+        uses: actions/upload-artifact@v4
+        with:
+          name: issuer-helper-source-20261123
+          path: issuer-helper-out/
+          if-no-files-found: error
+          retention-days: 30
       - name: Preserve new disposable immutable runtime candidate
         uses: actions/upload-artifact@v4
         with:
