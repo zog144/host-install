@@ -35,9 +35,9 @@ assert SELECTED_SOURCES == {
 verifier_revision = subprocess.check_output(
     ["git", "-C", "/work/companions/host-deploy", "rev-parse", "HEAD"],
     text=True).strip()
-assert verifier_revision == "df3e2ccad123e23ec0b2ecca1c35e40220d34b50"
+assert verifier_revision == "5b199ca39b04906423dea31c6d8f64443a0bf3ab"
 # Distinct candidate identity derived from exact 4-component reviewed source tuple.
-release = "16ccd90f76191afd8492e157ce4c34bb"
+release = "d913b5f00c27488da7e1808ae219c325"
 service = "zog-root-control.service"
 unit = (f"[Service]\nExecStart=/opt/zog/compiler-runtime/versions/"
         f"{release}/bin/root-control\n").encode()
