@@ -198,7 +198,7 @@ then review any source-level change of the real storage/STATE/issuer-grant check
 Host-install's source-only `compiler_issuer_persistence_binding.verify_selected_replacement_digest`
 now defines the *additional* replacement digest predicate needed by the eventual
 reviewed prestart helper. It checks the approved selection/rollback binding already
-created by `select()` against the protected transaction, requires **durable
+created by `select()` against the protected transaction, verifies the **exact raw\napproved selection bytes** against the expected SHA-256 (rejecting duplicate JSON\nkeys and a parsed-object mismatch), and requires **durable
 `state=selected`**, the original old-unit SHA, selected new-unit SHA, exact
 old/selected drop-in records and the actual active unit bytes. It denies
 `arming`, `pending`, `restoring`, `restored`, `aborted`, forged approval,
