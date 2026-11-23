@@ -137,6 +137,39 @@ def _record(root):
     return value
 
 
+def _baseline_original_unit(root):
+    baseline = json.loads(_read(root, _host(root, BASE / "baseline.json")))
+    require(type(baseline) is dict and type(baseline.get("hashes")) is dict
+            and type(baseline["hashes"].get(str(UNIT))) is str,
+            "original issuer unit baseline is missing")
+    actual = _read(root, _host(root, UNIT))
+    require(_sha(actual) == baseline["hashes"][str(UNIT)],
+            "original issuer unit has not been restored")
+    return baseline
+
+
+def _no_incomplete_compiler_transaction(root):
+    backup = _host(root, Path("/opt/zog/compiler-runtime/rollback"))
+    if not backup.exists():
+        require(not backup.is_symlink(), "unsafe compiler transaction root")
+        return
+    require(backup.is_dir() and not backup.is_symlink(),
+            "unsafe compiler transaction root")
+    for directory in sorted(backup.iterdir()):
+        if len(directory.name) not in (32, 64) or any(
+                c not in "0123456789abcdef" for c in directory.name):
+            continue
+        require(directory.is_dir() and not directory.is_symlink(),
+                "unsafe compiler release directory")
+        item = directory / "selection-transaction.json"
+        if not item.exists() and not item.is_symlink():
+            continue
+        tx = json.loads(_read(root, item, expected_mode=0o600))
+        if tx.get("service") == SERVICE:
+            require(tx.get("state") in ("restored", "aborted"),
+                    "incomplete compiler selection prevents original helper rollback")
+
+
 def stage(*, root=Path("/"), runner=subprocess.run):
     """Create a recoverable original-helper copy, never replace live helper."""
     root = Path(root).absolute()
@@ -146,10 +179,15 @@ def stage(*, root=Path("/"), runner=subprocess.run):
     require(existing == source_original and _sha(existing) == ORIGINAL_SHA256,
             "installed original guard is not the independently recovered file")
     baseline = _read(root, _host(root, BASE / "baseline.json"))
+    _baseline_original_unit(root)
     directory = _host(root, ROLLBACK)
     require(not directory.exists() and not directory.is_symlink(),
             "issuer helper staging already exists: recover it explicitly")
-    directory.mkdir(parents=True, mode=0o700)
+    require(directory.parent.is_dir() and not directory.parent.is_symlink(),
+            "issuer rollback parent missing or unsafe")
+    if root == Path("/"):
+        _read(root, _host(root, BASE / "guard.py"), expected_mode=0o444)
+    directory.mkdir(mode=0o700)
     _fsync(directory.parent)
     _exclusive(directory / "original-guard.py", existing, 0o400)
     _exclusive(directory / "approved-successor.py", source_new, 0o400)
@@ -217,11 +255,8 @@ def restore(*, root=Path("/"), runner=subprocess.run):
     root = Path(root).absolute()
     _inactive(root, runner)
     record, original, new, policy = _validate_staging(root)
-    baseline = json.loads(_read(root, _host(root, BASE / "baseline.json")))
-    expected_unit = baseline["hashes"].get(str(UNIT))
-    observed_unit = _read(root, _host(root, UNIT))
-    require(type(expected_unit) is str and _sha(observed_unit) == expected_unit,
-            "cannot restore original helper while selected compiler unit remains")
+    _baseline_original_unit(root)
+    _no_incomplete_compiler_transaction(root)
     live = _host(root, BASE / "guard.py")
     existing = _read(root, live, expected_mode=0o444)
     require(existing in (original, new), "unreviewed helper cannot be restored")
