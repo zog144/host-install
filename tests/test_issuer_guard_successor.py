@@ -82,10 +82,18 @@ def selected_fixture(monkeypatch):
         directory / "preservation.json": json.dumps(receipt).encode(),
         directory / (guard.SERVICE + ".d") / guard.ISSUER: issuer,
         staged.parent / (guard.SERVICE + ".d") / guard.ISSUER: issuer,
+        guard.LIVE_ISSUER: issuer,
         guard.UNIT: unit,
     }
     monkeypatch.setattr(guard, "_transactions", lambda: iter([(directory, tx)]))
     monkeypatch.setattr(guard, "_protected", lambda p: files[Path(p)])
+    def live_issuer():
+        data = files[guard.LIVE_ISSUER]
+        return data, {
+            "name": guard.ISSUER, "sha256": hashlib.sha256(data).hexdigest(),
+            "size": len(data), "mode": 0o644, "uid": 0, "gid": 0,
+        }
+    monkeypatch.setattr(guard, "_live_issuer_evidence", live_issuer)
     monkeypatch.setitem(sys.modules, "compiler_issuer_persistence_binding", policy)
     expected = _simple_identity()
     expected["hashes"][str(guard.UNIT)] = receipt["unit_sha256"]
@@ -203,3 +211,71 @@ def test_optimized_python_is_rejected_before_issuer_snapshot():
     source = (PACKAGE / "issuer_guard_successor.py").read_text()
     entry = source.split("if __name__=='__main__':", 1)[1]
     assert entry.index("if not __debug__:raise RuntimeError") < entry.index("actual=snapshot()")
+
+
+@pytest.mark.parametrize("live_only", [
+    b"[Service]\nExecStartPre=/usr/bin/true\nReadOnlyPaths=/state/issuer\n",
+    b"[Service]\nExecStartPre=\nReadOnlyPaths=/state/issuer\n",
+    b"",
+])
+def test_only_live_issuer_dropin_changes_replacement_denied(monkeypatch, live_only):
+    selected, receipt, tx, files, current, expected = selected_fixture(monkeypatch)
+    before = dict(files)
+    files[guard.LIVE_ISSUER] = live_only
+    assert files[guard.LIVE_ISSUER] != files[
+        guard.ROLLBACK / selected["release_id"] /
+        (guard.SERVICE + ".d") / guard.ISSUER]
+    assert files[guard.UNIT] == before[guard.UNIT]
+    with pytest.raises(policy.IssuerBindingHold, match="live issuer persistence drop-in"):
+        guard.verify_snapshot(current, expected)
+
+
+@pytest.mark.parametrize("metadata_patch", [
+    {"mode": 0o600}, {"mode": 0o666}, {"uid": 1000}, {"gid": 1000},
+    {"size": 0}, {"sha256": "0" * 64},
+])
+def test_only_live_issuer_dropin_metadata_changes_replacement_denied(
+        monkeypatch, metadata_patch):
+    selected, receipt, tx, files, current, expected = selected_fixture(monkeypatch)
+    real = guard._live_issuer_evidence
+    def modified_live():
+        body, metadata = real()
+        metadata.update(metadata_patch)
+        return body, metadata
+    monkeypatch.setattr(guard, "_live_issuer_evidence", modified_live)
+    with pytest.raises(policy.IssuerBindingHold, match="live issuer persistence drop-in metadata"):
+        guard.verify_snapshot(current, expected)
+
+
+def test_live_issuer_evidence_checks_filesystem_metadata(monkeypatch):
+    from types import SimpleNamespace
+    body = b"[Service]\nExecStartPre=/usr/bin/true\n"
+    filemode = 0o100644
+    metadata = SimpleNamespace(st_mode=filemode, st_nlink=1, st_uid=0,
+                               st_gid=0, st_size=len(body), st_dev=31, st_ino=42)
+    class FakePath:
+        def lstat(self):
+            return metadata
+    monkeypatch.setattr(guard, "LIVE_ISSUER", FakePath())
+    monkeypatch.setattr(guard, "_protected", lambda path: body)
+    bytes_read, observed = guard._live_issuer_evidence()
+    assert bytes_read == body
+    assert observed == {
+        "name": guard.ISSUER, "sha256": hashlib.sha256(body).hexdigest(),
+        "mode": 0o644, "uid": 0, "gid": 0, "size": len(body),
+    }
+    metadata.st_mode = 0o100664
+    with pytest.raises(AssertionError, match="group/world writable"):
+        guard._live_issuer_evidence()
+    metadata.st_mode = filemode
+    metadata.st_nlink = 2
+    with pytest.raises(AssertionError, match="single-link"):
+        guard._live_issuer_evidence()
+    metadata.st_nlink = 1
+    metadata.st_uid = 1000
+    with pytest.raises(AssertionError, match="owner"):
+        guard._live_issuer_evidence()
+    metadata.st_uid = 0
+    metadata.st_size = len(body) + 1
+    with pytest.raises(AssertionError, match="size"):
+        guard._live_issuer_evidence()
