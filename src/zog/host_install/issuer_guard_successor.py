@@ -99,9 +99,12 @@ def _selected_replacement(actual,expected):
   if name!='hashes':assert actual[name]==expected[name],'issuer baseline storage or metadata differs'
  for name,value in actual['hashes'].items():
   if name!=key:assert value==expected['hashes'][name],'issuer protected file changed: '+name
- candidates=[(directory,tx) for directory,tx in _transactions()
-             if tx.get('state')=='selected' and tx.get('new_unit_sha256')==actual['hashes'][key]]
- assert len(candidates)==1,'no unique durably selected approved replacement'
+ selected_records=[(directory,tx) for directory,tx in _transactions()
+                   if tx.get('state')=='selected']
+ assert len(selected_records)==1,'ambiguous or missing selected compiler release'
+ candidates=[(directory,tx) for directory,tx in selected_records
+             if tx.get('new_unit_sha256')==actual['hashes'][key]]
+ assert len(candidates)==1,'no uniquely approved live unit digest'
  directory,tx=candidates[0]
  assert tx['old_unit_sha256']==expected['hashes'][key],'original issuer main-unit baseline changed'
  approved=_protected(directory/'approved-selection.json')
@@ -130,11 +133,14 @@ def _selected_replacement(actual,expected):
 def verify_snapshot(actual,expected):
  # Failing / interrupted selections must not silently fall back to baseline.
  _interrupted()
- if actual==expected:return 'original'
+ if actual==expected:
+  assert not any(tx.get('state')=='selected' for _,tx in _transactions()),'original unit is inconsistent with durable selected state'
+  return 'original'
  _selected_replacement(actual,expected)
  return 'reviewed-selected'
 
 if __name__=='__main__':
+ assert __debug__,'issuer guard refuses optimized Python with assertions disabled'
  assert os.geteuid()==0
  assert len(sys.argv)==2 and sys.argv[1]=='verify','issuer baseline recapture disabled'
  actual=snapshot()
