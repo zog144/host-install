@@ -813,6 +813,23 @@ def select(selection_file, expected_sha256, *, root=Path("/"), runner=subprocess
         issuer_binding = _issuer_replacement_binding(
             root, selection, expected_sha256, receipt,
             backup / (service + ".d"), staged_dir)
+        if issuer_binding is not None and root == Path("/"):
+            # The prestart helper must read the exact independently reviewed
+            # manifest, not an ephemeral path or a reconstructed JSON object.
+            # This is a NEW create-only protected selection copy; it must
+            # never overwrite preservation.json or the issuer baseline.
+            source = Path(selection_file)
+            require(source.is_file() and not source.is_symlink(),
+                    "approved compiler selection source missing")
+            approved_raw = source.read_bytes()
+            require(hashlib.sha256(approved_raw).hexdigest() == expected_sha256,
+                    "approved selection changed since verifier readback")
+            retained_approval = backup / "approved-selection.json"
+            if retained_approval.exists() or retained_approval.is_symlink():
+                require(_regular(root, retained_approval) == approved_raw,
+                        "retained approved selection bytes differ")
+            else:
+                _atomic(retained_approval, approved_raw)
         tx = {"schema": SCHEMA, "release_id": release, "service": service,
               "selection_sha256": expected_sha256,
               "old_unit_sha256": hashlib.sha256(current).hexdigest(),
