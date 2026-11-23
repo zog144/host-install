@@ -48,7 +48,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: zog144/host-deploy
-          ref: df3e2ccad123e23ec0b2ecca1c35e40220d34b50
+          ref: 5b199ca39b04906423dea31c6d8f64443a0bf3ab
           path: companions/host-deploy
           persist-credentials: false
       - uses: actions/setup-python@v5
@@ -120,7 +120,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: zog144/host-deploy
-          ref: df3e2ccad123e23ec0b2ecca1c35e40220d34b50
+          ref: 5b199ca39b04906423dea31c6d8f64443a0bf3ab
           path: companions/host-deploy
           persist-credentials: false
       - name: Real Amazon Linux 2023 Python 3.12 venv/pip/install/import acceptance
@@ -136,7 +136,7 @@ jobs:
       - name: Preserve new disposable immutable runtime candidate
         uses: actions/upload-artifact@v4
         with:
-          name: compiler-runtime-16ccd90f76191afd8492e157ce4c34bb
+          name: compiler-runtime-d913b5f00c27488da7e1808ae219c325
           path: candidate-out/
           if-no-files-found: error
           retention-days: 30
