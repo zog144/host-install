@@ -175,3 +175,57 @@ Host-install now defines `zog-compiler-issuer-replacement-unit-binding-v1` in `c
 The issuer owner's existing native checks of certificate-data/STATE UUID, mount backing identity, storage ownership/DAC, protected issuer grant, read-only state paths, required mounted filesystem and all source/installed-byte pins are **additional independent requirements**. The new digest binding does **not** replace any of them. The exact installed issuer guard source, its deployed path, and its read-only access to the approved selection/transaction must be independently reviewed and installed; host-install's source-only adapter cannot change the already installed guard implementation.
 
 Source tests cover a legitimate distinct replacement hash with unchanged old baseline, immutable inputs, mismatch between selected and reviewed SHA, changed original custody, altered guard bytes/owner/permissions, changed prestart commands, removed read-only issuer paths and backing-mount dependencies, incorrect approval hash and recovery-time changed binding. CI is disposable, not native systemd 252 acceptance. Preserve the fixture for an independently approved inactive-window retry **after** both revisions are reviewed. Do not replay historical Fonts operations, edit their receipts, bypass issuer persistence or issue a direct SSM/systemd launch.
+
+
+## November 23 — helper provenance, selected-only digest and verifier refresh
+
+The native read-only systemd 252 inspection identified the existing issuer prestart command as
+`/usr/bin/python3.12 /opt/zog/host-install-issuer-persistence-20261023/guard.py verify`
+on `zog-certbot-seed-root.service`. The observed **helper** is root-owned `0:0`, mode `0444`,
+SHA-256 `990366a7e21dd89b1def0c1d9974c0e02586b8f5e2af32efa49874d926589d78`.
+The observed Python interpreter has SHA-256
+`f4a74be62ff195cd0c79fba74172d3faa5e92976a37c8125b535869afa9f5fc0`.
+The installed `issuer-persistence.conf` is root-owned, mode `0644`, SHA-256
+`364366b3b49fca2349cb6aa8c5f6f3ec59d49aa08b6273dc02fd6543ce33c6ef`.
+The helper and drop-in are not RPM-owned; the interpreter is an RPM-owned AL2023 Python 3.12.
+These are **observations, not source provenance or a reviewed deployment pin**.
+The retained October 23 source record does not match the current installed helper SHA.
+Do **not** reconstruct or overwrite this helper from its name, digest, or argv alone.
+Before packaging an accepted replacement, Work must provide exact nonsecret helper bytes
+and source/installation provenance, independently reconcile the older source record,
+then review any source-level change of the real storage/STATE/issuer-grant checks.
+
+Host-install's source-only `compiler_issuer_persistence_binding.verify_selected_replacement_digest`
+now defines the *additional* replacement digest predicate needed by the eventual
+reviewed prestart helper. It checks the approved selection/rollback binding already
+created by `select()` against the protected transaction, requires **durable
+`state=selected`**, the original old-unit SHA, selected new-unit SHA, exact
+old/selected drop-in records and the actual active unit bytes. It denies
+`arming`, `pending`, `restoring`, `restored`, `aborted`, forged approval,
+altered original custody, changed mounted-path restrictions and an unexpected
+active unit. Its output explicitly retains `startup_authorized=false` and
+`issuer_native_storage_rechecked=false`: merely passing this predicate
+**must never** bypass the existing issuer-private STATE, backing-mount,
+grant/ID, owner/DAC, read-only-path and prestart checks. This function is not
+wired into the installed `guard.py`, and no helper has been replaced.
+
+Host-install now pins host-deploy PR #35 exact verifier commit
+`5b199ca39b04906423dea31c6d8f64443a0bf3ab` in both source
+regressions and real AL2023 acceptance, replacing `df3e2cca…`. This verifier
+independently requires the issuer prestart source/drop-in meaning to remain
+unweakened and separately disclaims native issuer storage verification.
+A **distinct disposable AL2023 source candidate**
+`d913b5f00c27488da7e1808ae219c325` is built against the new verifier.
+It contains a CI-only unit fixture, not an approved installed issuer helper
+or real selected compiler unit. The prior candidate `16ccd90f…`, original
+Host unit/runtime, issuer storage, rollback receipts, protected operation and
+retained fixture remain unchanged.
+
+**Native HOLD:** No production helper deployment should occur until its
+actual installed bytes are obtained and matched to independently reviewed
+source, and the reviewed *new* helper explicitly preserves all original
+storage/mount/grant validations while consuming the protected selected-only
+digest. Subsequent guard and helper replacement must be a separate
+recoverable, inactive-window transaction with independent installed-byte,
+source/RECORD, crash/reboot and rollback acceptance. Do not use the digest
+predicate as an alternate service launch path or SSM bypass.
