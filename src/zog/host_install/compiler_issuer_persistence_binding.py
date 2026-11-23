@@ -178,7 +178,7 @@ def verify_selected_replacement_digest(selection, approved_sha256, receipt,
           "missing protected issuer selection transaction")
     _need(transaction.get("state") == "selected",
           "replacement digest requires durable selected transaction")
-    _need(transaction.get("schema") == "zog-compiler-controller-versioned-install-v1",
+    _need(transaction.get("schema") == "zog-compiler-controller-versioned-installer-v1",
           "replacement transaction schema differs")
     _need(transaction.get("release_id") == binding["release_id"] and
           transaction.get("service") == binding["service"] and
