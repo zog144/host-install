@@ -152,3 +152,104 @@ def test_original_helper_restore_denies_unfinished_selected_transaction(installe
         "service": deploy.SERVICE, "release_id": "a"*32,
         "state": "restored"}))
     assert deploy.restore(root=root)["state"] == "restored"
+
+
+
+# Native systemd 252 status readback is mocked; no real Host or service is used.
+def _systemd_show(*, identity=deploy.SERVICE, load="loaded", active="inactive",
+                  sub="dead", job="0"):
+    return (f"Id={identity}\nLoadState={load}\nActiveState={active}\n"
+            f"SubState={sub}\nJob={job}\n")
+
+
+def _native_systemd_fixture(monkeypatch, stdout, *, code=0):
+    from subprocess import CompletedProcess
+    monkeypatch.setattr(deploy.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(deploy.os, "getegid", lambda: 0)
+    calls = []
+    def runner(argv, **kwargs):
+        calls.append((list(argv), kwargs))
+        return CompletedProcess(argv, code, stdout=stdout, stderr="")
+    return runner, calls
+
+
+@pytest.mark.parametrize("no_job", ["0", ""])
+def test_native_helper_install_admits_only_loaded_inactive_dead_with_no_job(
+        monkeypatch, no_job):
+    runner, calls = _native_systemd_fixture(
+        monkeypatch, _systemd_show(job=no_job))
+    deploy._inactive(Path("/"), runner)
+    assert len(calls) == 1
+    argv, kwargs = calls[0]
+    assert argv[0] == "/usr/bin/systemctl"
+    assert "show" in argv and deploy.SERVICE in argv
+    assert "--property=Id,LoadState,ActiveState,SubState,Job" in argv
+    assert kwargs["capture_output"] is True
+    assert kwargs["text"] is True
+
+
+@pytest.mark.parametrize(("description", "properties"), [
+    ("activating", {"active": "activating", "sub": "start"}),
+    ("deactivating", {"active": "deactivating", "sub": "stop"}),
+    ("reloading", {"active": "reloading", "sub": "reload"}),
+    ("active", {"active": "active", "sub": "running"}),
+    ("failed", {"active": "failed", "sub": "failed"}),
+    ("inactive but stop unfinished", {"active": "inactive", "sub": "stop"}),
+    ("inactive but restarting", {"active": "inactive", "sub": "auto-restart"}),
+    ("missing unit", {"load": "not-found"}),
+    ("masked unit", {"load": "masked"}),
+    ("bad unit", {"load": "bad-setting"}),
+    ("different service", {"identity": "other.service"}),
+    ("queued start job", {"job": "42"}),
+    ("queued stop job", {"job": "181"}),
+])
+def test_native_inactive_guard_rejects_transition_missing_unit_or_queued_job(
+        monkeypatch, description, properties):
+    runner, calls = _native_systemd_fixture(
+        monkeypatch, _systemd_show(**properties))
+    with pytest.raises(deploy.HelperDeploymentHold):
+        deploy._inactive(Path("/"), runner)
+    assert len(calls) == 1, description
+
+
+@pytest.mark.parametrize("output", [
+    "", "Id=zog-certbot-seed-root.service\n",
+    _systemd_show().replace("Job=0\n", ""),
+    _systemd_show() + "Job=0\n",
+    _systemd_show().replace("LoadState=loaded", "LoadState=loaded\nLoadState=loaded"),
+    _systemd_show().replace("Job=0", "Job=garbled"),
+    "unrecognized property\n" + _systemd_show(),
+])
+def test_inactive_guard_rejects_missing_duplicate_or_malformed_systemd_properties(
+        monkeypatch, output):
+    runner, _ = _native_systemd_fixture(monkeypatch, output)
+    with pytest.raises(deploy.HelperDeploymentHold):
+        deploy._inactive(Path("/"), runner)
+
+
+def test_inactive_guard_rejects_systemd_failure_even_with_inactive_text(monkeypatch):
+    runner, _ = _native_systemd_fixture(
+        monkeypatch, _systemd_show(), code=1)
+    with pytest.raises(deploy.HelperDeploymentHold, match="status unavailable"):
+        deploy._inactive(Path("/"), runner)
+
+
+@pytest.mark.parametrize("action", [deploy.stage, deploy.activate, deploy.restore],
+                         ids=["stage", "activate", "restore"])
+@pytest.mark.parametrize("transition", [
+    _systemd_show(active="activating", sub="start"),
+    _systemd_show(active="deactivating", sub="stop"),
+    _systemd_show(load="not-found"),
+    _systemd_show(job="77"),
+])
+def test_native_helper_operations_stop_before_touching_files_when_unit_not_stopped(
+        monkeypatch, action, transition):
+    runner, calls = _native_systemd_fixture(monkeypatch, transition)
+    def unexpected(*args, **kwargs):
+        raise AssertionError("should not access issuer files while service unsafe")
+    monkeypatch.setattr(deploy, "_source_tuple", unexpected)
+    monkeypatch.setattr(deploy, "_validate_staging", unexpected)
+    monkeypatch.setattr(deploy, "_read", unexpected)
+    with pytest.raises(deploy.HelperDeploymentHold):
+        action(root=Path("/"), runner=runner)
+    assert len(calls) == 1
