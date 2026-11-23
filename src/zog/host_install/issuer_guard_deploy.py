@@ -123,13 +123,37 @@ def _source_tuple():
 
 
 def _inactive(root, runner):
+    """Require a loaded, stopped *specific* unit with no systemd job.
+
+    `is-active` exit codes cannot distinguish missing units and transitional
+    states. Read the manager's exact unit properties and deny any ambiguity.
+    """
     if root != Path("/"):
-        return
+        return  # Non-native fixture root: no systemd in disposable source CI.
     require(os.geteuid() == os.getegid() == 0, "helper installation requires root")
-    response = runner(["/usr/bin/systemctl", "is-active", "--quiet", SERVICE],
-                      check=False)
-    require(response.returncode in (3, 4),
-            "issuer controller must be inactive for helper replacement")
+    response = runner([
+        "/usr/bin/systemctl", "--no-pager", "--all", "show",
+        "--property=Id,LoadState,ActiveState,SubState,Job", SERVICE,
+    ], check=False, capture_output=True, text=True)
+    require(response.returncode == 0, "systemd issuer unit status unavailable")
+    require(type(response.stdout) is str, "invalid systemd issuer unit status")
+    props = {}
+    for line in response.stdout.splitlines():
+        key, sep, value = line.partition("=")
+        require(sep == "=" and key in
+                ("Id", "LoadState", "ActiveState", "SubState", "Job")
+                and key not in props, "malformed or duplicate systemd unit property")
+        props[key] = value
+    require(set(props) == {"Id", "LoadState", "ActiveState", "SubState", "Job"},
+            "incomplete systemd issuer unit status")
+    require(props["Id"] == SERVICE and props["LoadState"] == "loaded",
+            "expected issuer controller unit is not loaded")
+    require(props["ActiveState"] == "inactive" and props["SubState"] == "dead",
+            "issuer controller must be fully stopped for helper replacement")
+    # systemd 252 shows Job=0 for no enqueued unit job; some builds
+    # render an absent job as Job=. Never infer safety from a nonzero job.
+    require(props["Job"] in ("0", ""),
+            "issuer controller has an enqueued systemd job")
 
 
 def _record(root):
@@ -246,6 +270,7 @@ def activate(*, root=Path("/"), runner=subprocess.run):
     require(_read(root, installed_policy, expected_mode=0o444) == policy,
             "issuer policy did not survive installation")
     if existing == original:
+        _inactive(root, runner)  # Recheck after staging, immediately before swap.
         _atomic(live, new, 0o444)
     require(_read(root, live, expected_mode=0o444) == new,
             "installed issuer helper differs from reviewed successor")
@@ -266,6 +291,7 @@ def restore(*, root=Path("/"), runner=subprocess.run):
     existing = _read(root, live, expected_mode=0o444)
     require(existing in (original, new), "unreviewed helper cannot be restored")
     if existing == new:
+        _inactive(root, runner)  # Recheck immediately before restoring old code.
         _atomic(live, original, 0o444)
     require(_read(root, live, expected_mode=0o444) == original,
             "original issuer helper was not restored")
