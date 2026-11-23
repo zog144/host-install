@@ -9,6 +9,7 @@ contract; this module does not silently modify systemd or authorize starts.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 
 SCHEMA = "zog-compiler-issuer-replacement-unit-binding-v1"
@@ -161,7 +162,8 @@ def reviewed_replacement_binding(selection, approved_sha256, receipt,
 
 
 
-def verify_selected_replacement_digest(selection, approved_sha256, receipt,
+def verify_selected_replacement_digest(selection, approved_sha256,
+                                       approved_selection_bytes, receipt,
                                        transaction, active_unit_bytes,
                                        preserved_issuer_dropin,
                                        selected_issuer_dropin):
@@ -171,6 +173,29 @@ def verify_selected_replacement_digest(selection, approved_sha256, receipt,
     digest authorization *input* to that helper, and must be invoked only
     alongside its independently attested issuer storage/mount/grant checks.
     """
+    # Bind the parsed, independently reviewed manifest to its *actual bytes*.
+    # An arbitrary caller-supplied dictionary or asserted selection SHA is
+    # insufficient even if it superficially matches transaction fields.
+    _digest(approved_sha256)
+    _need(type(approved_selection_bytes) is bytes and
+          hashlib.sha256(approved_selection_bytes).hexdigest() == approved_sha256,
+          "approved selection bytes differ from pinned SHA256")
+    def unique_pairs(pairs):
+        seen = {}
+        for key, value in pairs:
+            if key in seen:
+                raise IssuerBindingHold("duplicate key in approved selection")
+            seen[key] = value
+        return seen
+    try:
+        observed_selection = json.loads(
+            approved_selection_bytes.decode("utf-8"),
+            object_pairs_hook=unique_pairs)
+    except (ValueError, UnicodeError) as error:
+        raise IssuerBindingHold("approved selection JSON invalid") from error
+    _need(type(observed_selection) is dict and
+          observed_selection == selection,
+          "parsed approved selection differs from authenticated bytes")
     binding = reviewed_replacement_binding(
         selection, approved_sha256, receipt, preserved_issuer_dropin,
         selected_issuer_dropin)
