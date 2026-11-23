@@ -5,6 +5,7 @@ derive from the already reviewed selection and never remove the storage guard.
 """
 import copy
 import hashlib
+import json
 
 import pytest
 
@@ -126,8 +127,12 @@ def test_rejects_other_service_and_invalid_selection_digest():
 
 
 
+def _selection_bytes(selection):
+    return json.dumps(selection, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
 def _approved_selected_transaction(selection, original, issuer):
-    digest = "f" * 64
+    digest = hashlib.sha256(_selection_bytes(selection)).hexdigest()
     reviewed = binding.reviewed_replacement_binding(
         selection, digest, original, issuer, issuer)
     transaction = {
@@ -151,7 +156,8 @@ def test_selected_only_digest_evidence_retains_native_issuer_guard():
     active = b"[Service]\nExecStart=/opt/selected/controller\n"
     initial = copy.deepcopy(transaction)
     evidence = binding.verify_selected_replacement_digest(
-        selection, digest, original, transaction, active, issuer, issuer)
+        selection, digest, _selection_bytes(selection), original,
+        transaction, active, issuer, issuer)
     assert evidence["selected_transaction_verified"] is True
     assert evidence["approved_replacement_unit_sha256"] == hashlib.sha256(active).hexdigest()
     assert evidence["original_rollback_unit_sha256"] == original["unit_sha256"]
@@ -167,7 +173,7 @@ def test_replacement_digest_denied_before_or_after_selected_state(state):
     transaction["state"] = state
     with pytest.raises(binding.IssuerBindingHold, match="selected"):
         binding.verify_selected_replacement_digest(
-            selection, digest, original, transaction,
+            selection, digest, _selection_bytes(selection), original, transaction,
             b"[Service]\nExecStart=/opt/selected/controller\n", issuer, issuer)
 
 
@@ -188,7 +194,7 @@ def test_selected_digest_denies_forged_transaction(attribute, value):
     transaction[attribute] = value
     with pytest.raises(binding.IssuerBindingHold):
         binding.verify_selected_replacement_digest(
-            selection, digest, original, transaction,
+            selection, digest, _selection_bytes(selection), original, transaction,
             b"[Service]\nExecStart=/opt/selected/controller\n", issuer, issuer)
 
 
@@ -210,10 +216,29 @@ def test_selected_digest_denies_mismatched_issuer_storage_and_reviewed_approval(
     digest, transaction = _approved_selected_transaction(selection, original, issuer)
     with pytest.raises(binding.IssuerBindingHold):
         binding.verify_selected_replacement_digest(
-            selection, "e"*64, original, transaction,
+            selection, "e"*64, _selection_bytes(selection), original, transaction,
             b"[Service]\nExecStart=/opt/selected/controller\n", issuer, issuer)
     selection["composition"]["selected_effective"]["ReadOnlyPaths"] = "/tmp"
     with pytest.raises(binding.IssuerBindingHold):
         binding.verify_selected_replacement_digest(
-            selection, digest, original, transaction,
+            selection, digest, _selection_bytes(selection), original, transaction,
             b"[Service]\nExecStart=/opt/selected/controller\n", issuer, issuer)
+
+
+def test_selected_digest_rejects_unapproved_raw_selection_and_duplicate_json():
+    selection, original, issuer = fixture()
+    digest, transaction = _approved_selected_transaction(selection, original, issuer)
+    active = b"[Service]\\nExecStart=/opt/selected/controller\\n"
+    with pytest.raises(binding.IssuerBindingHold, match="approved selection"):
+        binding.verify_selected_replacement_digest(
+            selection, digest, b'{"unreviewed": true}', original,
+            transaction, active, issuer, issuer)
+    noncanonical = _selection_bytes(selection)
+    # Duplicated top-level selection key is forbidden even if an independent
+    # hash were computed for those exact bytes.
+    duplicate = noncanonical[:-1] + b',"release_id":"a"}'
+    duplicate_digest = hashlib.sha256(duplicate).hexdigest()
+    with pytest.raises(binding.IssuerBindingHold, match="duplicate key"):
+        binding.verify_selected_replacement_digest(
+            selection, duplicate_digest, duplicate, original,
+            transaction, active, issuer, issuer)
