@@ -166,7 +166,8 @@ def verify_selected_replacement_digest(selection, approved_sha256,
                                        approved_selection_bytes, receipt,
                                        transaction, active_unit_bytes,
                                        preserved_issuer_dropin,
-                                       selected_issuer_dropin):
+                                       selected_issuer_dropin,
+                                       live_issuer_dropin, live_issuer_metadata):
     """Strict selected-only replacement digest predicate for the future guard.
 
     This function is NOT the installed ExecStartPre helper. It is a narrow
@@ -199,6 +200,26 @@ def verify_selected_replacement_digest(selection, approved_sha256,
     binding = reviewed_replacement_binding(
         selection, approved_sha256, receipt, preserved_issuer_dropin,
         selected_issuer_dropin)
+    # The preserved and staged copies are not evidence of what systemd will
+    # execute. Require the *live* drop-in's bytes and disk metadata to match
+    # the exact approved selected composition before admitting a new unit SHA.
+    selected_issuer = _member(selection["composition"]["selected_dropins"])
+    _need(type(live_issuer_dropin) is bytes and
+          type(live_issuer_metadata) is dict,
+          "live issuer persistence drop-in missing or invalid")
+    _need(live_issuer_dropin == selected_issuer_dropin and
+          hashlib.sha256(live_issuer_dropin).hexdigest() ==
+              selected_issuer["sha256"],
+          "live issuer persistence drop-in bytes differ from approval")
+    _need(live_issuer_metadata == {
+              "name": ISSUER_DROPIN,
+              "sha256": selected_issuer["sha256"],
+              "size": selected_issuer["size"],
+              "mode": selected_issuer["mode"],
+              "uid": selected_issuer["uid"],
+              "gid": selected_issuer["gid"],
+          } and len(live_issuer_dropin) == selected_issuer["size"],
+          "live issuer persistence drop-in metadata differs from approval")
     _need(type(transaction) is dict,
           "missing protected issuer selection transaction")
     _need(transaction.get("state") == "selected",
@@ -231,6 +252,7 @@ def verify_selected_replacement_digest(selection, approved_sha256,
         "original_rollback_unit_sha256":
             binding["original_rollback_unit_sha256"],
         "selected_transaction_verified": True,
+        "live_issuer_dropin_verified": True,
         "issuer_native_storage_rechecked": False,
         "startup_authorized": False,
     }
