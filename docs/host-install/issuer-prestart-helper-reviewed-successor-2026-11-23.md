@@ -11,8 +11,8 @@ The user-supplied recovered source is tracked verbatim as `src/zog/host_install/
 | Artifact | Expected installed SHA-256 | Size |
 | --- | --- | ---: |
 | Original guard and separate protected rollback copy | 990366a7e21dd89b1def0c1d9974c0e02586b8f5e2af32efa49874d926589d78 | 3,853 |
-| Reviewed successor guard.py | 0f7d1e2cd4010e62675e90baf36d6dfa440c5402a1c79c440c050a2df60588d8 | 9,215 |
-| Co-installed compiler_issuer_persistence_binding.py | d6e979e17b7301d49993bef44a7c66abe8d6eb92fb9c4b5fcf19b01209297b5d | 11,331 |
+| Reviewed successor guard.py | 313cb4d644b259ece175adea24f030d36c851c753f547288aad21359a8db686e | 10,554 |
+| Co-installed compiler_issuer_persistence_binding.py | 26c286dc72d772b68dd7a942ba08a77d900b9ac844f9401bd7c642ffda729a38 | 12,607 |
 
 The replacement preserves the existing issuer-persistence.conf bytes and original systemd 252 prestart command:
 
@@ -24,7 +24,7 @@ The original drop-in SHA-256 remains **364366b3b49fca2349cb6aa8c5f6f3ec59d49aa08
 
 The successor retains the **exact original AST** of `h()`, `snapshot()` and `verify_mounts()`. The original code checks mounted issuer DATA UUID, inode/owner/mode, storage identity, issuer grant and software binding, generation/policy manifest hashes, all previously enumerated protected file hashes and certificate-data contents, read-only generation/source mounts and writable certificate-data mount. None are suppressed on the replacement path. The saved `baseline.json` is never updated; the old `capture` operation is disabled.
 
-The original unit must still pass the **whole original snapshot**. For a replacement, **only** the hash of the live `/etc/systemd/system/zog-certbot-seed-root.service` may differ. The script requires the exact protected approval bytes (new create-only `rollback/<release>/approved-selection.json`), the original rollback receipt, selected unit digest and bytes, unchanged issuer drop-in restrictions and a **unique durable selected transaction**, invoking PR #49's `verify_selected_replacement_digest()` from an exact co-installed policy file. Pending, restoring, arming, restored and aborted transactions reject a **replacement** unit. Pending/restoring reject even the original unit. A restored transaction plus original bytes permits normal original startup. The independent persistent systemd startup guard is retained.
+The successor additionally reads the **live** `/etc/systemd/system/zog-certbot-seed-root.service.d/issuer-persistence.conf` and requires its exact bytes, SHA-256, size, root UID/GID and permission mode to match the issuer entry in the approved selected composition. It rejects symlinks, hardlinks and writable or foreign-owned paths. Checking only the preserved and staged copies is insufficient; a live-only drift denies replacement admission.\n\nThe original unit must still pass the **whole original snapshot**. For a replacement, **only** the hash of the live `/etc/systemd/system/zog-certbot-seed-root.service` may differ. The script requires the exact protected approval bytes (new create-only `rollback/<release>/approved-selection.json`), the original rollback receipt, selected unit digest and bytes, unchanged issuer drop-in restrictions and a **unique durable selected transaction**, invoking PR #49's `verify_selected_replacement_digest()` from an exact co-installed policy file. Pending, restoring, arming, restored and aborted transactions reject a **replacement** unit. Pending/restoring reject even the original unit. A restored transaction plus original bytes permits normal original startup. The independent persistent systemd startup guard is retained.
 
 ## Work-owned native install / restore sequence
 
