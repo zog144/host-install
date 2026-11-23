@@ -12,6 +12,13 @@ import pytest
 from zog.host_install import compiler_issuer_persistence_binding as binding
 
 
+def _live_meta(data, *, mode=0o644, uid=0, gid=0, size=None):
+    return {"name": binding.ISSUER_DROPIN,
+            "sha256": hashlib.sha256(data).hexdigest(),
+            "size": len(data) if size is None else size,
+            "mode": mode, "uid": uid, "gid": gid}
+
+
 def fixture():
     original = b"[Service]\nExecStart=/opt/original/controller\n"
     selected = b"[Service]\nExecStart=/opt/selected/controller\n"
@@ -157,8 +164,9 @@ def test_selected_only_digest_evidence_retains_native_issuer_guard():
     initial = copy.deepcopy(transaction)
     evidence = binding.verify_selected_replacement_digest(
         selection, digest, _selection_bytes(selection), original,
-        transaction, active, issuer, issuer)
+        transaction, active, issuer, issuer, issuer, _live_meta(issuer))
     assert evidence["selected_transaction_verified"] is True
+    assert evidence["live_issuer_dropin_verified"] is True
     assert evidence["approved_replacement_unit_sha256"] == hashlib.sha256(active).hexdigest()
     assert evidence["original_rollback_unit_sha256"] == original["unit_sha256"]
     assert evidence["issuer_native_storage_rechecked"] is False
@@ -174,7 +182,7 @@ def test_replacement_digest_denied_before_or_after_selected_state(state):
     with pytest.raises(binding.IssuerBindingHold, match="selected"):
         binding.verify_selected_replacement_digest(
             selection, digest, _selection_bytes(selection), original, transaction,
-            b"[Service]\nExecStart=/opt/selected/controller\n", issuer, issuer)
+            b"[Service]\nExecStart=/opt/selected/controller\n", issuer, issuer, issuer, _live_meta(issuer))
 
 
 @pytest.mark.parametrize("attribute,value", [
@@ -195,7 +203,7 @@ def test_selected_digest_denies_forged_transaction(attribute, value):
     with pytest.raises(binding.IssuerBindingHold):
         binding.verify_selected_replacement_digest(
             selection, digest, _selection_bytes(selection), original, transaction,
-            b"[Service]\nExecStart=/opt/selected/controller\n", issuer, issuer)
+            b"[Service]\nExecStart=/opt/selected/controller\n", issuer, issuer, issuer, _live_meta(issuer))
 
 
 @pytest.mark.parametrize("active", [
@@ -209,7 +217,7 @@ def test_selected_digest_denies_foreign_original_or_missing_active_bytes(active)
     with pytest.raises(binding.IssuerBindingHold, match="active compiler"):
         binding.verify_selected_replacement_digest(
             selection, digest, _selection_bytes(selection), original,
-            transaction, active, issuer, issuer)
+            transaction, active, issuer, issuer, issuer, _live_meta(issuer))
 
 
 def test_selected_digest_denies_mismatched_issuer_storage_and_reviewed_approval():
@@ -218,12 +226,12 @@ def test_selected_digest_denies_mismatched_issuer_storage_and_reviewed_approval(
     with pytest.raises(binding.IssuerBindingHold):
         binding.verify_selected_replacement_digest(
             selection, "e"*64, _selection_bytes(selection), original, transaction,
-            b"[Service]\nExecStart=/opt/selected/controller\n", issuer, issuer)
+            b"[Service]\nExecStart=/opt/selected/controller\n", issuer, issuer, issuer, _live_meta(issuer))
     selection["composition"]["selected_effective"]["ReadOnlyPaths"] = "/tmp"
     with pytest.raises(binding.IssuerBindingHold):
         binding.verify_selected_replacement_digest(
             selection, digest, _selection_bytes(selection), original, transaction,
-            b"[Service]\nExecStart=/opt/selected/controller\n", issuer, issuer)
+            b"[Service]\nExecStart=/opt/selected/controller\n", issuer, issuer, issuer, _live_meta(issuer))
 
 
 def test_selected_digest_rejects_unapproved_raw_selection_and_duplicate_json():
@@ -233,7 +241,7 @@ def test_selected_digest_rejects_unapproved_raw_selection_and_duplicate_json():
     with pytest.raises(binding.IssuerBindingHold, match="approved selection"):
         binding.verify_selected_replacement_digest(
             selection, digest, b'{"unreviewed": true}', original,
-            transaction, active, issuer, issuer)
+            transaction, active, issuer, issuer, issuer, _live_meta(issuer))
     noncanonical = _selection_bytes(selection)
     # Duplicated top-level selection key is forbidden even if an independent
     # hash were computed for those exact bytes.
@@ -242,4 +250,40 @@ def test_selected_digest_rejects_unapproved_raw_selection_and_duplicate_json():
     with pytest.raises(binding.IssuerBindingHold, match="duplicate key"):
         binding.verify_selected_replacement_digest(
             selection, duplicate_digest, duplicate, original,
-            transaction, active, issuer, issuer)
+            transaction, active, issuer, issuer, issuer, _live_meta(issuer))
+
+
+@pytest.mark.parametrize("changed_bytes", [
+    b"[Service]\nExecStartPre=/usr/bin/true\nReadOnlyPaths=/state/issuer\n",
+    b"[Service]\nExecStartPre=/usr/bin/test -d /state/issuer\n",
+    b"",
+])
+def test_selected_digest_denies_live_issuer_dropin_content_drift_only(changed_bytes):
+    selection, original, issuer = fixture()
+    digest, transaction = _approved_selected_transaction(selection, original, issuer)
+    before = (_selection_bytes(selection), json.dumps(original, sort_keys=True),
+              json.dumps(transaction, sort_keys=True))
+    with pytest.raises(binding.IssuerBindingHold, match="live issuer persistence drop-in"):
+        binding.verify_selected_replacement_digest(
+            selection, digest, _selection_bytes(selection), original, transaction,
+            b"[Service]\nExecStart=/opt/selected/controller\n",
+            issuer, issuer, changed_bytes, _live_meta(changed_bytes))
+    assert before == (_selection_bytes(selection), json.dumps(original, sort_keys=True),
+                      json.dumps(transaction, sort_keys=True))
+
+
+@pytest.mark.parametrize("changed_metadata", [
+    {"mode": 0o600}, {"mode": 0o664}, {"uid": 1001},
+    {"gid": 1001}, {"size": 0}, {"name": "foreign.conf"},
+    {"sha256": "0"*64},
+])
+def test_selected_digest_denies_live_issuer_dropin_metadata_drift_only(changed_metadata):
+    selection, original, issuer = fixture()
+    digest, transaction = _approved_selected_transaction(selection, original, issuer)
+    meta = _live_meta(issuer)
+    meta.update(changed_metadata)
+    with pytest.raises(binding.IssuerBindingHold, match="live issuer persistence drop-in metadata"):
+        binding.verify_selected_replacement_digest(
+            selection, digest, _selection_bytes(selection), original, transaction,
+            b"[Service]\nExecStart=/opt/selected/controller\n",
+            issuer, issuer, issuer, meta)
