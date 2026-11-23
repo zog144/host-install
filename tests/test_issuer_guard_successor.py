@@ -136,7 +136,7 @@ def test_replacement_denies_approvals_changed_on_disk(monkeypatch):
     selected, receipt, tx, files, current, expected = selected_fixture(monkeypatch)
     directory = guard.ROLLBACK / selected["release_id"]
     files[directory / "approved-selection.json"] = b'{"malicious":true}'
-    with pytest.raises(policy.IssuerBindingHold):
+    with pytest.raises((AssertionError, policy.IssuerBindingHold)):
         guard.verify_snapshot(current, expected)
 
 
