@@ -1160,7 +1160,8 @@ def restore(selection_file, expected_sha256, *, root=Path("/"),
             tx["state"] = "aborted"
             _atomic(transaction_path, _json(tx))
             return tx
-        _inactive(root, service, runner)
+        _inactive(root, service, runner,
+                  masked=_already_masked(active), release=release)
         if tx["state"] == "restored":
             require(_regular(root, active) == original,
                     "already restored compiler fragment differs")
@@ -1209,7 +1210,8 @@ def restore(selection_file, expected_sha256, *, root=Path("/"),
         guard = _startup_guard(root, release, active_dir,
                                recover_umask=old_state in ("pending", "restoring"))
         _reload(root, runner)
-        _inactive(root, service, runner)
+        _inactive(root, service, runner,
+                  masked=_already_masked(active), release=release)
         if not _already_masked(active):
             _confirm_guard_loaded(root, service, active_dir, runner)
         else:
