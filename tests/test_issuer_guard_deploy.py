@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import stat
 from pathlib import Path
 
 import pytest
@@ -589,3 +591,28 @@ def test_revised_policy_cannot_activate_before_versioned_staging(installed, monk
     assert not (base / deploy.POLICY_FILE).exists()
     assert deploy.stage(root=root)["state"] == "staged"
     assert deploy.activate(root=root)["state"] == "active"
+
+def test_issuer_helper_stage_activate_restore_ignores_process_umask(installed):
+    root, guard, unit, original, original_unit, base = installed
+    baseline = (base / "baseline.json").read_bytes()
+    previous = os.umask(0o077)
+    try:
+        staged = deploy.stage(root=root)
+        rollback = deploy._host(root, deploy.ROLLBACK)
+        assert stat.S_IMODE((rollback / "original-guard.py").stat().st_mode) == 0o400
+        assert stat.S_IMODE((rollback / "approved-binding.py").stat().st_mode) == 0o400
+        assert stat.S_IMODE((rollback / "record.json").stat().st_mode) == 0o600
+        activated = deploy.activate(root=root)
+        assert activated["state"] == "active"
+        assert stat.S_IMODE(guard.stat().st_mode) == 0o444
+        assert stat.S_IMODE((base / deploy.POLICY_FILE).stat().st_mode) == 0o444
+        restored = deploy.restore(root=root)
+    finally:
+        os.umask(previous)
+    assert staged["state"] == "staged"
+    assert restored["state"] == "restored"
+    assert guard.read_bytes() == original
+    assert stat.S_IMODE(guard.stat().st_mode) == 0o444
+    assert not (base / deploy.POLICY_FILE).exists()
+    assert (base / "baseline.json").read_bytes() == baseline
+    assert (rollback / "original-guard.py").read_bytes() == original
