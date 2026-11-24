@@ -1170,3 +1170,186 @@ def test_partial_recovery_refuses_conflicting_content_addressed_history(
     assert transaction.read_bytes() == raw
     assert history.read_bytes() == b"foreign"
     assert unit.is_symlink() and unit.readlink() == Path("/dev/null")
+
+def _systemd_status(service, *, load="loaded", active="inactive",
+                    sub="dead", job="", unit_id=None):
+    return ("Id=" + (service if unit_id is None else unit_id) + "\n"
+            + "LoadState=" + load + "\n"
+            + "ActiveState=" + active + "\n"
+            + "SubState=" + sub + "\n"
+            + "Job=" + job + "\n")
+
+
+def _status_runner(service, *, response=None, code=0):
+    calls = []
+    def run(args, *, check=False, capture_output=False, text=False):
+        assert args == [
+            "/usr/bin/systemctl", "--no-pager", "--all", "show",
+            "--property=Id,LoadState,ActiveState,SubState,Job", service]
+        assert check is False and capture_output and text
+        calls.append(args)
+        return SimpleNamespace(
+            returncode=code,
+            stdout=_systemd_status(service) if response is None else response)
+    return run, calls
+
+
+def test_compiler_systemd_status_requires_loaded_and_dead_with_no_job(monkeypatch):
+    service = "zog-certbot-seed-root.service"
+    inspected = []
+    monkeypatch.setattr(installer, "_regular",
+                        lambda root, path: inspected.append((root, path)) or b"unit")
+    for job in ("", "0"):
+        runner, calls = _status_runner(
+            service, response=_systemd_status(service, job=job))
+        installer._inactive(Path("/"), service, runner)
+        assert len(calls) == 1
+    assert inspected == [
+        (Path("/"), installer.UNIT_DIR / service),
+        (Path("/"), installer.UNIT_DIR / service)]
+
+
+@pytest.mark.parametrize("changes", [
+    {"active": "activating", "sub": "start"},
+    {"active": "deactivating", "sub": "stop"},
+    {"active": "active", "sub": "running"},
+    {"active": "failed", "sub": "failed"},
+    {"active": "reloading", "sub": "reload"},
+    {"sub": "exited"},
+    {"load": "not-found"},
+    {"load": "bad-setting"},
+    {"load": "error"},
+    {"load": "masked"},
+    {"unit_id": "other.service"},
+    {"job": "27"},
+    {"job": "21/start"},
+])
+def test_compiler_systemd_status_rejects_bad_states_before_file_access(
+        monkeypatch, changes):
+    service = "zog-certbot-seed-root.service"
+    monkeypatch.setattr(
+        installer, "_regular",
+        lambda *args: pytest.fail("unsafe unit state reached file readback"))
+    runner, calls = _status_runner(
+        service, response=_systemd_status(service, **changes))
+    with pytest.raises(installer.CompilerInstallerHold):
+        installer._inactive(Path("/"), service, runner)
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("output", [
+    "Id=zog-certbot-seed-root.service\nLoadState=loaded\n",
+    _systemd_status("zog-certbot-seed-root.service") + "Job=\n",
+    _systemd_status("zog-certbot-seed-root.service") + "Extra=value\n",
+    _systemd_status("zog-certbot-seed-root.service").replace(
+        "LoadState=loaded", "LoadState"),
+    _systemd_status("zog-certbot-seed-root.service").replace(
+        "ActiveState=inactive", "ActiveState=not-active"),
+])
+def test_compiler_systemd_status_rejects_incomplete_duplicate_unknown_or_bad_output(
+        monkeypatch, output):
+    service = "zog-certbot-seed-root.service"
+    monkeypatch.setattr(
+        installer, "_regular",
+        lambda *args: pytest.fail("malformed status reached file access"))
+    runner, _ = _status_runner(service, response=output)
+    with pytest.raises(installer.CompilerInstallerHold):
+        installer._inactive(Path("/"), service, runner)
+
+
+def test_compiler_systemd_status_rejects_show_failure_or_missing_stdout(monkeypatch):
+    service = "zog-certbot-seed-root.service"
+    monkeypatch.setattr(
+        installer, "_regular",
+        lambda *args: pytest.fail("uncertain status reached file access"))
+    runner, _ = _status_runner(service, code=1)
+    with pytest.raises(installer.CompilerInstallerHold):
+        installer._inactive(Path("/"), service, runner)
+    runner, _ = _status_runner(service)
+    def no_stdout(*args, **kwargs):
+        runner(*args, **kwargs)
+        return SimpleNamespace(returncode=0, stdout=None)
+    with pytest.raises(installer.CompilerInstallerHold):
+        installer._inactive(Path("/"), service, no_stdout)
+
+
+def test_compiler_systemd_masked_context_requires_exact_load_state(
+        monkeypatch):
+    service = "zog-certbot-seed-root.service"
+    release = "a" * 32
+    accepted = []
+    monkeypatch.setattr(installer, "_masked_recovery_context",
+                        lambda *args: accepted.append(args))
+    runner, _ = _status_runner(
+        service, response=_systemd_status(service, load="masked"))
+    installer._inactive(Path("/"), service, runner,
+                        masked=True, release=release)
+    assert accepted == [(Path("/"), service, release)]
+    with pytest.raises(installer.CompilerInstallerHold, match="loaded/masked"):
+        installer._inactive(Path("/"), service, runner)
+    runner, _ = _status_runner(service)
+    with pytest.raises(installer.CompilerInstallerHold, match="loaded/masked"):
+        installer._inactive(Path("/"), service, runner,
+                            masked=True, release=release)
+    assert len(accepted) == 1
+
+
+@pytest.mark.parametrize("overrides", [
+    {"active": "activating", "sub": "start"},
+    {"active": "deactivating", "sub": "stop"},
+    {"active": "failed", "sub": "failed"},
+    {"job": "55"},
+    {"load": "not-found"},
+    {"load": "bad-setting"},
+    {"unit_id": "other.service"},
+])
+def test_masked_systemd_context_rejects_transition_job_and_foreign_unit(
+        monkeypatch, overrides):
+    service = "zog-certbot-seed-root.service"
+    readback = []
+    monkeypatch.setattr(installer, "_masked_recovery_context",
+                        lambda *args: readback.append(args))
+    runner, _ = _status_runner(
+        service, response=_systemd_status(service, load="masked", **overrides))
+    with pytest.raises(installer.CompilerInstallerHold):
+        installer._inactive(Path("/"), service, runner,
+                            masked=True, release="a" * 32)
+    assert readback == []
+
+
+def test_masked_systemd_pending_recovery_needs_real_guard_and_transaction(
+        setup, monkeypatch):
+    # An actual disposable pending partial selection supplies /dev/null,
+    # exact approved guard (legacy umask 0600), protected transaction,
+    # and absent startup permit. Route native readbacks into that fixture.
+    root, release, service, unit, original, staged, data, record = (
+        _pending_legacy_umask_failure(setup, monkeypatch))
+    original_host = installer.host_path
+    original_regular = installer._regular
+    monkeypatch.setattr(installer, "host_path",
+                        lambda native_root, path: original_host(root, path))
+    monkeypatch.setattr(installer, "_regular",
+                        lambda native_root, path: original_regular(root, path))
+    runner, calls = _status_runner(
+        service, response=_systemd_status(service, load="masked"))
+    installer._inactive(Path("/"), service, runner,
+                        masked=True, release=release)
+    assert len(calls) == 1
+    saved = record.read_bytes()
+    record.write_text(saved.decode().replace('"state":"pending"',
+                                              '"state":"selected"'))
+    if record.read_bytes() == saved:
+        tx = json.loads(saved)
+        tx["state"] = "selected"
+        record.write_text(json.dumps(tx))
+    with pytest.raises(installer.CompilerInstallerHold, match="pending/restoring"):
+        installer._inactive(Path("/"), service, runner,
+                            masked=True, release=release)
+    record.write_bytes(saved)
+    guard = unit.with_name(service + ".d") / (
+        "zzzz-zog-compiler-transaction-guard.conf")
+    guard.write_bytes(b"[Service]\nConditionPathExists=/foreign\n")
+    with pytest.raises(installer.CompilerInstallerHold, match="guard"):
+        installer._inactive(Path("/"), service, runner,
+                            masked=True, release=release)
+    assert unit.is_symlink() and unit.readlink() == Path("/dev/null")
