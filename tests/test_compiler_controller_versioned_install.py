@@ -1309,8 +1309,9 @@ def test_masked_systemd_context_rejects_transition_job_and_foreign_unit(
     readback = []
     monkeypatch.setattr(installer, "_masked_recovery_context",
                         lambda *args: readback.append(args))
+    values = {"load": "masked", **overrides}
     runner, _ = _status_runner(
-        service, response=_systemd_status(service, load="masked", **overrides))
+        service, response=_systemd_status(service, **values))
     with pytest.raises(installer.CompilerInstallerHold):
         installer._inactive(Path("/"), service, runner,
                             masked=True, release="a" * 32)
@@ -1336,12 +1337,9 @@ def test_masked_systemd_pending_recovery_needs_real_guard_and_transaction(
                         masked=True, release=release)
     assert len(calls) == 1
     saved = record.read_bytes()
-    record.write_text(saved.decode().replace('"state":"pending"',
-                                              '"state":"selected"'))
-    if record.read_bytes() == saved:
-        tx = json.loads(saved)
-        tx["state"] = "selected"
-        record.write_text(json.dumps(tx))
+    tx = json.loads(saved)
+    tx["state"] = "selected"
+    record.write_text(json.dumps(tx))
     with pytest.raises(installer.CompilerInstallerHold, match="pending/restoring"):
         installer._inactive(Path("/"), service, runner,
                             masked=True, release=release)
