@@ -1,6 +1,8 @@
 """Compiler rollback disposable source tests: no Host, SSM or service actions."""
 import hashlib
 import json
+import os
+import stat
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -991,3 +993,155 @@ def test_issuer_replacement_binding_mismatch_blocks_restore_without_mutation(
     with pytest.raises(installer.CompilerInstallerHold, match="issuer replacement"):
         installer.restore("reviewed.json", "f" * 64, root=root)
     assert unit.read_bytes() == staged
+
+
+def test_atomic_publication_uses_exact_mode_under_restrictive_umask(tmp_path):
+    destination = tmp_path / "selected.service"
+    prior = os.umask(0o077)
+    try:
+        installer._atomic(destination, b"[Service]\nExecStart=/approved\n", 0o644)
+    finally:
+        os.umask(prior)
+    assert stat.S_IMODE(destination.lstat().st_mode) == 0o644
+    assert destination.read_bytes() == b"[Service]\nExecStart=/approved\n"
+
+
+def test_reviewed_fragment_and_dropins_roundtrip_with_umask_077(setup, monkeypatch):
+    root, release, service, unit, original, staged, old, data, inspector = (
+        with_realistic_dropins(setup))
+    preserved(setup)
+    real_inspection = inspector.inspect_installed
+
+    def check_permission_readback(selection, phase, transaction_guard=False):
+        if phase == "selected":
+            assert stat.S_IMODE(unit.lstat().st_mode) == 0o644
+            assert installer._dropins(root, unit.with_name(service + ".d"))[
+                :-1 if transaction_guard else None] == data["composition"][
+                "selected_dropins"]
+        if transaction_guard:
+            guard = unit.with_name(service + ".d") / (
+                "zzzz-zog-compiler-transaction-guard.conf")
+            assert stat.S_IMODE(guard.lstat().st_mode) == 0o644
+        return real_inspection(selection, phase, transaction_guard)
+
+    monkeypatch.setattr(inspector, "inspect_installed", check_permission_readback)
+    old_umask = os.umask(0o077)
+    try:
+        result = installer.select("reviewed.json", "f" * 64, root=root)
+        assert result["state"] == "selected"
+        restored = installer.restore("reviewed.json", "f" * 64, root=root)
+    finally:
+        os.umask(old_umask)
+    assert restored["state"] == "restored"
+    assert unit.read_bytes() == original
+    assert stat.S_IMODE(unit.lstat().st_mode) == 0o644
+    assert installer._dropins(root, unit.with_name(service + ".d")) == (
+        data["composition"]["original_dropins"])
+
+
+def _pending_legacy_umask_failure(setup, monkeypatch):
+    root, release, service, unit, original, staged, old, data, inspector = (
+        with_realistic_dropins(setup))
+    preserved(setup)
+    old_inspection = inspector.inspect_installed
+
+    def fail_at_selected_readback(selection, phase, transaction_guard=False):
+        if phase == "selected" and transaction_guard:
+            # Reproduce the old O_CREAT(0644) & umask(077) result after
+            # a real fragment/drop-in switch, before selected attestation.
+            unit.chmod(0o600)
+            active_dir = unit.with_name(service + ".d")
+            for item in active_dir.glob("*.conf"):
+                item.chmod(0o600)
+            raise installer.CompilerInstallerHold(
+                "historical selected composition mode differs")
+        return old_inspection(selection, phase, transaction_guard)
+
+    monkeypatch.setattr(inspector, "inspect_installed", fail_at_selected_readback)
+    with pytest.raises(installer.CompilerInstallerHold, match="historical selected"):
+        installer.select("reviewed.json", "f" * 64, root=root)
+    monkeypatch.setattr(inspector, "inspect_installed", old_inspection)
+    transaction = installer.host_path(
+        root, installer.BACKUPS / release / "selection-transaction.json")
+    assert json.loads(transaction.read_text())["state"] == "pending"
+    assert unit.is_symlink() and unit.readlink() == Path("/dev/null")
+    guard = unit.with_name(service + ".d") / (
+        "zzzz-zog-compiler-transaction-guard.conf")
+    assert stat.S_IMODE(guard.lstat().st_mode) == 0o600
+    return root, release, service, unit, original, staged, data, transaction
+
+
+def test_recover_guarded_partial_umask_state_and_retry_same_approval(
+        setup, monkeypatch):
+    root, release, service, unit, original, staged, data, transaction = (
+        _pending_legacy_umask_failure(setup, monkeypatch))
+    original_receipt = installer.host_path(
+        root, installer.BACKUPS / release / "preservation.json").read_bytes()
+    with pytest.raises(installer.CompilerInstallerHold, match="previous or interrupted"):
+        installer.select("reviewed.json", "f" * 64, root=root)
+    assert installer.restore("reviewed.json", "f" * 64, root=root)[
+        "state"] == "restored"
+    assert unit.read_bytes() == original
+    assert installer._dropins(root, unit.with_name(service + ".d")) == (
+        data["composition"]["original_dropins"])
+    restored_bytes = transaction.read_bytes()
+    retry = installer.select("reviewed.json", "f" * 64, root=root)
+    assert retry["state"] == "selected"
+    assert retry["retry_count"] == 1
+    historical = installer.host_path(
+        root, installer.BACKUPS / release / "selection-before-retry-000001.json")
+    assert historical.read_bytes() == restored_bytes
+    assert stat.S_IMODE(historical.lstat().st_mode) == 0o600
+    assert retry["prior_transaction_sha256"] == hashlib.sha256(
+        restored_bytes).hexdigest()
+    assert installer.host_path(
+        root, installer.BACKUPS / release / "preservation.json").read_bytes() == (
+        original_receipt)
+    assert installer.restore("reviewed.json", "f" * 64, root=root)["state"] == (
+        "restored")
+    second_restored = transaction.read_bytes()
+    second = installer.select("reviewed.json", "f" * 64, root=root)
+    assert second["state"] == "selected" and second["retry_count"] == 2
+    assert historical.read_bytes() == restored_bytes
+    second_history = installer.host_path(
+        root, installer.BACKUPS / release / "selection-before-retry-000002.json")
+    assert second_history.read_bytes() == second_restored
+    assert installer.host_path(
+        root, installer.BACKUPS / release / "preservation.json").read_bytes() == (
+        original_receipt)
+
+
+def test_partial_umask_recovery_rejects_nonapproved_dropin_or_widened_mode(
+        setup, monkeypatch):
+    root, release, service, unit, original, staged, data, transaction = (
+        _pending_legacy_umask_failure(setup, monkeypatch))
+    items = sorted(unit.with_name(service + ".d").glob("*.conf"))
+    chosen = next(p for p in items if not p.name.startswith("zzzz-"))
+    chosen.chmod(0o666)
+    with pytest.raises(installer.CompilerInstallerHold, match="unsafe compiler drop-in"):
+        installer.restore("reviewed.json", "f" * 64, root=root)
+    assert transaction.is_file() and unit.is_symlink()
+    chosen.chmod(0o600)
+    chosen.write_bytes(b"[Service]\nExecStartPre=/foreign\n")
+    with pytest.raises(installer.CompilerInstallerHold, match="unknown or modified"):
+        installer.restore("reviewed.json", "f" * 64, root=root)
+    assert chosen.read_bytes() == b"[Service]\nExecStartPre=/foreign\n"
+
+
+def test_retry_refuses_modified_prior_receipt_and_incomplete_state(setup):
+    root, release, service, unit, original, staged, old, data, inspector = (
+        preserved(setup))
+    installer.select("reviewed.json", "f" * 64, root=root)
+    with pytest.raises(installer.CompilerInstallerHold, match="previous or interrupted"):
+        installer.select("reviewed.json", "f" * 64, root=root)
+    installer.restore("reviewed.json", "f" * 64, root=root)
+    transaction = installer.host_path(
+        root, installer.BACKUPS / release / "selection-transaction.json")
+    preserved_state = transaction.read_bytes()
+    receipt = installer.host_path(
+        root, installer.BACKUPS / release / "selection-before-retry-000001.json")
+    receipt.write_bytes(b"foreign historical transaction")
+    with pytest.raises(installer.CompilerInstallerHold, match="conflicting protected"):
+        installer.select("reviewed.json", "f" * 64, root=root)
+    assert transaction.read_bytes() == preserved_state
+    assert receipt.read_bytes() == b"foreign historical transaction"
