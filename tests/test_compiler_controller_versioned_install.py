@@ -1370,9 +1370,7 @@ def test_loaded_systemd_state_rejects_missing_or_masked_fragment(
         installer, "_regular",
         lambda *args: pytest.fail("unsafe loaded fragment reached readback"))
     runner, _ = _status_runner(service)
-    with pytest.raises(installer.CompilerInstallerHold,
-                       match="missing or masked" if kind != "nonregular"
-                       else "unsafe loaded fragment"):
+    with pytest.raises(installer.CompilerInstallerHold, match="missing or masked"):
         installer._inactive(Path("/"), service, runner)
 
 
