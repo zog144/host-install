@@ -1079,11 +1079,20 @@ def test_recover_guarded_partial_umask_state_and_retry_same_approval(
         root, installer.BACKUPS / release / "preservation.json").read_bytes()
     with pytest.raises(installer.CompilerInstallerHold, match="previous or interrupted"):
         installer.select("reviewed.json", "f" * 64, root=root)
+    pending_bytes = transaction.read_bytes()
     assert installer.restore("reviewed.json", "f" * 64, root=root)[
         "state"] == "restored"
     assert unit.read_bytes() == original
     assert installer._dropins(root, unit.with_name(service + ".d")) == (
         data["composition"]["original_dropins"])
+    # Pending transaction bytes remain independently preserved even though
+    # selection-transaction.json is correctly advanced to restored.
+    recovery = installer.host_path(
+        root, installer.BACKUPS / release / (
+            "selection-before-recovery-" +
+            hashlib.sha256(pending_bytes).hexdigest() + ".json"))
+    assert recovery.read_bytes() == pending_bytes
+    assert stat.S_IMODE(recovery.lstat().st_mode) == 0o600
     restored_bytes = transaction.read_bytes()
     retry = installer.select("reviewed.json", "f" * 64, root=root)
     assert retry["state"] == "selected"
@@ -1145,3 +1154,19 @@ def test_retry_refuses_modified_prior_receipt_and_incomplete_state(setup):
         installer.select("reviewed.json", "f" * 64, root=root)
     assert transaction.read_bytes() == preserved_state
     assert receipt.read_bytes() == b"foreign historical transaction"
+
+def test_partial_recovery_refuses_conflicting_content_addressed_history(
+        setup, monkeypatch):
+    root, release, service, unit, original, staged, data, transaction = (
+        _pending_legacy_umask_failure(setup, monkeypatch))
+    raw = transaction.read_bytes()
+    history = installer.host_path(
+        root, installer.BACKUPS / release / (
+            "selection-before-recovery-" +
+            hashlib.sha256(raw).hexdigest() + ".json"))
+    history.write_bytes(b"foreign")
+    with pytest.raises(installer.CompilerInstallerHold, match="conflicting protected"):
+        installer.restore("reviewed.json", "f" * 64, root=root)
+    assert transaction.read_bytes() == raw
+    assert history.read_bytes() == b"foreign"
+    assert unit.is_symlink() and unit.readlink() == Path("/dev/null")
