@@ -17,7 +17,7 @@ import uuid
 
 ORIGINAL_SHA256 = "990366a7e21dd89b1def0c1d9974c0e02586b8f5e2af32efa49874d926589d78"
 SUCCESSOR_SHA256 = "313cb4d644b259ece175adea24f030d36c851c753f547288aad21359a8db686e"
-POLICY_SHA256 = "3607f36bb40ea093433224749570de47f607dc43e965b2e7aee49e88ef953bc7"
+POLICY_SHA256 = "4a1bf57251f80763f0288fa512d059135225fc40c7254b98df0b907592f3c91c"
 BASE = Path("/opt/zog/host-install-issuer-persistence-20261023")
 ROLLBACK = Path("/opt/zog/compiler-runtime/issuer-helper-rollback-20261123")
 SERVICE = "zog-certbot-seed-root.service"
