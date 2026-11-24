@@ -228,7 +228,10 @@ def _inactive(root, service, runner, *, masked=False, release=None):
         _masked_recovery_context(root, service, release)
     else:
         # Loaded status cannot conceal a missing or on-disk masked fragment.
-        _regular(root, host_path(root, UNIT_DIR / service))
+        active = host_path(root, UNIT_DIR / service)
+        require(active.exists() and not active.is_symlink(),
+                "expected loaded compiler fragment is missing or masked")
+        _regular(root, active)
 
 
 def _reload(root, runner):
