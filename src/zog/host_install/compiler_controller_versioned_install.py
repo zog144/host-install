@@ -143,6 +143,11 @@ def _atomic(path, body, mode=0o600):
     fd = os.open(pending, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode)
     try:
         with os.fdopen(fd, "wb") as output:
+            # O_CREAT is umask-filtered. Set and verify the reviewed mode
+            # on the open inode before publication and durable fsync.
+            os.fchmod(output.fileno(), mode)
+            require(stat.S_IMODE(os.fstat(output.fileno()).st_mode) == mode,
+                    "atomic file mode differs from reviewed mode")
             output.write(body)
             output.flush()
             os.fsync(output.fileno())
