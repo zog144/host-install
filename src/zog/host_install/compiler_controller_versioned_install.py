@@ -1057,6 +1057,18 @@ def restore(selection_file, expected_sha256, *, root=Path("/"),
                 "protected original runtime or external Python changed")
         active = host_path(root, selection["service"]["active_unit"])
         active_dir = host_path(root, UNIT_DIR / (service + ".d"))
+        if tx["state"] != "restored":
+            # Preserve the exact interrupted/selected state as immutable
+            # evidence BEFORE any recovery write, including guard repairs.
+            prior_raw = _regular(root, transaction_path)
+            recovered_name = "selection-before-recovery-" + (
+                hashlib.sha256(prior_raw).hexdigest()) + ".json"
+            recovery_evidence = backup / recovered_name
+            if recovery_evidence.exists() or recovery_evidence.is_symlink():
+                require(_regular(root, recovery_evidence) == prior_raw,
+                        "conflicting protected selection recovery receipt")
+            else:
+                _atomic(recovery_evidence, prior_raw, 0o600)
         if tx["state"] == "arming":
             # No unit or reviewed drop-in has been changed in arming. The
             # original service may have booted if the guard was not loaded.
