@@ -213,7 +213,7 @@ def _restage_after_restore(root, runner, directory, baseline, original,
     prior_raw = _read(root, directory / "record.json", expected_mode=0o600)
     record, saved_original, saved_successor, saved_policy = _validate_staging(root)
     require(record.get("state") == "restored",
-            "existing issuer helper rollback is not restored")
+            "issuer helper staging already exists and is not restored")
     require(saved_original == original and saved_successor == successor
             and saved_policy == policy,
             "restored helper source or protected rollback differs")
