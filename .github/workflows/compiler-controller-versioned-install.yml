@@ -1,0 +1,207 @@
+name: Compiler-controller exact tuple and versioned rollback
+on:
+  push:
+    branches: [regular/compiler-controller-versioned-installer-20261121]
+  pull_request:
+    paths:
+      - src/zog/host_install/compiler_controller_versioned_install.py
+      - src/zog/host_install/compiler_legacy_rollback.py
+      - tests/test_compiler_controller_versioned_install.py
+      - tests/test_compiler_issuer_persistence_binding.py
+      - src/zog/host_install/compiler_issuer_persistence_binding.py
+      - src/zog/host_install/issuer_guard_original_20261023.py
+      - src/zog/host_install/issuer_guard_successor.py
+      - src/zog/host_install/issuer_guard_deploy.py
+      - tests/test_issuer_guard_successor.py
+      - tests/test_issuer_guard_deploy.py
+      - tests/acceptance/al2023_compiler_runtime.py
+      - .github/workflows/compiler-controller-versioned-install.yml
+      - docs/host-install/COMPILER-CONTROLLER-VERSIONED-INSTALL-2026-11-21.md
+      - .github/workflows/compiler-controller-versioned-install.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: zog144/root-control
+          ref: a672f007b33f83bf70970e3a571fd443366bd93f
+          path: companions/root-control
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: zog144/box-control
+          ref: ad61fa6a4e9c3176149720868cb008e0512dbec9
+          path: companions/box-control
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: zog144/image-build
+          ref: 0eeb8a1cc73ae2b8410e29865c36ea1e0643b75a
+          path: companions/image-build
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: zog144/host-deploy
+          ref: f3903dd4468436ceda20f64d67159540418325d2
+          path: companions/host-deploy
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install -e . 'pytest>=8,<10'
+      - name: Check exact clean Git commits and source inventory
+        run: |
+          python - <<'PY'
+          from zog.host_install.compiler_controller_versioned_install import verify_sources
+          verify_sources({
+              'root-control': 'companions/root-control',
+              'box-control': 'companions/box-control',
+              'image-build': 'companions/image-build',
+          })
+          PY
+      - name: Require exact verifier and installer source tuple agreement
+        run: |
+          PYTHONPATH="$PWD/companions/host-deploy/src:$PWD/src" python - <<'PY'
+          from zog.host_install.compiler_controller_versioned_install import SOURCES
+          from zog.host_deploy.fonts_versioned_runtime import SELECTED_SOURCES
+          expected = {role: {"revision": pair[0], "source_tree_sha256": pair[1]}
+                      for role, pair in SOURCES.items()}
+          assert SELECTED_SOURCES == expected, (SELECTED_SOURCES, expected)
+          print("ZOG_MATCHED_COMPILER_INSPECTOR_TUPLE", expected)
+          PY
+      - name: Check exact recovered helper and hash prepared successor
+        run: |
+          python - <<'PY'
+          from hashlib import sha256
+          from pathlib import Path
+          base = Path('src/zog/host_install')
+          old = (base / 'issuer_guard_original_20261023.py').read_bytes()
+          assert len(old) == 3853 and sha256(old).hexdigest() == (
+              '990366a7e21dd89b1def0c1d9974c0e02586b8f5e2af32efa49874d926589d78')
+          for name in ('issuer_guard_successor.py', 'compiler_issuer_persistence_binding.py'):
+              value = (base / name).read_bytes()
+              print('ISSUER_REVIEWED_SOURCE_SHA256', name, sha256(value).hexdigest(), len(value), flush=True)
+          PY
+      - name: Run disposable compiler rollback regressions
+        run: |
+          PYTHONPATH="$PWD/companions/host-deploy/src:$PWD/src" python -m pytest -q -rs tests/test_compiler_controller_versioned_install.py tests/test_compiler_issuer_persistence_binding.py tests/test_issuer_guard_successor.py tests/test_issuer_guard_deploy.py
+      - name: Compile and wheel source
+        run: |
+          python -m compileall -q src/zog/host_install/compiler_controller_versioned_install.py src/zog/host_install/compiler_legacy_rollback.py src/zog/host_install/compiler_issuer_persistence_binding.py src/zog/host_install/issuer_guard_successor.py src/zog/host_install/issuer_guard_deploy.py
+          python -m pip wheel --no-deps . -w /tmp/compiler-wheel
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          files = list(Path('/tmp/compiler-wheel').glob('host_install-*.whl'))
+          assert len(files) == 1
+          with ZipFile(files[0]) as whl:
+              assert 'zog/host_install/compiler_controller_versioned_install.py' in whl.namelist()
+              assert 'zog/host_install/issuer_guard_original_20261023.py' in whl.namelist()
+              assert 'zog/host_install/issuer_guard_successor.py' in whl.namelist()
+              assert 'zog/host_install/issuer_guard_deploy.py' in whl.namelist()
+          PY
+
+
+  amazon-linux-2023-real-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: zog144/root-control
+          ref: a672f007b33f83bf70970e3a571fd443366bd93f
+          path: companions/root-control
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: zog144/box-control
+          ref: ad61fa6a4e9c3176149720868cb008e0512dbec9
+          path: companions/box-control
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: zog144/image-build
+          ref: 0eeb8a1cc73ae2b8410e29865c36ea1e0643b75a
+          path: companions/image-build
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: zog144/host-deploy
+          ref: f3903dd4468436ceda20f64d67159540418325d2
+          path: companions/host-deploy
+          persist-credentials: false
+      - name: Real Amazon Linux 2023 Python 3.12 venv/pip/install/import acceptance
+        run: |
+          docker run --rm \
+            -v "$PWD:/work" -w /work \
+            amazonlinux:2023 bash -euc '
+              dnf -y install python3.12 python3.12-pip git
+              /usr/bin/python3.12 --version
+              PYTHONPATH=/work/src:/work/companions/host-deploy/src /usr/bin/python3.12 \
+                /work/tests/acceptance/al2023_compiler_runtime.py
+            '
+      - name: Package independently reviewed issuer prestart helper candidate
+        run: |
+          python - <<'PY'
+          import json
+          from hashlib import sha256
+          from pathlib import Path
+          source = Path('src/zog/host_install')
+          target = Path('issuer-helper-out')
+          target.mkdir(exist_ok=False)
+          names = {
+              'issuer_guard_original_20261023.py': 'original-guard.py',
+              'issuer_guard_successor.py': 'guard.py',
+              'compiler_issuer_persistence_binding.py': 'compiler_issuer_persistence_binding.py',
+          }
+          hashes = {}
+          for name, output in names.items():
+              raw = (source / name).read_bytes()
+              (target / output).write_bytes(raw)
+              hashes[output] = {'sha256': sha256(raw).hexdigest(), 'size': len(raw)}
+          assert hashes['original-guard.py']['sha256'] == (
+              '990366a7e21dd89b1def0c1d9974c0e02586b8f5e2af32efa49874d926589d78')
+          meta = {
+              'schema': 'zog-issuer-helper-source-candidate-v1',
+              'native_installed': False, 'startup_approved': False,
+              'source_repo': 'zog144/host-install',
+              'source_commit': __import__('subprocess').check_output(
+                  ['git', 'rev-parse', 'HEAD'], text=True).strip(),
+              'python': '/usr/bin/python3.12',
+              'installed_path': '/opt/zog/host-install-issuer-persistence-20261023/guard.py',
+              'original_mode': '0444', 'new_guard_mode': '0444', 'new_policy_mode': '0444',
+              'files': hashes,
+              'requires_reviewed_protected_native_install': True,
+          }
+          (target / 'issuer-helper-manifest.json').write_text(
+              json.dumps(meta, indent=2, sort_keys=True) + '\n')
+          print('ISSUER_REVIEWED_SOURCE_HELPER_MANIFEST', json.dumps(meta), flush=True)
+          PY
+      - name: Preserve unapproved issuer helper candidate and original byte rollback
+        uses: actions/upload-artifact@v4
+        with:
+          name: issuer-helper-source-policy-4a1bf572-canonical-20261124
+          path: issuer-helper-out/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Preserve new disposable immutable runtime candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: compiler-runtime-8b1f12ee1da24dd68b5aaeb4f6a3f0c2
+          path: candidate-out/
+          if-no-files-found: error
+          retention-days: 30

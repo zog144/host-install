@@ -1,0 +1,1422 @@
+"""Compiler rollback disposable source tests: no Host, SSM or service actions."""
+import hashlib
+import json
+import os
+import stat
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from zog.host_install import compiler_controller_versioned_install as installer
+
+
+@pytest.fixture
+def setup(tmp_path, monkeypatch):
+    release = "a" * 32
+    service = "zog-root-control.service"
+    unit = installer.host_path(tmp_path, installer.UNIT_DIR / service)
+    unit.parent.mkdir(parents=True)
+    original = b"[Service]\nExecStart=/opt/old/bin/root-control\n"
+    unit.write_bytes(original)
+    old = installer.host_path(tmp_path, "/opt/old")
+    (old / "bin").mkdir(parents=True)
+    (old / "bin/root-control").write_bytes(b"original daemon")
+    external_python = tmp_path / "usr/bin/python3.12"
+    external_python.parent.mkdir(parents=True)
+    external_python.write_bytes(b"verified python interpreter")
+    new = installer.host_path(tmp_path, installer.VERSIONS / release)
+    (new / "bin").mkdir(parents=True)
+    staged = (
+        b"[Service]\nExecStart=/opt/zog/compiler-runtime/versions/"
+        + release.encode() + b"/bin/root-control\n"
+    )
+    (new / "bin/root-control").write_bytes(b"new daemon")
+    (new / "systemd").mkdir()
+    (new / "systemd" / service).write_bytes(staged)
+    data = {
+        "release_id": release,
+        "service": {
+            "name": service,
+            "active_unit": str(installer.UNIT_DIR / service),
+            "staged_unit": str(installer.VERSIONS / release / "systemd" / service),
+            "staged_sha256": hashlib.sha256(staged).hexdigest(),
+        },
+        "composition": {
+            "original_fragment": {
+                "path": str(installer.UNIT_DIR / service),
+                "sha256": hashlib.sha256(original).hexdigest(),
+                "size": len(original), "mode": 0o644, "uid": 0, "gid": 0},
+            "selected_fragment": {
+                "path": str(installer.VERSIONS / release / "systemd" / service),
+                "sha256": hashlib.sha256(staged).hexdigest(),
+                "size": len(staged), "mode": 0o644, "uid": 0, "gid": 0},
+            "original_dropins": [], "selected_dropins": [],
+            "original_effective": {}, "selected_effective": {},
+        },
+        "rollback": {
+            "unit_sha256": hashlib.sha256(original).hexdigest(),
+            "saved_runtime_root": str(installer.BACKUPS / release / "previous-runtime"),
+            "runtime_tree_sha256": "will-fill-after-preserve",
+            "original_runtime": "/opt/old",
+            "legacy_inventory_schema": installer.legacy_rollback.SCHEMA,
+            "legacy_inventory_sha256": "will-fill",
+            "python_interpreter_chain": [],
+        }
+    }
+
+    class Inspector:
+        def __init__(self):
+            self.phases = []
+        def inspect_installed(self, selection, phase, transaction_guard=False):
+            self.phases.append(phase)
+            current = unit.read_bytes()
+            assert current == (original if phase == "staged" else staged)
+            if transaction_guard:
+                guard = unit.with_name(service + ".d") / (
+                    "zzzz-zog-compiler-transaction-guard.conf")
+                assert guard.is_file() and not guard.is_symlink()
+                assert (b"ConditionPathExists=" in guard.read_bytes())
+                assert not installer.host_path(
+                    tmp_path, installer.BACKUPS / release /
+                    "startup-permit").exists()
+        def _retained_tree_sha256(self, path):
+            return installer._inventory(tmp_path, path)
+
+    inspector = Inspector()
+    monkeypatch.setattr(installer, "_reviewed",
+                        lambda path, sha: (inspector, data))
+    return tmp_path, release, service, unit, original, staged, old, data, inspector
+
+
+def preserved(setup):
+    root, release, service, unit, original, staged, old, data, inspector = setup
+    installer.preserve(release, service=service,
+                       original_runtime="/opt/old", root=root)
+    evidence = installer.legacy_rollback.inventory(
+        root, installer.host_path(root, data["rollback"]["saved_runtime_root"]))
+    data["rollback"].update({
+        "runtime_tree_sha256": evidence["tree_sha256"],
+        "legacy_inventory_sha256": evidence["inventory_sha256"],
+        "python_interpreter_chain": evidence["python_interpreter_chain"]})
+    return setup
+
+
+def test_preserve_select_and_restore_without_touching_original_runtime(setup):
+    root, release, service, unit, original, staged, old, data, inspector = preserved(setup)
+    copied = installer.host_path(root, installer.BACKUPS / release / "previous-runtime")
+    assert (copied / "bin/root-control").read_bytes() == b"original daemon"
+    assert (old / "bin/root-control").read_bytes() == b"original daemon"
+    result = installer.select("reviewed.json", "f" * 64, root=root)
+    assert result["state"] == "selected"
+    assert unit.read_bytes() == staged
+    assert inspector.phases == ["staged", "selected", "selected"]
+    rollback = installer.restore("reviewed.json", "f" * 64, root=root)
+    assert rollback["state"] == "restored"
+    assert unit.read_bytes() == original
+    assert (copied / "bin/root-control").read_bytes() == b"original daemon"
+
+
+def test_second_selection_does_not_overwrite_rollback(setup):
+    root, release, service, unit, original, staged, old, data, inspector = preserved(setup)
+    installer.select("reviewed.json", "f" * 64, root=root)
+    with pytest.raises(installer.CompilerInstallerHold, match="previous or interrupted"):
+        installer.select("reviewed.json", "f" * 64, root=root)
+    assert unit.read_bytes() == staged
+
+
+def test_restore_rejects_foreign_active_unit(setup):
+    root, release, service, unit, original, staged, old, data, inspector = preserved(setup)
+    installer.select("reviewed.json", "f" * 64, root=root)
+    unit.write_bytes(b"foreign unit")
+    with pytest.raises(installer.CompilerInstallerHold, match="foreign"):
+        installer.restore("reviewed.json", "f" * 64, root=root)
+    assert unit.read_bytes() == b"foreign unit"
+
+
+def test_pending_interrupted_record_can_be_explicitly_restored(setup):
+    root, release, service, unit, original, staged, old, data, inspector = preserved(setup)
+    installer.select("reviewed.json", "f" * 64, root=root)
+    record = installer.host_path(root, installer.BACKUPS / release / "selection-transaction.json")
+    saved = json.loads(record.read_text())
+    saved["state"] = "pending"
+    record.write_text(json.dumps(saved))
+    assert installer.restore("reviewed.json", "f" * 64, root=root)["state"] == "restored"
+
+
+def test_tampered_retained_runtime_refuses_restore(setup):
+    root, release, service, unit, original, staged, old, data, inspector = preserved(setup)
+    installer.select("reviewed.json", "f" * 64, root=root)
+    copied = installer.host_path(root, installer.BACKUPS / release / "previous-runtime")
+    (copied / "bin/root-control").write_bytes(b"tampered")
+    with pytest.raises(installer.legacy_rollback.LegacyHold, match="legacy rollback copy differs"):
+        installer.restore("reviewed.json", "f" * 64, root=root)
+
+
+def test_preservation_cannot_be_repeated(setup):
+    root, release, service, unit, original, staged, old, data, inspector = preserved(setup)
+    with pytest.raises(installer.CompilerInstallerHold, match="already exists"):
+        installer.preserve(release, service=service,
+                           original_runtime="/opt/old", root=root)
+
+
+def test_release_id_invalid(setup):
+    root, release, service, unit, original, staged, old, data, inspector = setup
+    with pytest.raises(installer.CompilerInstallerHold, match="lower-case hexadecimal"):
+        installer.preserve("../other", service=service, original_runtime="/opt/old", root=root)
+
+
+def test_no_symlinks_in_retained_runtime(setup):
+    root, release, service, unit, original, staged, old, data, inspector = setup
+    (old / "bin/linked").symlink_to("root-control")
+    with pytest.raises(installer.legacy_rollback.LegacyHold, match="unexpected legacy runtime symlink"):
+        installer.preserve(release, service=service, original_runtime="/opt/old", root=root)
+    assert unit.read_bytes() == original
+
+
+def test_invalid_source_tuple_does_not_stage(setup):
+    root, release, service, unit, original, staged, old, data, inspector = setup
+    with pytest.raises(installer.CompilerInstallerHold, match="three source"):
+        installer.stage("b" * 32, {"root-control": old}, python="/usr/bin/python3",
+                        service=service, executable="root-control",
+                        unit_template=staged, root=root)
+    assert unit.read_bytes() == original
+
+
+def test_unknown_executable_refused_before_installer(setup, monkeypatch):
+    root, release, service, unit, original, staged, old, data, inspector = setup
+    monkeypatch.setattr(installer, "verify_sources", lambda _: None)
+    with pytest.raises(installer.CompilerInstallerHold, match="one exact release executable"):
+        installer.stage("b" * 32, {}, python="/usr/bin/python3",
+                        service=service, executable="root-control",
+                        unit_template=staged, root=root)
+
+
+
+def test_stage_three_sources_into_isolated_release_without_selecting(setup, monkeypatch):
+    root, release, service, unit, original, staged, old, data, inspector = setup
+    candidate = "b" * 32
+    expected = (
+        b"[Service]\nExecStart=/opt/zog/compiler-runtime/versions/"
+        + candidate.encode() + b"/bin/root-control\n"
+    )
+    monkeypatch.setattr(installer, "verify_sources", lambda sources: None)
+    monkeypatch.setattr(installer, "_snapshot_sources",
+                        lambda sources, destination: sources)
+    mock_box = root / "checkout-box-control"
+    (mock_box / "box-control").mkdir(parents=True)
+    (mock_box / "box-control/pyproject.toml").write_text("[build-system]\n")
+    commands = []
+
+    def runner(argv, check):
+        commands.append([str(arg) for arg in argv])
+        if len(argv) >= 4 and argv[1:3] == ["-m", "venv"]:
+            venv = Path(argv[-1])
+            (venv / "bin").mkdir(parents=True)
+            (venv / "bin/python").write_bytes(b"python-executable")
+            (venv / "bin/root-control").write_bytes(b"selected-console-entrypoint")
+            (venv / "bin/root-control").chmod(0o755)
+        return SimpleNamespace(returncode=0)
+
+    result = installer.stage(
+        candidate,
+        {"root-control": "/review/root-control",
+         "box-control": str(mock_box),
+         "image-build": "/review/image-build"},
+        python="/usr/bin/python3.12",
+        service=service,
+        executable="root-control",
+        unit_template=expected,
+        root=root,
+        runner=runner,
+    )
+    candidate_root = installer.host_path(root, installer.VERSIONS / candidate)
+    assert result["release_id"] == candidate
+    assert result["execution_authorized"] is False
+    assert result["installed_selection_reviewed"] is False
+    assert (candidate_root / "systemd" / service).read_bytes() == expected
+    assert (candidate_root / "bin/root-control").read_bytes() == b"selected-console-entrypoint"
+    assert unit.read_bytes() == original
+    assert (old / "bin/root-control").read_bytes() == b"original daemon"
+    assert any(command[1:4] == ["-m", "pip", "check"] for command in commands)
+    with pytest.raises(installer.CompilerInstallerHold, match="release already staged"):
+        installer.stage(
+            candidate,
+            {"root-control": "/review/root-control",
+             "box-control": str(mock_box),
+             "image-build": "/review/image-build"},
+            python="/usr/bin/python3.12",
+            service=service,
+            executable="root-control",
+            unit_template=expected,
+            root=root,
+            runner=runner,
+        )
+
+
+def test_original_runtime_cannot_alias_rollback_root(setup):
+    root, release, service, unit, original, staged, old, data, inspector = setup
+    with pytest.raises(installer.CompilerInstallerHold, match="aliases selected"):
+        installer.preserve(release, service=service,
+                           original_runtime=str(installer.BACKUPS), root=root)
+    assert unit.read_bytes() == original
+
+
+def test_original_unit_must_point_to_preserved_runtime(setup):
+    root, release, service, unit, original, staged, old, data, inspector = setup
+    unit.write_bytes(b"[Service]\nExecStart=/opt/somewhere-else/root-control\n")
+    with pytest.raises(installer.CompilerInstallerHold, match="does not name retained runtime"):
+        installer.preserve(release, service=service,
+                           original_runtime="/opt/old", root=root)
+
+
+
+def with_realistic_dropins(setup):
+    """Four original overrides, reviewed two-file successor, no Host service."""
+    root, release, service, unit, original, staged, old, data, inspector = setup
+    original_dir = unit.with_name(service + ".d")
+    original_dir.mkdir()
+    old_files = {
+        "60-boot-a-restrictive-import.conf":
+            b"[Service]\nExecStart=\nExecStart=/opt/old/boot-a.py\nReadOnlyPaths=/opt/old\n",
+        "70-fonts-combined-runtime.conf":
+            b"[Service]\nExecStart=\nExecStart=/opt/old/bin/root-control\nReadOnlyPaths=/opt/old\n",
+        "gateway-mounts.conf":
+            b"[Unit]\nRequires=state.mount\nAfter=state.mount\n",
+        "issuer-persistence.conf":
+            b"[Service]\nExecStartPre=/usr/bin/test -d /state\nReadOnlyPaths=/state\n",
+    }
+    for name, body in old_files.items():
+        (original_dir / name).write_bytes(body)
+    successor = installer.host_path(
+        root, installer.VERSIONS / release / "systemd" / (service + ".d"))
+    successor.mkdir()
+    successor_files = {
+        "70-fonts-combined-runtime.conf":
+            (b"[Service]\nExecStart=\nExecStart=/opt/zog/compiler-runtime/"
+             + b"versions/" + release.encode() + b"/bin/root-control\n"),
+        "gateway-mounts.conf":
+            b"[Unit]\nRequires=state.mount\nAfter=state.mount\n",
+        "issuer-persistence.conf":
+            b"[Service]\nExecStartPre=/usr/bin/test -d /state\nReadOnlyPaths=/state\n",
+    }
+    for name, body in successor_files.items():
+        (successor / name).write_bytes(body)
+    data["composition"]["original_dropins"] = installer._dropins(root, original_dir)
+    data["composition"]["selected_dropins"] = installer._dropins(root, successor)
+    return root, release, service, unit, original, staged, old, data, inspector
+
+
+def test_all_original_dropins_preserved_then_selected_and_restored(setup):
+    root, release, service, unit, original, staged, old, data, inspector = (
+        with_realistic_dropins(setup))
+    originals = data["composition"]["original_dropins"]
+    successors = data["composition"]["selected_dropins"]
+    original_dir = unit.with_name(service + ".d")
+    installer.preserve(release, service=service,
+                       original_runtime="/opt/old", root=root)
+    backup_dir = installer.host_path(
+        root, installer.BACKUPS / release / (service + ".d"))
+    assert installer._dropins(root, backup_dir) == originals
+    evidence = installer.legacy_rollback.inventory(
+        root, installer.host_path(root, data["rollback"]["saved_runtime_root"]))
+    data["rollback"].update({
+        "runtime_tree_sha256": evidence["tree_sha256"],
+        "legacy_inventory_sha256": evidence["inventory_sha256"],
+        "python_interpreter_chain": evidence["python_interpreter_chain"]})
+    installer.select("reviewed.json", "f" * 64, root=root)
+    assert installer._dropins(root, original_dir) == successors
+    assert "60-boot-a-restrictive-import.conf" not in [
+        item["name"] for item in installer._dropins(root, original_dir)]
+    installer.restore("reviewed.json", "f" * 64, root=root)
+    assert installer._dropins(root, original_dir) == originals
+    assert unit.read_bytes() == original
+    assert installer._dropins(root, backup_dir) == originals
+
+
+def test_interrupted_dropin_switch_is_masked_and_explicitly_recoverable(
+        setup, monkeypatch):
+    root, release, service, unit, original, staged, old, data, inspector = (
+        with_realistic_dropins(setup))
+    installer.preserve(release, service=service,
+                       original_runtime="/opt/old", root=root)
+    evidence = installer.legacy_rollback.inventory(
+        root, installer.host_path(root, data["rollback"]["saved_runtime_root"]))
+    data["rollback"].update({
+        "runtime_tree_sha256": evidence["tree_sha256"],
+        "legacy_inventory_sha256": evidence["inventory_sha256"],
+        "python_interpreter_chain": evidence["python_interpreter_chain"]})
+    actual_switch = installer._switch_dropins
+
+    def interrupted(root, active_dir, existing, wanted_dir, wanted, guard):
+        # Simulate crash after mask and first unlink, before all successors.
+        (active_dir / existing[0]["name"]).unlink()
+        raise OSError("interrupted-after-first-dropin")
+    monkeypatch.setattr(installer, "_switch_dropins", interrupted)
+    with pytest.raises(OSError, match="interrupted-after-first"):
+        installer.select("reviewed.json", "f" * 64, root=root)
+    assert unit.is_symlink() and unit.readlink() == Path("/dev/null")
+    monkeypatch.setattr(installer, "_switch_dropins", actual_switch)
+    assert installer.restore("reviewed.json", "f" * 64, root=root)["state"] == "restored"
+    assert unit.read_bytes() == original
+    assert installer._dropins(root, unit.with_name(service + ".d")) == (
+        data["composition"]["original_dropins"])
+
+
+def test_foreign_dropin_prevents_selection_and_cannot_be_erased(setup):
+    root, release, service, unit, original, staged, old, data, inspector = (
+        with_realistic_dropins(setup))
+    installer.preserve(release, service=service,
+                       original_runtime="/opt/old", root=root)
+    evidence = installer.legacy_rollback.inventory(
+        root, installer.host_path(root, data["rollback"]["saved_runtime_root"]))
+    data["rollback"].update({
+        "runtime_tree_sha256": evidence["tree_sha256"],
+        "legacy_inventory_sha256": evidence["inventory_sha256"],
+        "python_interpreter_chain": evidence["python_interpreter_chain"]})
+    unexpected = unit.with_name(service + ".d") / "90-foreign.conf"
+    unexpected.write_bytes(b"[Service]\nExecStart=/foreign\n")
+    with pytest.raises(installer.CompilerInstallerHold, match="drop-in"):
+        installer.select("reviewed.json", "f" * 64, root=root)
+    assert unexpected.read_bytes().endswith(b"/foreign\n")
+    assert unit.read_bytes() == original
+
+
+def test_existing_old_python_symlink_still_denied_without_rewrite(setup):
+    root, release, service, unit, original, staged, old, data, inspector = setup
+    python = old / "bin/python"
+    python.symlink_to("python3.12")
+    with pytest.raises(installer.legacy_rollback.LegacyHold, match="unexpected legacy runtime symlink"):
+        installer.preserve(release, service=service,
+                           original_runtime="/opt/old", root=root)
+    assert python.is_symlink() and python.readlink() == Path("python3.12")
+
+
+
+def _four_links(old):
+    (old / "venv/bin").mkdir(parents=True)
+    (old / "venv/lib").mkdir()
+    (old / "venv/lib/installed.py").write_bytes(b"old immutable module")
+    for rel, target in installer.legacy_rollback.LINKS.items():
+        link = old / rel
+        link.symlink_to(target)
+    return {rel: (old / rel).readlink().as_posix()
+            for rel in installer.legacy_rollback.LINKS}
+
+
+def test_all_four_legacy_links_preserved_as_literal_objects(setup):
+    root, release, service, unit, original, staged, old, data, inspector = setup
+    original_links = _four_links(old)
+    receipt = installer.preserve(release, service=service,
+                                 original_runtime="/opt/old", root=root)
+    copy = installer.host_path(root, installer.BACKUPS / release / "previous-runtime")
+    assert receipt["legacy_inventory_schema"] == installer.legacy_rollback.SCHEMA
+    assert receipt["runtime_tree_sha256"]
+    assert receipt["python_interpreter_chain"][0]["path"] == "/usr/bin/python3.12"
+    for rel, target in original_links.items():
+        link = copy / rel
+        assert link.is_symlink()
+        assert link.readlink().as_posix() == target
+        assert (old / rel).readlink().as_posix() == target
+    assert installer.legacy_rollback.assert_copy(root, old, copy)[
+        "inventory_sha256"] == receipt["legacy_inventory_sha256"]
+
+
+def test_changed_literal_legacy_target_is_rejected(setup):
+    root, release, service, unit, original, staged, old, data, inspector = setup
+    _four_links(old)
+    installer.preserve(release, service=service, original_runtime="/opt/old", root=root)
+    copy = installer.host_path(root, installer.BACKUPS / release / "previous-runtime")
+    link = copy / "venv/bin/python3"
+    link.unlink()
+    link.symlink_to("python")
+    with pytest.raises(installer.legacy_rollback.LegacyHold, match="target differs"):
+        installer.legacy_rollback.assert_copy(root, old, copy)
+
+
+@pytest.mark.parametrize("path,target", [
+    ("venv/bin/python", "../../../escape"),
+    ("venv/bin/python3", "python"),
+    ("venv/bin/python3.12", "/usr/bin/other"),
+    ("venv/bin/foreign", "python3.12"),
+])
+def test_unreviewed_or_escaping_legacy_link_holds(setup, path, target):
+    root, release, service, unit, original, staged, old, data, inspector = setup
+    (old / "venv/bin").mkdir(parents=True)
+    (old / path).symlink_to(target)
+    with pytest.raises(installer.legacy_rollback.LegacyHold):
+        installer.preserve(release, service=service, original_runtime="/opt/old", root=root)
+
+
+def test_external_python_target_change_blocks_restore(setup):
+    root, release, service, unit, original, staged, old, data, inspector = setup
+    _four_links(old)
+    receipt = installer.preserve(
+        release, service=service, original_runtime="/opt/old", root=root)
+    ext = root / "usr/bin/python3.12"
+    ext.write_bytes(b"different interpreter")
+    changed = installer.legacy_rollback.inventory(root, old)
+    assert changed["python_interpreter_chain"] != receipt["python_interpreter_chain"]
+    assert changed["inventory_sha256"] != receipt["legacy_inventory_sha256"]
+
+
+def test_external_interpreter_symlink_chain_is_attested(setup):
+    root, release, service, unit, original, staged, old, data, inspector = setup
+    _four_links(old)
+    ext = root / "usr/bin/python3.12"
+    ext.unlink()
+    ext.symlink_to("python3.12-real")
+    (ext.parent / "python3.12-real").write_bytes(b"verified interpreter real")
+    result = installer.preserve(release, service=service,
+                                original_runtime="/opt/old", root=root)
+    chain = result["python_interpreter_chain"]
+    assert [e["type"] for e in chain] == ["symlink", "file"]
+    assert chain[0]["target"] == "python3.12-real"
+    assert chain[-1]["sha256"] == hashlib.sha256(
+        b"verified interpreter real").hexdigest()
+
+
+def test_selected_version_symlink_still_rejected(setup):
+    root, release, service, unit, original, staged, old, data, inspector = setup
+    selected = installer.host_path(root, installer.VERSIONS / release)
+    (selected / "bin/foreign-link").symlink_to("root-control")
+    with pytest.raises(installer.CompilerInstallerHold, match="linked"):
+        installer._inventory(root, selected)
+
+
+
+def test_restore_with_four_links_keeps_original_runtime_path(setup):
+    root, release, service, unit, original, staged, old, data, inspector = setup
+    links = _four_links(old)
+    preserved(setup)
+    installer.select("reviewed.json", "f" * 64, root=root)
+    assert installer.restore("reviewed.json", "f" * 64, root=root)[
+        "state"] == "restored"
+    assert unit.read_bytes() == original
+    assert data["rollback"]["original_runtime"] == "/opt/old"
+    for rel, target in links.items():
+        assert (old / rel).readlink().as_posix() == target
+    copied = installer.host_path(
+        root, installer.BACKUPS / release / "previous-runtime")
+    assert installer.legacy_rollback.assert_copy(root, old, copied)[
+        "inventory_sha256"] == data["rollback"]["legacy_inventory_sha256"]
+
+
+def test_changed_external_python_blocks_explicit_restore(setup):
+    root, release, service, unit, original, staged, old, data, inspector = setup
+    _four_links(old)
+    preserved(setup)
+    installer.select("reviewed.json", "f" * 64, root=root)
+    (root / "usr/bin/python3.12").write_bytes(b"replaced external interpreter")
+    with pytest.raises(installer.CompilerInstallerHold,
+                       match="protected original runtime or external Python changed"):
+        installer.restore("reviewed.json", "f" * 64, root=root)
+    assert unit.read_bytes() == staged
+
+
+
+def test_zero_length_legacy_regular_file_is_allowed(setup):
+    root, release, service, unit, original, staged, old, data, inspector = setup
+    (old / "venv").mkdir()
+    (old / "venv/__init__.py").touch()
+    receipt = installer.preserve(
+        release, service=service, original_runtime="/opt/old", root=root)
+    copy = installer.host_path(root, installer.BACKUPS / release / "previous-runtime")
+    assert (copy / "venv/__init__.py").stat().st_size == 0
+    assert installer.legacy_rollback.assert_copy(root, old, copy)[
+        "inventory_sha256"] == receipt["legacy_inventory_sha256"]
+
+
+
+def test_fresh_venv_links_become_real_executables_without_weakening_inventory(tmp_path):
+    venv = tmp_path / "new-venv"
+    (venv / "bin").mkdir(parents=True)
+    (venv / "lib").mkdir()
+    actual = venv / "bin/python3.12"
+    actual.write_bytes(b"new Python 3.12 executable")
+    actual.chmod(0o755)
+    (venv / "bin/python").symlink_to("python3.12")
+    (venv / "bin/python3").symlink_to("python3.12")
+    (venv / "lib64").symlink_to("lib", target_is_directory=True)
+
+    normalized = installer._normalize_new_venv(venv)
+    assert normalized == ["bin/python", "bin/python3", "lib64"]
+    for name in ("python", "python3", "python3.12"):
+        entry = venv / "bin" / name
+        assert entry.is_file() and not entry.is_symlink()
+        assert entry.read_bytes() == b"new Python 3.12 executable"
+        assert entry.stat().st_mode & 0o100
+    assert not (venv / "lib64").exists()
+    assert (venv / "lib").is_dir()
+    assert installer._inventory(tmp_path, venv)
+
+
+def test_fresh_venv_unexpected_or_escaping_link_holds_without_rewrite(tmp_path):
+    venv = tmp_path / "new-venv"
+    (venv / "bin").mkdir(parents=True)
+    (venv / "bin/python3.12").write_bytes(b"python")
+    (venv / "bin/python").symlink_to("../../foreign")
+    with pytest.raises(installer.CompilerInstallerHold, match="unexpected link"):
+        installer._normalize_new_venv(venv)
+    assert (venv / "bin/python").is_symlink()
+    (venv / "bin/python").unlink()
+    (venv / "bin/python").symlink_to("python3.12")
+    (venv / "other").symlink_to("bin")
+    with pytest.raises(installer.CompilerInstallerHold, match="unexpected link"):
+        installer._normalize_new_venv(venv)
+    assert (venv / "other").is_symlink()
+
+
+
+def _manager_properties(*, pid=101, timestamp="old", command="/opt/old/bin/root-control",
+                        pre_command="/usr/bin/test -d /state", ignore="no",
+                        include_pre=True):
+    def record(argv, *, pid, ignore):
+        executable = argv.split()[0]
+        return ("{ path=" + executable + " ; argv[]=" + argv
+                + " ; ignore_errors=" + ignore
+                + " ; pid=" + str(pid) + " ; start_time=" + timestamp
+                + " ; stop_time=" + timestamp
+                + " ; code=exited ; status=0 ; }")
+    return {
+        "ExecStart": record(command, pid=pid, ignore=ignore),
+        "ExecStartPre": record(pre_command, pid=pid+1, ignore="no")
+                        if include_pre else "",
+        "ReadOnlyPaths": "/state", "Requires": "state.mount",
+        "After": "state.mount",
+    }
+
+
+def test_manager_effective_identity_stable_across_process_changes():
+    from zog.host_deploy import fonts_unit_composition as composition
+    first, old_evidence = composition.normalize_loaded_commands(
+        _manager_properties(pid=12, timestamp="start-old"))
+    next_stable, new_evidence = composition.normalize_loaded_commands(
+        _manager_properties(pid=992, timestamp="start-new"))
+    assert first == next_stable
+    assert old_evidence != new_evidence
+    assert first["ExecStart"][0]["path"] == "/opt/old/bin/root-control"
+    assert len(first["ExecStartPre"]) == 1
+
+
+@pytest.mark.parametrize("overrides", [
+    {"command": "/opt/other/bin/root-control"},
+    {"pre_command": "/usr/bin/test -d /foreign"},
+    {"ignore": "yes"},
+    {"include_pre": False},
+])
+def test_manager_stable_identity_rejects_changed_commands(overrides):
+    from zog.host_deploy import fonts_unit_composition as composition
+    stable, _ = composition.normalize_loaded_commands(_manager_properties())
+    changed, _ = composition.normalize_loaded_commands(
+        _manager_properties(**overrides))
+    assert stable != changed
+
+
+def test_preservation_records_stable_identity_separately_from_process_evidence(
+        setup, monkeypatch):
+    from zog.host_deploy import fonts_unit_composition as composition
+    root, release, service, unit, original, staged, old, data, inspector = setup
+    original_dir = unit.with_name(service + ".d")
+    original_dir.mkdir()
+    pre = original_dir / "issuer-persistence.conf"
+    pre.write_bytes(b"[Service]\nExecStartPre=/usr/bin/test -d /state\n")
+    live = _manager_properties(pid=81)
+    # The effective configuration in this fixture is an old runtime command
+    # plus the exact prestart guard, just as in the unit file/drop-in.
+    live["ReadOnlyPaths"] = ""
+    live["Requires"] = ""
+    live["After"] = ""
+    def manager(*args):
+        return composition.normalize_loaded_commands(live)
+    monkeypatch.setattr(installer, "_current_manager_composition", manager)
+    custody = installer.preserve(release, service=service,
+                                 original_runtime="/opt/old", root=root)
+    assert custody["original_loaded_properties"]["ExecStart"][0]["path"] == (
+        "/opt/old/bin/root-control")
+    assert custody["original_loaded_properties"]["ExecStartPre"][0]["path"] == (
+        "/usr/bin/test")
+    assert custody["original_loaded_process_metadata"]["ExecStart"][0]["pid"] == "81"
+    assert custody["original_loaded_process_metadata"]["ExecStartPre"][0]["pid"] == "82"
+    assert "start_time" not in custody["original_loaded_properties"]["ExecStart"][0]
+
+
+@pytest.mark.parametrize("changes", [
+    {"pre_command": "/usr/bin/test -d /wrong"},
+    {"ignore": "yes"},
+    {"include_pre": False},
+])
+def test_preservation_rejects_changed_prestart_and_execution_flag(
+        setup, monkeypatch, changes):
+    from zog.host_deploy import fonts_unit_composition as composition
+    root, release, service, unit, original, staged, old, data, inspector = setup
+    unit.with_name(service + ".d").mkdir()
+    (unit.with_name(service + ".d") / "issuer.conf").write_bytes(
+        b"[Service]\nExecStartPre=/usr/bin/test -d /state\n")
+    raw = _manager_properties(**changes)
+    raw.update(ReadOnlyPaths="", Requires="", After="")
+    monkeypatch.setattr(
+        installer, "_current_manager_composition",
+        lambda *args: composition.normalize_loaded_commands(raw))
+    with pytest.raises(installer.CompilerInstallerHold,
+                       match="composed ExecStart"):
+        installer.preserve(release, service=service,
+                           original_runtime="/opt/old", root=root)
+
+
+
+def test_read_manager_normalizes_systemd252_loaded_records_with_volatile_changes():
+    service = "zog-certbot-seed-root.service"
+    fragment = Path("/etc/systemd/system") / service
+    dropin = "issuer-persistence.conf"
+    def read(pid, stamp):
+        raw = _manager_properties(pid=pid, timestamp=stamp)
+        props = dict(raw, LoadState="loaded", FragmentPath=str(fragment),
+                     DropInPaths=str(fragment) + ".d/" + dropin)
+        def runner(args, **kwargs):
+            assert args[0:2] == ["/usr/bin/systemctl", "show"]
+            return SimpleNamespace(
+                returncode=0,
+                stdout="".join(k + "=" + v + "\n" for k, v in props.items()))
+        return installer._current_manager_composition(
+            Path("/"), service, fragment, [{"name": dropin}], runner)
+    first, process_a = read(100, "old")
+    second, process_b = read(999, "new")
+    assert first == second
+    assert process_a != process_b
+    assert first["ExecStart"][0]["flags"]["ignore_errors"] == "no"
+    assert first["ExecStartPre"][0]["path"] == "/usr/bin/test"
+
+
+def test_manager_unknown_command_metadata_fails_closed():
+    service = "zog-certbot-seed-root.service"
+    fragment = Path("/etc/systemd/system") / service
+    raw = _manager_properties()
+    raw["ExecStart"] = raw["ExecStart"].replace(
+        " ; code=exited", " ; unsupported=surprise ; code=exited")
+    props = dict(raw, LoadState="loaded", FragmentPath=str(fragment),
+                 DropInPaths="")
+    def runner(args, **kwargs):
+        return SimpleNamespace(
+            returncode=0,
+            stdout="".join(k + "=" + v + "\n" for k, v in props.items()))
+    with pytest.raises(installer.CompilerInstallerHold, match="unknown or incomplete"):
+        installer._current_manager_composition(
+            Path("/"), service, fragment, [], runner)
+
+
+
+def test_reboot_after_unmask_before_selected_inspection_keeps_start_blocked(
+        setup, monkeypatch):
+    """Simulated process death bypasses exception cleanup; guard survives."""
+    root, release, service, unit, original, staged, old, data, inspector = preserved(setup)
+    original_inspect = inspector.inspect_installed
+
+    def interrupted(selection, phase, transaction_guard=False):
+        if phase == "selected" and transaction_guard:
+            raise KeyboardInterrupt("simulated-crash-before-selected-inspection")
+        return original_inspect(selection, phase,
+                                transaction_guard=transaction_guard)
+
+    monkeypatch.setattr(inspector, "inspect_installed", interrupted)
+    with pytest.raises(KeyboardInterrupt, match="simulated-crash"):
+        installer.select("reviewed.json", "f" * 64, root=root)
+    # The selected main fragment has already replaced the temporary mask,
+    # but the independently persisted condition still denies startup.
+    assert unit.read_bytes() == staged
+    guard = unit.with_name(service + ".d") / (
+        "zzzz-zog-compiler-transaction-guard.conf")
+    assert guard.is_file()
+    assert b"ConditionPathExists=" in guard.read_bytes()
+    assert not installer.host_path(
+        root, installer.BACKUPS / release / "startup-permit").exists()
+    transaction = installer.host_path(
+        root, installer.BACKUPS / release / "selection-transaction.json")
+    assert json.loads(transaction.read_text())["state"] == "pending"
+    monkeypatch.setattr(inspector, "inspect_installed", original_inspect)
+    assert installer.restore("reviewed.json", "f" * 64, root=root)["state"] == "restored"
+    assert unit.read_bytes() == original
+    assert not guard.exists()
+
+
+def test_reboot_during_restore_after_unmask_still_denies_start(
+        setup, monkeypatch):
+    root, release, service, unit, original, staged, old, data, inspector = preserved(setup)
+    installer.select("reviewed.json", "f" * 64, root=root)
+    active_dir = unit.with_name(service + ".d")
+    guard = active_dir / "zzzz-zog-compiler-transaction-guard.conf"
+    confirm = installer._confirm_guard_loaded
+
+    def die_after_original_loaded(root_arg, service_arg, directory, runner):
+        if unit.is_file() and not unit.is_symlink() and unit.read_bytes() == original:
+            raise KeyboardInterrupt("simulated-restore-reboot")
+        return confirm(root_arg, service_arg, directory, runner)
+
+    monkeypatch.setattr(installer, "_confirm_guard_loaded", die_after_original_loaded)
+    with pytest.raises(KeyboardInterrupt, match="simulated-restore-reboot"):
+        installer.restore("reviewed.json", "f" * 64, root=root)
+    assert unit.read_bytes() == original
+    assert guard.is_file()
+    assert json.loads(installer.host_path(
+        root, installer.BACKUPS / release /
+        "selection-transaction.json").read_text())["state"] == "restoring"
+    monkeypatch.setattr(installer, "_confirm_guard_loaded", confirm)
+    assert installer.restore("reviewed.json", "f" * 64, root=root)["state"] == "restored"
+    assert not guard.exists()
+
+
+def test_reboot_after_restored_commit_completes_guard_cleanup(
+        setup, monkeypatch):
+    root, release, service, unit, original, staged, old, data, inspector = preserved(setup)
+    installer.select("reviewed.json", "f" * 64, root=root)
+    actual_remove = installer._remove_guard
+
+    def die_before_release(*args, **kwargs):
+        raise KeyboardInterrupt("power-loss-after-durable-restore")
+
+    monkeypatch.setattr(installer, "_remove_guard", die_before_release)
+    with pytest.raises(KeyboardInterrupt, match="power-loss-after-durable"):
+        installer.restore("reviewed.json", "f" * 64, root=root)
+    assert unit.read_bytes() == original
+    guard = unit.with_name(service + ".d") / (
+        "zzzz-zog-compiler-transaction-guard.conf")
+    assert guard.is_file()
+    monkeypatch.setattr(installer, "_remove_guard", actual_remove)
+    assert installer.restore("reviewed.json", "f" * 64, root=root)["state"] == "restored"
+    assert not guard.exists()
+
+
+def test_foreign_startup_permit_blocks_selection(setup):
+    root, release, service, unit, original, staged, old, data, inspector = preserved(setup)
+    permit = installer.host_path(root, installer.BACKUPS / release / "startup-permit")
+    permit.write_text("foreign-permit")
+    with pytest.raises(installer.CompilerInstallerHold, match="startup permit"):
+        installer.select("reviewed.json", "f" * 64, root=root)
+    assert unit.read_bytes() == original
+
+
+
+def test_restore_guard_is_loaded_before_marking_transaction_incomplete(
+        setup, monkeypatch):
+    root, release, service, unit, original, staged, old, data, inspector = preserved(setup)
+    installer.select("reviewed.json", "f" * 64, root=root)
+    check = installer._confirm_guard_loaded
+
+    def simulated_reboot(root_arg, service_arg, directory, runner):
+        if (directory / "zzzz-zog-compiler-transaction-guard.conf").exists():
+            raise KeyboardInterrupt("crash-before-restoring-commit")
+        return check(root_arg, service_arg, directory, runner)
+
+    monkeypatch.setattr(installer, "_confirm_guard_loaded", simulated_reboot)
+    with pytest.raises(KeyboardInterrupt, match="crash-before-restoring-commit"):
+        installer.restore("reviewed.json", "f" * 64, root=root)
+    receipt = installer.host_path(
+        root, installer.BACKUPS / release / "selection-transaction.json")
+    assert json.loads(receipt.read_text())["state"] == "selected"
+    assert unit.read_bytes() == staged
+    guard = unit.with_name(service + ".d") / (
+        "zzzz-zog-compiler-transaction-guard.conf")
+    assert guard.is_file()
+    assert b"ConditionPathExists=" in guard.read_bytes()
+    monkeypatch.setattr(installer, "_confirm_guard_loaded", check)
+    assert installer.restore("reviewed.json", "f" * 64, root=root)["state"] == "restored"
+    assert unit.read_bytes() == original
+    assert not guard.exists()
+
+
+
+def test_crash_after_arming_before_guard_does_not_claim_pending(
+        setup, monkeypatch):
+    root, release, service, unit, original, staged, old, data, inspector = preserved(setup)
+    guard = unit.with_name(service + ".d") / (
+        "zzzz-zog-compiler-transaction-guard.conf")
+    receipt = installer.host_path(
+        root, installer.BACKUPS / release / "selection-transaction.json")
+    actual_guard = installer._startup_guard
+
+    def crash_before_guard(*args, **kwargs):
+        raise KeyboardInterrupt("crash-before-durable-startup-guard")
+
+    monkeypatch.setattr(installer, "_startup_guard", crash_before_guard)
+    with pytest.raises(KeyboardInterrupt, match="crash-before-durable"):
+        installer.select("reviewed.json", "f" * 64, root=root)
+    assert json.loads(receipt.read_text())["state"] == "arming"
+    assert unit.read_bytes() == original
+    assert not guard.exists()
+    monkeypatch.setattr(installer, "_startup_guard", actual_guard)
+    assert installer.restore("reviewed.json", "f" * 64, root=root)["state"] == "aborted"
+    assert unit.read_bytes() == original
+    assert not guard.exists()
+
+
+def test_crash_after_guard_before_pending_keeps_original_and_recovers(
+        setup, monkeypatch):
+    root, release, service, unit, original, staged, old, data, inspector = preserved(setup)
+    guard = unit.with_name(service + ".d") / (
+        "zzzz-zog-compiler-transaction-guard.conf")
+    receipt = installer.host_path(
+        root, installer.BACKUPS / release / "selection-transaction.json")
+    actual_loaded = installer._confirm_guard_loaded
+
+    def crash_after_load(*args, **kwargs):
+        raise KeyboardInterrupt("crash-after-guard-before-pending")
+
+    monkeypatch.setattr(installer, "_confirm_guard_loaded", crash_after_load)
+    with pytest.raises(KeyboardInterrupt, match="crash-after-guard"):
+        installer.select("reviewed.json", "f" * 64, root=root)
+    assert json.loads(receipt.read_text())["state"] == "arming"
+    assert unit.read_bytes() == original
+    assert guard.is_file()
+    assert not installer.host_path(
+        root, installer.BACKUPS / release / "startup-permit").exists()
+    monkeypatch.setattr(installer, "_confirm_guard_loaded", actual_loaded)
+    assert installer.restore("reviewed.json", "f" * 64, root=root)["state"] == "aborted"
+    assert unit.read_bytes() == original
+    assert not guard.exists()
+
+
+def test_arming_recovery_without_guard_does_not_require_inactive_original(
+        setup, monkeypatch):
+    root, release, service, unit, original, staged, old, data, inspector = preserved(setup)
+    real_guard = installer._startup_guard
+    monkeypatch.setattr(
+        installer, "_startup_guard",
+        lambda *args, **kwargs: (_ for _ in ()).throw(KeyboardInterrupt("reboot")))
+    with pytest.raises(KeyboardInterrupt, match="reboot"):
+        installer.select("reviewed.json", "f" * 64, root=root)
+    monkeypatch.setattr(installer, "_startup_guard", real_guard)
+    # Simulate a boot-triggered original unit. Recovery may ABORT a wholly
+    # unmodified arming selection rather than insist that it is inactive.
+    monkeypatch.setattr(
+        installer, "_inactive",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("arming recovery must not require inactivity")))
+    assert installer.restore("reviewed.json", "f" * 64, root=root)["state"] == "aborted"
+    assert unit.read_bytes() == original
+
+
+def _approved_dependency_identity():
+    from zog.host_deploy import fonts_unit_composition as composition
+    raw = _manager_properties()
+    raw["After"] = "network.target dbus.socket state.mount"
+    raw["Requires"] = "state.mount dbus.socket network.target"
+    stable, _ = composition.normalize_loaded_commands(raw)
+    return stable
+
+
+@pytest.mark.parametrize("field", ["After", "Requires"])
+def test_rollback_identity_accepts_reordered_dependencies_without_mutation(field):
+    approved = _approved_dependency_identity()
+    receipt = dict(approved)
+    receipt[field] = " ".join(reversed(approved[field].split()))
+    original_receipt = receipt.copy()
+    original_approved = approved.copy()
+    assert receipt[field] != approved[field]
+    # Selection and restoration both call this exact same predicate.
+    assert installer._effective_equivalent(receipt, approved)
+    assert installer._effective_equivalent(approved, receipt)
+    assert receipt == original_receipt
+    assert approved == original_approved
+
+
+@pytest.mark.parametrize("field", ["After", "Requires"])
+def test_rollback_identity_rejects_missing_extra_or_duplicate_dependencies(field):
+    approved = _approved_dependency_identity()
+    for replacement in ("state.mount dbus.socket",
+                        "state.mount dbus.socket foreign.mount network.target",
+                        "state.mount dbus.socket network.target state.mount"):
+        observed = dict(approved, **{field: replacement})
+        assert not installer._effective_equivalent(observed, approved)
+
+
+@pytest.mark.parametrize("changed", ["ExecStart", "ExecStartPre", "ReadOnlyPaths"])
+def test_rollback_identity_requires_exact_commands_and_restrictions(changed):
+    approved = _approved_dependency_identity()
+    observed = dict(approved)
+    if changed == "ExecStart":
+        observed[changed] = [{**approved[changed][0], "argv": "/foreign"}]
+    elif changed == "ExecStartPre":
+        observed[changed] = [{**approved[changed][0], "argv": "/foreign"}]
+    else:
+        observed[changed] = "/foreign"
+    assert not installer._effective_equivalent(observed, approved)
+
+
+def test_rollback_identity_rejects_missing_foreign_and_malformed_fields():
+    approved = _approved_dependency_identity()
+    assert not installer._effective_equivalent(None, approved)
+    assert not installer._effective_equivalent(
+        {k: v for k, v in approved.items() if k != "After"}, approved)
+    assert not installer._effective_equivalent(
+        dict(approved, Unexpected="value"), approved)
+    assert not installer._effective_equivalent(
+        dict(approved, Requires=["state.mount", "network.target"]), approved)
+
+
+def test_issuer_selected_digest_binding_is_durable_and_old_receipt_unchanged(
+        setup, monkeypatch):
+    root, release, service, unit, original, staged, old, data, inspector = preserved(setup)
+    receipt = installer.host_path(
+        root, installer.BACKUPS / release / "preservation.json")
+    before = receipt.read_bytes()
+    binding = {
+        "schema": "zog-compiler-issuer-replacement-unit-binding-v1",
+        "approved_selection_sha256": "f" * 64,
+        "original_rollback_unit_sha256": hashlib.sha256(original).hexdigest(),
+        "approved_replacement_unit_sha256": hashlib.sha256(staged).hexdigest(),
+    }
+    monkeypatch.setattr(installer, "_issuer_replacement_binding",
+                        lambda *args: dict(binding))
+    assert installer.select("reviewed.json", "f" * 64, root=root)["state"] == "selected"
+    transaction = installer.host_path(
+        root, installer.BACKUPS / release / "selection-transaction.json")
+    assert json.loads(transaction.read_text())["issuer_replacement_binding"] == binding
+    assert receipt.read_bytes() == before
+    assert installer.restore("reviewed.json", "f" * 64, root=root)["state"] == "restored"
+    assert unit.read_bytes() == original
+    assert receipt.read_bytes() == before
+
+
+def test_issuer_replacement_binding_mismatch_blocks_restore_without_mutation(
+        setup, monkeypatch):
+    root, release, service, unit, original, staged, old, data, inspector = preserved(setup)
+    binding = {"approved_replacement_unit_sha256": hashlib.sha256(staged).hexdigest()}
+    monkeypatch.setattr(installer, "_issuer_replacement_binding",
+                        lambda *args: dict(binding))
+    installer.select("reviewed.json", "f" * 64, root=root)
+    transaction = installer.host_path(
+        root, installer.BACKUPS / release / "selection-transaction.json")
+    protected = json.loads(transaction.read_text())
+    protected["issuer_replacement_binding"]["approved_replacement_unit_sha256"] = (
+        "e" * 64)
+    transaction.write_text(json.dumps(protected))
+    with pytest.raises(installer.CompilerInstallerHold, match="issuer replacement"):
+        installer.restore("reviewed.json", "f" * 64, root=root)
+    assert unit.read_bytes() == staged
+
+
+def test_atomic_publication_uses_exact_mode_under_restrictive_umask(tmp_path):
+    destination = tmp_path / "selected.service"
+    prior = os.umask(0o077)
+    try:
+        installer._atomic(destination, b"[Service]\nExecStart=/approved\n", 0o644)
+    finally:
+        os.umask(prior)
+    assert stat.S_IMODE(destination.lstat().st_mode) == 0o644
+    assert destination.read_bytes() == b"[Service]\nExecStart=/approved\n"
+
+
+def test_reviewed_fragment_and_dropins_roundtrip_with_umask_077(setup, monkeypatch):
+    root, release, service, unit, original, staged, old, data, inspector = (
+        with_realistic_dropins(setup))
+    preserved(setup)
+    real_inspection = inspector.inspect_installed
+
+    def check_permission_readback(selection, phase, transaction_guard=False):
+        if phase == "selected":
+            assert stat.S_IMODE(unit.lstat().st_mode) == 0o644
+            assert installer._dropins(root, unit.with_name(service + ".d"))[
+                :-1 if transaction_guard else None] == data["composition"][
+                "selected_dropins"]
+        if transaction_guard:
+            guard = unit.with_name(service + ".d") / (
+                "zzzz-zog-compiler-transaction-guard.conf")
+            assert stat.S_IMODE(guard.lstat().st_mode) == 0o644
+        return real_inspection(selection, phase, transaction_guard)
+
+    monkeypatch.setattr(inspector, "inspect_installed", check_permission_readback)
+    old_umask = os.umask(0o077)
+    try:
+        result = installer.select("reviewed.json", "f" * 64, root=root)
+        assert result["state"] == "selected"
+        restored = installer.restore("reviewed.json", "f" * 64, root=root)
+    finally:
+        os.umask(old_umask)
+    assert restored["state"] == "restored"
+    assert unit.read_bytes() == original
+    assert stat.S_IMODE(unit.lstat().st_mode) == 0o644
+    assert installer._dropins(root, unit.with_name(service + ".d")) == (
+        data["composition"]["original_dropins"])
+
+
+def _pending_legacy_umask_failure(setup, monkeypatch):
+    root, release, service, unit, original, staged, old, data, inspector = (
+        with_realistic_dropins(setup))
+    preserved(setup)
+    old_inspection = inspector.inspect_installed
+
+    def fail_at_selected_readback(selection, phase, transaction_guard=False):
+        if phase == "selected" and transaction_guard:
+            # Reproduce the old O_CREAT(0644) & umask(077) result after
+            # a real fragment/drop-in switch, before selected attestation.
+            unit.chmod(0o600)
+            active_dir = unit.with_name(service + ".d")
+            for item in active_dir.glob("*.conf"):
+                item.chmod(0o600)
+            raise installer.CompilerInstallerHold(
+                "historical selected composition mode differs")
+        return old_inspection(selection, phase, transaction_guard)
+
+    monkeypatch.setattr(inspector, "inspect_installed", fail_at_selected_readback)
+    with pytest.raises(installer.CompilerInstallerHold, match="historical selected"):
+        installer.select("reviewed.json", "f" * 64, root=root)
+    monkeypatch.setattr(inspector, "inspect_installed", old_inspection)
+    transaction = installer.host_path(
+        root, installer.BACKUPS / release / "selection-transaction.json")
+    assert json.loads(transaction.read_text())["state"] == "pending"
+    assert unit.is_symlink() and unit.readlink() == Path("/dev/null")
+    guard = unit.with_name(service + ".d") / (
+        "zzzz-zog-compiler-transaction-guard.conf")
+    assert stat.S_IMODE(guard.lstat().st_mode) == 0o600
+    return root, release, service, unit, original, staged, data, transaction
+
+
+def test_recover_guarded_partial_umask_state_and_retry_same_approval(
+        setup, monkeypatch):
+    root, release, service, unit, original, staged, data, transaction = (
+        _pending_legacy_umask_failure(setup, monkeypatch))
+    original_receipt = installer.host_path(
+        root, installer.BACKUPS / release / "preservation.json").read_bytes()
+    with pytest.raises(installer.CompilerInstallerHold, match="previous or interrupted"):
+        installer.select("reviewed.json", "f" * 64, root=root)
+    pending_bytes = transaction.read_bytes()
+    assert installer.restore("reviewed.json", "f" * 64, root=root)[
+        "state"] == "restored"
+    assert unit.read_bytes() == original
+    assert installer._dropins(root, unit.with_name(service + ".d")) == (
+        data["composition"]["original_dropins"])
+    # Pending transaction bytes remain independently preserved even though
+    # selection-transaction.json is correctly advanced to restored.
+    recovery = installer.host_path(
+        root, installer.BACKUPS / release / (
+            "selection-before-recovery-" +
+            hashlib.sha256(pending_bytes).hexdigest() + ".json"))
+    assert recovery.read_bytes() == pending_bytes
+    assert stat.S_IMODE(recovery.lstat().st_mode) == 0o600
+    restored_bytes = transaction.read_bytes()
+    retry = installer.select("reviewed.json", "f" * 64, root=root)
+    assert retry["state"] == "selected"
+    assert retry["retry_count"] == 1
+    historical = installer.host_path(
+        root, installer.BACKUPS / release / "selection-before-retry-000001.json")
+    assert historical.read_bytes() == restored_bytes
+    assert stat.S_IMODE(historical.lstat().st_mode) == 0o600
+    assert retry["prior_transaction_sha256"] == hashlib.sha256(
+        restored_bytes).hexdigest()
+    assert installer.host_path(
+        root, installer.BACKUPS / release / "preservation.json").read_bytes() == (
+        original_receipt)
+    assert installer.restore("reviewed.json", "f" * 64, root=root)["state"] == (
+        "restored")
+    second_restored = transaction.read_bytes()
+    second = installer.select("reviewed.json", "f" * 64, root=root)
+    assert second["state"] == "selected" and second["retry_count"] == 2
+    assert historical.read_bytes() == restored_bytes
+    second_history = installer.host_path(
+        root, installer.BACKUPS / release / "selection-before-retry-000002.json")
+    assert second_history.read_bytes() == second_restored
+    assert installer.host_path(
+        root, installer.BACKUPS / release / "preservation.json").read_bytes() == (
+        original_receipt)
+
+
+def test_partial_umask_recovery_rejects_nonapproved_dropin_or_widened_mode(
+        setup, monkeypatch):
+    root, release, service, unit, original, staged, data, transaction = (
+        _pending_legacy_umask_failure(setup, monkeypatch))
+    items = sorted(unit.with_name(service + ".d").glob("*.conf"))
+    chosen = next(p for p in items if not p.name.startswith("zzzz-"))
+    chosen.chmod(0o666)
+    with pytest.raises(installer.CompilerInstallerHold, match="unsafe compiler drop-in"):
+        installer.restore("reviewed.json", "f" * 64, root=root)
+    assert transaction.is_file() and unit.is_symlink()
+    chosen.chmod(0o600)
+    chosen.write_bytes(b"[Service]\nExecStartPre=/foreign\n")
+    with pytest.raises(installer.CompilerInstallerHold, match="unknown or modified"):
+        installer.restore("reviewed.json", "f" * 64, root=root)
+    assert chosen.read_bytes() == b"[Service]\nExecStartPre=/foreign\n"
+
+
+def test_retry_refuses_modified_prior_receipt_and_incomplete_state(setup):
+    root, release, service, unit, original, staged, old, data, inspector = (
+        preserved(setup))
+    installer.select("reviewed.json", "f" * 64, root=root)
+    with pytest.raises(installer.CompilerInstallerHold, match="previous or interrupted"):
+        installer.select("reviewed.json", "f" * 64, root=root)
+    installer.restore("reviewed.json", "f" * 64, root=root)
+    transaction = installer.host_path(
+        root, installer.BACKUPS / release / "selection-transaction.json")
+    preserved_state = transaction.read_bytes()
+    receipt = installer.host_path(
+        root, installer.BACKUPS / release / "selection-before-retry-000001.json")
+    receipt.write_bytes(b"foreign historical transaction")
+    with pytest.raises(installer.CompilerInstallerHold, match="conflicting protected"):
+        installer.select("reviewed.json", "f" * 64, root=root)
+    assert transaction.read_bytes() == preserved_state
+    assert receipt.read_bytes() == b"foreign historical transaction"
+
+def test_partial_recovery_refuses_conflicting_content_addressed_history(
+        setup, monkeypatch):
+    root, release, service, unit, original, staged, data, transaction = (
+        _pending_legacy_umask_failure(setup, monkeypatch))
+    raw = transaction.read_bytes()
+    history = installer.host_path(
+        root, installer.BACKUPS / release / (
+            "selection-before-recovery-" +
+            hashlib.sha256(raw).hexdigest() + ".json"))
+    history.write_bytes(b"foreign")
+    with pytest.raises(installer.CompilerInstallerHold, match="conflicting protected"):
+        installer.restore("reviewed.json", "f" * 64, root=root)
+    assert transaction.read_bytes() == raw
+    assert history.read_bytes() == b"foreign"
+    assert unit.is_symlink() and unit.readlink() == Path("/dev/null")
+
+def _systemd_status(service, *, load="loaded", active="inactive",
+                    sub="dead", job="", unit_id=None):
+    return ("Id=" + (service if unit_id is None else unit_id) + "\n"
+            + "LoadState=" + load + "\n"
+            + "ActiveState=" + active + "\n"
+            + "SubState=" + sub + "\n"
+            + "Job=" + job + "\n")
+
+
+def _status_runner(service, *, response=None, code=0):
+    calls = []
+    def run(args, *, check=False, capture_output=False, text=False):
+        assert args == [
+            "/usr/bin/systemctl", "--no-pager", "--all", "show",
+            "--property=Id,LoadState,ActiveState,SubState,Job", service]
+        assert check is False and capture_output and text
+        calls.append(args)
+        return SimpleNamespace(
+            returncode=code,
+            stdout=_systemd_status(service) if response is None else response)
+    return run, calls
+
+
+def test_compiler_systemd_status_requires_loaded_and_dead_with_no_job(
+        monkeypatch, tmp_path):
+    service = "zog-certbot-seed-root.service"
+    unit = tmp_path / service
+    unit.write_bytes(b"[Service]\nExecStart=/approved\n")
+    monkeypatch.setattr(installer, "host_path",
+                        lambda root, path: unit)
+    inspected = []
+    monkeypatch.setattr(installer, "_regular",
+                        lambda root, path: inspected.append((root, path)) or b"unit")
+    for job in ("", "0"):
+        runner, calls = _status_runner(
+            service, response=_systemd_status(service, job=job))
+        installer._inactive(Path("/"), service, runner)
+        assert len(calls) == 1
+    assert inspected == [(Path("/"), unit), (Path("/"), unit)]
+
+
+@pytest.mark.parametrize("changes", [
+    {"active": "activating", "sub": "start"},
+    {"active": "deactivating", "sub": "stop"},
+    {"active": "active", "sub": "running"},
+    {"active": "failed", "sub": "failed"},
+    {"active": "reloading", "sub": "reload"},
+    {"sub": "exited"},
+    {"load": "not-found"},
+    {"load": "bad-setting"},
+    {"load": "error"},
+    {"load": "masked"},
+    {"unit_id": "other.service"},
+    {"job": "27"},
+    {"job": "21/start"},
+])
+def test_compiler_systemd_status_rejects_bad_states_before_file_access(
+        monkeypatch, changes):
+    service = "zog-certbot-seed-root.service"
+    monkeypatch.setattr(
+        installer, "_regular",
+        lambda *args: pytest.fail("unsafe unit state reached file readback"))
+    runner, calls = _status_runner(
+        service, response=_systemd_status(service, **changes))
+    with pytest.raises(installer.CompilerInstallerHold):
+        installer._inactive(Path("/"), service, runner)
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("output", [
+    "Id=zog-certbot-seed-root.service\nLoadState=loaded\n",
+    _systemd_status("zog-certbot-seed-root.service") + "Job=\n",
+    _systemd_status("zog-certbot-seed-root.service") + "Extra=value\n",
+    _systemd_status("zog-certbot-seed-root.service").replace(
+        "LoadState=loaded", "LoadState"),
+    _systemd_status("zog-certbot-seed-root.service").replace(
+        "ActiveState=inactive", "ActiveState=not-active"),
+])
+def test_compiler_systemd_status_rejects_incomplete_duplicate_unknown_or_bad_output(
+        monkeypatch, output):
+    service = "zog-certbot-seed-root.service"
+    monkeypatch.setattr(
+        installer, "_regular",
+        lambda *args: pytest.fail("malformed status reached file access"))
+    runner, _ = _status_runner(service, response=output)
+    with pytest.raises(installer.CompilerInstallerHold):
+        installer._inactive(Path("/"), service, runner)
+
+
+def test_compiler_systemd_status_rejects_show_failure_or_missing_stdout(monkeypatch):
+    service = "zog-certbot-seed-root.service"
+    monkeypatch.setattr(
+        installer, "_regular",
+        lambda *args: pytest.fail("uncertain status reached file access"))
+    runner, _ = _status_runner(service, code=1)
+    with pytest.raises(installer.CompilerInstallerHold):
+        installer._inactive(Path("/"), service, runner)
+    runner, _ = _status_runner(service)
+    def no_stdout(*args, **kwargs):
+        runner(*args, **kwargs)
+        return SimpleNamespace(returncode=0, stdout=None)
+    with pytest.raises(installer.CompilerInstallerHold):
+        installer._inactive(Path("/"), service, no_stdout)
+
+
+def test_compiler_systemd_masked_context_requires_exact_load_state(
+        monkeypatch):
+    service = "zog-certbot-seed-root.service"
+    release = "a" * 32
+    accepted = []
+    monkeypatch.setattr(installer, "_masked_recovery_context",
+                        lambda *args: accepted.append(args))
+    runner, _ = _status_runner(
+        service, response=_systemd_status(service, load="masked"))
+    installer._inactive(Path("/"), service, runner,
+                        masked=True, release=release)
+    assert accepted == [(Path("/"), service, release)]
+    with pytest.raises(installer.CompilerInstallerHold, match="loaded/masked"):
+        installer._inactive(Path("/"), service, runner)
+    runner, _ = _status_runner(service)
+    with pytest.raises(installer.CompilerInstallerHold, match="loaded/masked"):
+        installer._inactive(Path("/"), service, runner,
+                            masked=True, release=release)
+    assert len(accepted) == 1
+
+
+@pytest.mark.parametrize("overrides", [
+    {"active": "activating", "sub": "start"},
+    {"active": "deactivating", "sub": "stop"},
+    {"active": "failed", "sub": "failed"},
+    {"job": "55"},
+    {"load": "not-found"},
+    {"load": "bad-setting"},
+    {"unit_id": "other.service"},
+])
+def test_masked_systemd_context_rejects_transition_job_and_foreign_unit(
+        monkeypatch, overrides):
+    service = "zog-certbot-seed-root.service"
+    readback = []
+    monkeypatch.setattr(installer, "_masked_recovery_context",
+                        lambda *args: readback.append(args))
+    values = {"load": "masked", **overrides}
+    runner, _ = _status_runner(
+        service, response=_systemd_status(service, **values))
+    with pytest.raises(installer.CompilerInstallerHold):
+        installer._inactive(Path("/"), service, runner,
+                            masked=True, release="a" * 32)
+    assert readback == []
+
+
+def test_masked_systemd_pending_recovery_needs_real_guard_and_transaction(
+        setup, monkeypatch):
+    # An actual disposable pending partial selection supplies /dev/null,
+    # exact approved guard (legacy umask 0600), protected transaction,
+    # and absent startup permit. Route native readbacks into that fixture.
+    root, release, service, unit, original, staged, data, record = (
+        _pending_legacy_umask_failure(setup, monkeypatch))
+    original_host = installer.host_path
+    original_regular = installer._regular
+    monkeypatch.setattr(installer, "host_path",
+                        lambda native_root, path: original_host(root, path))
+    monkeypatch.setattr(installer, "_regular",
+                        lambda native_root, path: original_regular(root, path))
+    runner, calls = _status_runner(
+        service, response=_systemd_status(service, load="masked"))
+    installer._inactive(Path("/"), service, runner,
+                        masked=True, release=release)
+    assert len(calls) == 1
+    saved = record.read_bytes()
+    tx = json.loads(saved)
+    tx["state"] = "selected"
+    record.write_text(json.dumps(tx))
+    with pytest.raises(installer.CompilerInstallerHold, match="pending/restoring"):
+        installer._inactive(Path("/"), service, runner,
+                            masked=True, release=release)
+    record.write_bytes(saved)
+    guard = unit.with_name(service + ".d") / (
+        "zzzz-zog-compiler-transaction-guard.conf")
+    guard.write_bytes(b"[Service]\nConditionPathExists=/foreign\n")
+    with pytest.raises(installer.CompilerInstallerHold, match="guard"):
+        installer._inactive(Path("/"), service, runner,
+                            masked=True, release=release)
+    assert unit.is_symlink() and unit.readlink() == Path("/dev/null")
+
+
+@pytest.mark.parametrize("kind", ["missing", "masked", "nonregular"])
+def test_loaded_systemd_state_rejects_missing_or_masked_fragment(
+        monkeypatch, tmp_path, kind):
+    service = "zog-certbot-seed-root.service"
+    active = tmp_path / service
+    if kind == "masked":
+        active.symlink_to("/dev/null")
+    elif kind == "nonregular":
+        active.mkdir()
+    monkeypatch.setattr(installer, "host_path", lambda root, path: active)
+    monkeypatch.setattr(
+        installer, "_regular",
+        lambda *args: pytest.fail("unsafe loaded fragment reached readback"))
+    runner, _ = _status_runner(service)
+    with pytest.raises(installer.CompilerInstallerHold, match="missing or masked"):
+        installer._inactive(Path("/"), service, runner)
+
+
+def test_masked_manager_rejects_real_fragment_even_with_guarded_context(
+        setup, monkeypatch):
+    root, release, service, unit, original, staged, data, record = (
+        _pending_legacy_umask_failure(setup, monkeypatch))
+    unit.unlink()
+    unit.write_bytes(original)
+    original_host = installer.host_path
+    original_regular = installer._regular
+    monkeypatch.setattr(installer, "host_path",
+                        lambda native_root, path: original_host(root, path))
+    monkeypatch.setattr(installer, "_regular",
+                        lambda native_root, path: original_regular(root, path))
+    runner, _ = _status_runner(
+        service, response=_systemd_status(service, load="masked"))
+    with pytest.raises(installer.CompilerInstallerHold, match="/dev/null"):
+        installer._inactive(Path("/"), service, runner,
+                            masked=True, release=release)
+
+def test_masking_refuses_mutation_when_loaded_state_gate_holds(
+        setup, monkeypatch):
+    root, release, service, unit, original, staged, old, data, inspector = (
+        setup)
+    def hold(*args, **kwargs):
+        raise installer.CompilerInstallerHold("queued start/stop job")
+    monkeypatch.setattr(installer, "_inactive", hold)
+    with pytest.raises(installer.CompilerInstallerHold, match="queued start/stop"):
+        installer._mask_unit(root, unit, service, None, release=release)
+    assert unit.read_bytes() == original
+    assert not unit.is_symlink()
+
+
+def test_guard_removal_refuses_mutation_when_loaded_state_gate_holds(
+        setup, monkeypatch):
+    root, release, service, unit, original, staged, old, data, inspector = (
+        setup)
+    active_dir = unit.with_name(service + ".d")
+    guard = installer._startup_guard(root, release, active_dir)
+    guard_file = active_dir / guard["name"]
+    before = guard_file.read_bytes()
+    def hold(*args, **kwargs):
+        raise installer.CompilerInstallerHold("queued start/stop job")
+    monkeypatch.setattr(installer, "_inactive", hold)
+    with pytest.raises(installer.CompilerInstallerHold, match="queued start/stop"):
+        installer._remove_guard(root, release, active_dir, service, None)
+    assert guard_file.read_bytes() == before
+    assert unit.read_bytes() == original
