@@ -170,12 +170,65 @@ def _require_root(root):
     return root
 
 
-def _inactive(root, service, runner):
+def _masked_recovery_context(root, service, release):
+    """Only an exact durably guarded pending/restoring release may be masked."""
+    _check_id(release)
+    active = host_path(root, UNIT_DIR / service)
+    require(_already_masked(active),
+            "expected exact /dev/null compiler service mask")
+    backup = host_path(root, BACKUPS / release)
+    tx = json.loads(_regular(root, backup / "selection-transaction.json"))
+    require(type(tx) is dict and tx.get("schema") == SCHEMA
+            and tx.get("release_id") == release
+            and tx.get("service") == service
+            and tx.get("state") in ("pending", "restoring")
+            and type(tx.get("selection_sha256")) is str
+            and re.fullmatch(r"[0-9a-f]{64}", tx["selection_sha256"]) is not None,
+            "masked compiler is not a protected pending/restoring transaction")
+    permit = backup / "startup-permit"
+    require(not permit.exists() and not permit.is_symlink(),
+            "masked compiler has an unexpected startup permit")
+    from zog.host_deploy import fonts_unit_composition as composition
+    guard = host_path(root, UNIT_DIR / (service + ".d")) / composition.GUARD_NAME
+    require(_regular(root, guard) == composition.transaction_guard_bytes(release),
+            "masked compiler startup guard differs")
+    mode = stat.S_IMODE(guard.lstat().st_mode)
+    require(mode == 0o644 or _umask_reduced_mode(mode, 0o644),
+            "masked compiler startup guard permissions differ")
+
+
+def _inactive(root, service, runner, *, masked=False, release=None):
+    """Require exact loaded or protected masked unit, stopped without a job."""
     if root != Path("/"):
         return
-    completed = runner(["/usr/bin/systemctl", "is-active", "--quiet", service], check=False)
-    require(completed.returncode in (3, 4),
-            "compiler-controller service is active or status is uncertain")
+    require(type(masked) is bool, "invalid compiler service state context")
+    _check_service(service)
+    response = runner([
+        "/usr/bin/systemctl", "--no-pager", "--all", "show",
+        "--property=Id,LoadState,ActiveState,SubState,Job", service,
+    ], check=False, capture_output=True, text=True)
+    require(response.returncode == 0 and type(response.stdout) is str,
+            "compiler service manager status unavailable")
+    keys = {"Id", "LoadState", "ActiveState", "SubState", "Job"}
+    props = {}
+    for line in response.stdout.splitlines():
+        key, sep, value = line.partition("=")
+        require(sep == "=" and key in keys and key not in props,
+                "compiler service manager properties malformed or duplicated")
+        props[key] = value
+    require(set(props) == keys, "compiler service manager status incomplete")
+    require(props["Id"] == service, "compiler service identity differs")
+    require(props["LoadState"] == ("masked" if masked else "loaded"),
+            "compiler service loaded/masked context differs")
+    require(props["ActiveState"] == "inactive" and props["SubState"] == "dead",
+            "compiler service is not fully inactive/dead")
+    require(props["Job"] in ("", "0"), "compiler service has a queued systemd job")
+    if masked:
+        require(type(release) is str, "masked recovery requires a release")
+        _masked_recovery_context(root, service, release)
+    else:
+        # Loaded status cannot conceal a missing or on-disk masked fragment.
+        _regular(root, host_path(root, UNIT_DIR / service))
 
 
 def _reload(root, runner):
