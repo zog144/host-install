@@ -801,8 +801,28 @@ def select(selection_file, expected_sha256, *, root=Path("/"), runner=subprocess
         _inactive(root, service, runner)
         backup = host_path(root, BACKUPS / release)
         transaction_path = backup / "selection-transaction.json"
-        require(not transaction_path.exists() and not transaction_path.is_symlink(),
-                "previous or interrupted compiler selection requires recovery")
+        previous_bytes = None
+        previous_tx = None
+        if transaction_path.exists() or transaction_path.is_symlink():
+            # Retry is allowed ONLY after complete rollback of the same
+            # approved release. Never reset a pending or selected job.
+            previous_bytes = _regular(root, transaction_path)
+            try:
+                previous_tx = json.loads(previous_bytes)
+            except (ValueError, UnicodeError) as error:
+                raise CompilerInstallerHold(
+                    "invalid protected selection transaction") from error
+            require(type(previous_tx) is dict
+                    and previous_tx.get("state") in ("restored", "aborted")
+                    and previous_tx.get("schema") == SCHEMA
+                    and previous_tx.get("release_id") == release
+                    and previous_tx.get("service") == service
+                    and previous_tx.get("selection_sha256") == expected_sha256
+                    and previous_tx.get("old_dropins") ==
+                        composition["original_dropins"]
+                    and previous_tx.get("new_dropins") ==
+                        composition["selected_dropins"],
+                    "previous or interrupted compiler selection requires recovery")
         verifier.inspect_installed(selection, phase="staged")
         active = host_path(root, selection["service"]["active_unit"])
         current = _regular(root, active)
@@ -851,6 +871,35 @@ def select(selection_file, expected_sha256, *, root=Path("/"), runner=subprocess
         issuer_binding = _issuer_replacement_binding(
             root, selection, expected_sha256, receipt,
             backup / (service + ".d"), staged_dir)
+        if previous_tx is not None:
+            require(previous_tx.get("old_unit_sha256") ==
+                    hashlib.sha256(current).hexdigest()
+                    and previous_tx.get("new_unit_sha256") ==
+                    hashlib.sha256(new_unit).hexdigest()
+                    and (previous_tx.get("issuer_replacement_binding") ==
+                         issuer_binding if issuer_binding is not None else
+                         "issuer_replacement_binding" not in previous_tx),
+                    "previous transaction does not match reviewed selection")
+            old_count = previous_tx.get("retry_count", 0)
+            require(type(old_count) is int and 0 <= old_count < 999999,
+                    "invalid protected selection retry count")
+            if old_count:
+                prior_receipt = backup / f"selection-before-retry-{old_count:06d}.json"
+                require(hashlib.sha256(_regular(root, prior_receipt)).hexdigest() ==
+                        previous_tx.get("prior_transaction_sha256"),
+                        "previous selection retry evidence differs")
+            guard_path = active_dir / "zzzz-zog-compiler-transaction-guard.conf"
+            require(not guard_path.exists() and not guard_path.is_symlink()
+                    and not (backup / "startup-permit").exists(),
+                    "previous transaction startup protection was not cleared")
+            # All original fragment/drop-in and receipt checks above have
+            # passed; preserve exact prior state before the next arming write.
+            retry_receipt = backup / f"selection-before-retry-{old_count + 1:06d}.json"
+            if retry_receipt.exists() or retry_receipt.is_symlink():
+                require(_regular(root, retry_receipt) == previous_bytes,
+                        "conflicting protected selection retry receipt")
+            else:
+                _atomic(retry_receipt, previous_bytes, 0o600)
         if issuer_binding is not None and root == Path("/"):
             # The prestart helper must read the exact independently reviewed
             # manifest, not an ephemeral path or a reconstructed JSON object.
@@ -879,6 +928,10 @@ def select(selection_file, expected_sha256, *, root=Path("/"), runner=subprocess
             # This is an independently re-verifiable selection binding, NOT
             # permission to bypass the existing issuer persistence guard.
             tx["issuer_replacement_binding"] = issuer_binding
+        if previous_tx is not None:
+            tx["retry_count"] = previous_tx.get("retry_count", 0) + 1
+            tx["prior_transaction_sha256"] = hashlib.sha256(
+                previous_bytes).hexdigest()
         # Arming is NOT an incomplete selection: the original, unchanged
         # fragment and drop-ins may still boot. A crash before the guard is
         # manager-loaded must never produce a pending transaction.
