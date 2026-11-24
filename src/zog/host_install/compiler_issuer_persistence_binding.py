@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import posixpath
 import re
 import shlex
 
@@ -96,7 +97,12 @@ def _retiring_compiler(selection):
 
 
 def _within_compiler(token, root):
-    return token == root or token.startswith(root + "/")
+    # Only immutable canonical absolute tokens identify a retiring path.
+    # Raw prefix alone admits /old/compiler/../issuer and would waive issuer
+    # protections. posixpath is lexical: never resolve Host symlinks here.
+    return (type(token) is str and token.startswith("/")
+            and "//" not in token and token == posixpath.normpath(token)
+            and (token == root or token.startswith(root + "/")))
 
 
 def _effective_prestarts(effective):
