@@ -724,6 +724,8 @@ def _remove_guard(root, release, active_dir, service, runner):
     guard = _startup_guard(root, release, active_dir)
     require(guard["name"] == composition.GUARD_NAME,
             "foreign compiler guard")
+    # The final guard must not be removed while a start/stop is queued.
+    _inactive(root, service, runner)
     (active_dir / composition.GUARD_NAME).unlink()
     _fsync_directory(active_dir)
     _reload(root, runner)
@@ -736,6 +738,8 @@ def _assert_masked(root, service, runner, *, release):
 
 def _mask_unit(root, active, service, runner, *, release):
     """Durable /etc mask survives a restart before drop-in composition changes."""
+    # Check the real loaded fragment before replacing it with /dev/null.
+    _inactive(root, service, runner)
     pending = active.with_name("." + active.name + "." + uuid.uuid4().hex + ".mask")
     try:
         os.symlink("/dev/null", pending)
