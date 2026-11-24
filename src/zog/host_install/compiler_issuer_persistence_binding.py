@@ -11,10 +11,12 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import shlex
 
 SCHEMA = "zog-compiler-issuer-replacement-unit-binding-v1"
 ISSUER_DROPIN = "issuer-persistence.conf"
 COMPILER_UNIT = "zog-certbot-seed-root.service"
+RETIRED_COMPILER_RUNTIME = "/opt/zog/fonts-controller-d9dfd6c0-20261114"
 _SHA = re.compile(r"[0-9a-f]{64}\Z")
 
 
@@ -64,15 +66,96 @@ def _guards_from_dropin(body):
             section = line
         elif section == "[Service]":
             if line.startswith("ExecStartPre="):
-                _need(line.partition("=")[2].strip(),
-                      "issuer prestart guard was cleared")
-                pres.append(line.partition("=")[2].strip())
+                value = line.partition("=")[2].strip()
+                _need(value and not value.startswith("-"),
+                      "issuer prestart guard must not ignore failures")
+                try:
+                    argv = shlex.split(value)
+                except ValueError as error:
+                    raise IssuerBindingHold("invalid issuer prestart argv") from error
+                _need(argv and argv[0].startswith("/"),
+                      "issuer prestart guard executable is invalid")
+                pres.append(argv)
             elif line.startswith("ReadOnlyPaths="):
-                _need(line.partition("=")[2].strip(),
-                      "issuer read-only storage mount was cleared")
-                readonly.extend(line.partition("=")[2].split())
+                value = line.partition("=")[2].split()
+                _need(value and all(path.startswith("/") and
+                      ".." not in path.split("/") for path in value),
+                      "issuer read-only storage paths are invalid")
+                readonly.extend(value)
     _need(pres and readonly, "issuer prestart and read-only mount checks required")
     return pres, readonly
+
+
+def _retiring_compiler(selection):
+    rollback = selection["rollback"]
+    path = rollback.get("original_runtime")
+    # Exact reviewed compiler tree, never the issuer application tree.
+    _need(type(path) is str and path == RETIRED_COMPILER_RUNTIME,
+          "original runtime is not the reviewed retiring compiler")
+    return path
+
+
+def _within_compiler(token, root):
+    return token == root or token.startswith(root + "/")
+
+
+def _effective_prestarts(effective):
+    commands = effective.get("ExecStartPre")
+    _need(type(commands) is list and bool(commands),
+          "issuer effective prestart checks missing")
+    validated = []
+    for item in commands:
+        _need(type(item) is dict and set(item) == {"path", "argv", "flags"},
+              "unreviewed issuer effective prestart identity")
+        flags = item["flags"]
+        _need(type(flags) is dict and set(flags) ==
+              {"ignore_errors", "flags"},
+              "invalid issuer effective execution flags")
+        try:
+            argv = shlex.split(item["argv"])
+        except (TypeError, ValueError) as error:
+            raise IssuerBindingHold("invalid issuer effective prestart argv") from error
+        _need(type(item["path"]) is str and argv and
+              argv[0] == item["path"] and item["path"].startswith("/"),
+              "invalid issuer effective executable")
+        validated.append((item, argv))
+    return validated
+
+
+def _issuer_and_retirement_checks(selection, pres, mounts,
+                                  original_effective, selected_effective):
+    old_root = _retiring_compiler(selection)
+    old = _effective_prestarts(original_effective)
+    new = _effective_prestarts(selected_effective)
+    issuer_flags = {"ignore_errors": "no", "flags": ""}
+    for argv in pres:
+        for commands in (old, new):
+            _need(any(args == argv and item["flags"] == issuer_flags
+                      for item, args in commands),
+                  "issuer persistence prestart or flags removed")
+    selected_ids = [item for item, _ in new]
+    for item, argv in old:
+        retired = (_within_compiler(item["path"], old_root)
+                   or any(_within_compiler(arg, old_root) for arg in argv))
+        _need(retired or item in selected_ids,
+              "nonretired prestart removed from issuer service")
+    original_paths = original_effective.get("ReadOnlyPaths")
+    selected_paths = selected_effective.get("ReadOnlyPaths")
+    _need(type(original_paths) is str and type(selected_paths) is str,
+          "issuer read-only mount properties missing")
+    old_paths = set(original_paths.split())
+    selected_set = set(selected_paths.split())
+    _need(set(mounts) <= old_paths and set(mounts) <= selected_set,
+          "issuer persistence read-only mount removed")
+    _need(all(_within_compiler(path, old_root) or path in selected_set
+              for path in old_paths),
+          "nonretired or issuer read-only mount removed")
+    for key in ("Requires", "After"):
+        prior = original_effective.get(key)
+        chosen = selected_effective.get(key)
+        _need(type(prior) is str and type(chosen) is str and
+              set(prior.split()) <= set(chosen.split()),
+              "issuer backing mount dependency changed: " + key)
 
 
 def reviewed_replacement_binding(selection, approved_sha256, receipt,
@@ -127,23 +210,8 @@ def reviewed_replacement_binding(selection, approved_sha256, receipt,
     _need(type(original_effective) is dict and
           type(selected_effective) is dict,
           "missing approved issuer effective restrictions")
-    _need(original_effective.get("ExecStartPre") ==
-          selected_effective.get("ExecStartPre") and
-          type(selected_effective.get("ExecStartPre")) is list and
-          len(selected_effective["ExecStartPre"]) >= len(prestart),
-          "issuer persistence prestart checks changed")
-    original_paths = original_effective.get("ReadOnlyPaths")
-    selected_paths = selected_effective.get("ReadOnlyPaths")
-    _need(type(original_paths) is str and type(selected_paths) is str and
-          set(mounts) <= set(original_paths.split()) and
-          set(mounts) <= set(selected_paths.split()),
-          "issuer persistent storage read-only mounts changed")
-    for key in ("Requires", "After"):
-        prior = original_effective.get(key)
-        chosen = selected_effective.get(key)
-        _need(type(prior) is str and type(chosen) is str and
-              set(prior.split()) <= set(chosen.split()),
-              "issuer backing mount dependency changed: " + key)
+    _issuer_and_retirement_checks(
+        selection, prestart, mounts, original_effective, selected_effective)
     return {
         "schema": SCHEMA,
         "service": COMPILER_UNIT,
