@@ -359,3 +359,62 @@ def test_retired_compiler_prefix_collision_in_prestart_not_authorized():
     with pytest.raises(binding.IssuerBindingHold, match="nonretired prestart"):
         binding.reviewed_replacement_binding(
             selection, "f" * 64, original, issuer, issuer)
+
+
+# A prefix check alone could exempt /old/compiler/../issuer or an alias with
+# ./ and // segments. Such old restrictions must remain present after selection.
+@pytest.mark.parametrize("alias", [
+    binding.RETIRED_COMPILER_RUNTIME + "/../certbot-seed-oct21",
+    binding.RETIRED_COMPILER_RUNTIME + "/venv/../../certbot-seed-oct21",
+    binding.RETIRED_COMPILER_RUNTIME + "/venv/../../../../etc",
+    binding.RETIRED_COMPILER_RUNTIME + "/./venv",
+    binding.RETIRED_COMPILER_RUNTIME + "//venv",
+    binding.RETIRED_COMPILER_RUNTIME + "/venv/../venv",
+    binding.RETIRED_COMPILER_RUNTIME + "/venv//bin",
+])
+@pytest.mark.parametrize("reference", ["argv", "executable"])
+def test_retired_compiler_noncanonical_original_prestart_must_remain(alias, reference):
+    selection, original, issuer = fixture()
+    old = selection["composition"]["original_effective"]
+    if reference == "argv":
+        old["ExecStartPre"].append(_extra_prestart("/usr/bin/test",
+                                                   "/usr/bin/test -d " + alias))
+    else:
+        old["ExecStartPre"].append(_extra_prestart(alias, alias + " verify"))
+    with pytest.raises(binding.IssuerBindingHold, match="nonretired prestart"):
+        binding.reviewed_replacement_binding(
+            selection, "f" * 64, original, issuer, issuer)
+
+
+@pytest.mark.parametrize("alias", [
+    binding.RETIRED_COMPILER_RUNTIME + "/../certbot-seed-oct21",
+    binding.RETIRED_COMPILER_RUNTIME + "/venv/../../certbot-seed-oct21",
+    binding.RETIRED_COMPILER_RUNTIME + "/venv/../../../../etc",
+    binding.RETIRED_COMPILER_RUNTIME + "/./venv",
+    binding.RETIRED_COMPILER_RUNTIME + "//venv",
+    binding.RETIRED_COMPILER_RUNTIME + "/venv/../venv",
+    binding.RETIRED_COMPILER_RUNTIME + "/venv//bin",
+])
+def test_retired_compiler_noncanonical_original_readonly_path_must_remain(alias):
+    selection, original, issuer = fixture()
+    selection["composition"]["original_effective"]["ReadOnlyPaths"] += " " + alias
+    with pytest.raises(binding.IssuerBindingHold, match="nonretired"):
+        binding.reviewed_replacement_binding(
+            selection, "f" * 64, original, issuer, issuer)
+
+
+def test_canonical_original_compiler_root_and_descendants_still_retirable():
+    selection, original, issuer = fixture()
+    old_root = binding.RETIRED_COMPILER_RUNTIME
+    original_effective = selection["composition"]["original_effective"]
+    original_effective["ExecStartPre"].extend([
+        _extra_prestart(old_root + "/bin/root-control",
+                        old_root + "/bin/root-control --check"),
+        _extra_prestart("/usr/bin/test", "/usr/bin/test -d " + old_root),
+    ])
+    original_effective["ReadOnlyPaths"] += " " + old_root + " " + old_root + "/venv"
+    result = binding.reviewed_replacement_binding(
+        selection, "f" * 64, original, issuer, issuer)
+    assert result["issuer_prestart_checks_preserved"] is True
+    assert result["issuer_readonly_mounts_preserved"] is True
+    assert result["startup_authorized"] is False
