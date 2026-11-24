@@ -319,20 +319,25 @@ def stage(*, root=Path("/"), runner=subprocess.run):
     return record
 
 
-def _validate_staging(root):
+def _validate_staging(root, *, for_restore=False):
     record = _record(root)
-    original, new, policy = _source_tuple()
+    original, new, reviewed_policy = _source_tuple()
     directory = _host(root, ROLLBACK)
+    retained_policy = _read(root, _policy_backup(directory, record),
+                            expected_mode=0o400)
     require(_read(root, directory / "original-guard.py", expected_mode=0o400) == original
             and _read(root, directory / "approved-successor.py", expected_mode=0o400) == new
-            and _read(root, _policy_backup(directory, record),
-                      expected_mode=0o400) == policy,
+            and _sha(retained_policy) == record["policy_sha256"],
             "staged issuer helper source or original rollback differs")
+    # Activation must use only the NEW exact source pin. Restoration needs
+    # the exact historically installed policy bytes, even if source selection
+    # advanced while the old helper was active, to safely recover the original.
+    require(for_restore or retained_policy == reviewed_policy,
+            "staged policy is not the currently reviewed successor")
     require(record["replacement_sha256"] == _sha(new)
-            and record["policy_sha256"] == _sha(policy)
             and record["baseline_sha256"] == _sha(_read(root, _host(root, BASE / "baseline.json"))),
             "staged issuer helper hashes or preserved baseline differ")
-    return record, original, new, policy
+    return record, original, new, retained_policy
 
 
 def activate(*, root=Path("/"), runner=subprocess.run):
@@ -369,7 +374,7 @@ def restore(*, root=Path("/"), runner=subprocess.run):
     """Restore original helper ONLY after original main unit is restored."""
     root = Path(root).absolute()
     _inactive(root, runner)
-    record, original, new, policy = _validate_staging(root)
+    record, original, new, policy = _validate_staging(root, for_restore=True)
     _baseline_original_unit(root)
     _no_incomplete_compiler_transaction(root)
     live = _host(root, BASE / "guard.py")
