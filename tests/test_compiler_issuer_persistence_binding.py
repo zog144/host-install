@@ -46,7 +46,8 @@ def fixture():
                            "/systemd/zog-certbot-seed-root.service",
             "staged_sha256": selected_sha,
         },
-        "rollback": {"unit_sha256": original_sha},
+        "rollback": {"unit_sha256": original_sha,
+                     "original_runtime": binding.RETIRED_COMPILER_RUNTIME},
         "composition": {
             "original_fragment": {
                 "path": "/etc/systemd/system/zog-certbot-seed-root.service",
@@ -287,3 +288,74 @@ def test_selected_digest_denies_live_issuer_dropin_metadata_drift_only(changed_m
             selection, digest, _selection_bytes(selection), original, transaction,
             b"[Service]\nExecStart=/opt/selected/controller\n",
             issuer, issuer, issuer, meta)
+
+
+def _extra_prestart(path, argv):
+    return {"path": path, "argv": argv,
+            "flags": {"ignore_errors": "no", "flags": ""}}
+
+
+def test_reviewed_issuer_policy_allows_only_retired_original_compiler_restrictions():
+    selection, original, issuer = fixture()
+    old = binding.RETIRED_COMPILER_RUNTIME
+    prior = selection["composition"]["original_effective"]
+    prior["ExecStartPre"].insert(
+        0, _extra_prestart("/usr/bin/test", "/usr/bin/test -d " + old + "/venv"))
+    prior["ReadOnlyPaths"] += " " + old + "/venv"
+    prior["ReadOnlyPaths"] += " /opt/zog/certbot-seed-oct21"
+    selection["composition"]["selected_effective"]["ReadOnlyPaths"] += (
+        " /opt/zog/certbot-seed-oct21")
+    out = binding.reviewed_replacement_binding(
+        selection, "f" * 64, original, issuer, issuer)
+    assert out["issuer_prestart_checks_preserved"] is True
+    assert out["issuer_readonly_mounts_preserved"] is True
+    assert out["startup_authorized"] is False
+
+
+@pytest.mark.parametrize("mutation", [
+    lambda s: s["composition"]["selected_effective"].update(ExecStartPre=[]),
+    lambda s: s["composition"]["selected_effective"]["ExecStartPre"][0].update(
+        flags={"ignore_errors": "yes", "flags": ""}),
+    lambda s: s["composition"]["selected_effective"].update(ReadOnlyPaths="/tmp"),
+    lambda s: s["composition"]["selected_effective"].update(Requires="state.mount"),
+    lambda s: s["composition"]["selected_effective"].update(After="state.mount"),
+    lambda s: s["rollback"].update(original_runtime="/opt/zog/certbot-seed-oct21"),
+])
+def test_reviewed_retirement_denies_issuer_weakened_or_foreign_root(mutation):
+    selection, original, issuer = fixture()
+    mutation(selection)
+    with pytest.raises(binding.IssuerBindingHold):
+        binding.reviewed_replacement_binding(
+            selection, "f" * 64, original, issuer, issuer)
+
+
+def test_retiring_compiler_may_not_remove_unrelated_prestart():
+    selection, original, issuer = fixture()
+    selection["composition"]["original_effective"]["ExecStartPre"].append(
+        _extra_prestart("/usr/bin/test", "/usr/bin/test -d /state/other-issuer"))
+    with pytest.raises(binding.IssuerBindingHold, match="nonretired prestart"):
+        binding.reviewed_replacement_binding(
+            selection, "f" * 64, original, issuer, issuer)
+
+
+@pytest.mark.parametrize("other", [
+    "/opt/zog/certbot-seed-oct21",
+    "/opt/zog/fonts-controller-d9dfd6c0-20261114-similar",
+])
+def test_retired_compiler_scope_denies_other_readonly_paths(other):
+    selection, original, issuer = fixture()
+    selection["composition"]["original_effective"]["ReadOnlyPaths"] += " " + other
+    with pytest.raises(binding.IssuerBindingHold, match="nonretired"):
+        binding.reviewed_replacement_binding(
+            selection, "f" * 64, original, issuer, issuer)
+
+
+def test_retired_compiler_prefix_collision_in_prestart_not_authorized():
+    selection, original, issuer = fixture()
+    prior = selection["composition"]["original_effective"]
+    prior["ExecStartPre"].append(_extra_prestart(
+        "/usr/bin/test",
+        "/usr/bin/test -d /opt/zog/fonts-controller-d9dfd6c0-20261114-other"))
+    with pytest.raises(binding.IssuerBindingHold, match="nonretired prestart"):
+        binding.reviewed_replacement_binding(
+            selection, "f" * 64, original, issuer, issuer)
