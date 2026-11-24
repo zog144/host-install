@@ -393,3 +393,167 @@ def test_restored_to_staged_refuses_mismatched_existing_history(installed):
     with pytest.raises(deploy.HelperDeploymentHold, match="history conflicts"):
         deploy.stage(root=root)
     assert record_file.read_bytes() == old_record
+
+
+def _simulate_reviewed_policy_update(monkeypatch, old_policy=b"old-protected-policy"):
+    """Model a previously reviewed historical policy and a new source pin.
+
+    Keep the actual pinned source tuple in production; only the disposable
+    fixture uses a distinct old policy to prove that history isn't replaced.
+    """
+    original_tuple = deploy._source_tuple()
+    original, successor, new_policy = original_tuple
+    old_tuple = (original, successor, old_policy)
+    monkeypatch.setattr(deploy, "_source_tuple", lambda: old_tuple)
+    return original_tuple, old_tuple
+
+
+def test_restored_to_staged_with_updated_policy_preserves_old_files_and_receipts(
+        installed, monkeypatch):
+    root, guard, unit, original, original_unit, base = installed
+    new_tuple, previous_tuple = _simulate_reviewed_policy_update(monkeypatch)
+    deploy.stage(root=root)
+    deploy.activate(root=root)
+    deploy.restore(root=root)
+    directory = deploy._host(root, deploy.ROLLBACK)
+    preserved = [directory / name for name in (
+        "original-guard.py", "approved-successor.py", "approved-binding.py")]
+    before = [(p.read_bytes(), p.stat().st_ino) for p in preserved]
+    baseline = (base / "baseline.json").read_bytes()
+    record_before = (directory / "record.json").read_bytes()
+    monkeypatch.setattr(deploy, "_source_tuple", lambda: new_tuple)
+    result = deploy.stage(root=root)
+    new_digest = hashlib.sha256(new_tuple[2]).hexdigest()
+    revised = directory / ("approved-binding-" + new_digest + ".py")
+    history = directory / "restored-before-restage-000001.json"
+    assert result["state"] == "staged"
+    assert result["policy_sha256"] == new_digest
+    assert result["previous_policy_sha256"] == hashlib.sha256(previous_tuple[2]).hexdigest()
+    assert result["policy_backup_name"] == revised.name
+    assert revised.read_bytes() == new_tuple[2]
+    assert revised.stat().st_mode & 0o777 == 0o400
+    assert history.read_bytes() == record_before
+    assert [(p.read_bytes(), p.stat().st_ino) for p in preserved] == before
+    assert (base / "baseline.json").read_bytes() == baseline
+    assert guard.read_bytes() == original
+    assert deploy.activate(root=root)["policy_sha256"] == new_digest
+    assert (base / deploy.POLICY_FILE).read_bytes() == new_tuple[2]
+    assert deploy.restore(root=root)["state"] == "restored"
+    assert not (base / deploy.POLICY_FILE).exists()
+    assert revised.read_bytes() == new_tuple[2]
+    assert [(p.read_bytes(), p.stat().st_ino) for p in preserved] == before
+    assert history.read_bytes() == record_before
+
+
+def test_staged_to_staged_policy_revision_requires_changed_reviewed_bytes(
+        installed, monkeypatch):
+    root, guard, unit, original, original_unit, base = installed
+    new_tuple, previous_tuple = _simulate_reviewed_policy_update(monkeypatch)
+    staged = deploy.stage(root=root)
+    original_record = deploy._host(root, deploy.ROLLBACK / "record.json").read_bytes()
+    with pytest.raises(deploy.HelperDeploymentHold, match="same approved policy"):
+        deploy.stage(root=root)
+    monkeypatch.setattr(deploy, "_source_tuple", lambda: new_tuple)
+    updated = deploy.stage(root=root)
+    assert updated["state"] == "staged"
+    assert updated["policy_update_count"] == 1
+    assert updated["policy_sha256"] == hashlib.sha256(new_tuple[2]).hexdigest()
+    history = deploy._host(root, deploy.ROLLBACK /
+                          "staged-before-policy-update-000001.json")
+    assert history.read_bytes() == original_record
+    assert deploy._host(root, deploy.ROLLBACK /
+                        "approved-binding.py").read_bytes() == previous_tuple[2]
+    assert guard.read_bytes() == original
+
+
+@pytest.mark.parametrize("drift", [
+    "source-original", "source-successor", "historical-policy",
+    "baseline", "live-original", "residual-policy", "selected-transaction",
+])
+def test_policy_restage_denies_source_or_history_drift(installed, monkeypatch, drift):
+    root, guard, unit, original, original_unit, base = installed
+    new_tuple, old_tuple = _simulate_reviewed_policy_update(monkeypatch)
+    deploy.stage(root=root)
+    deploy.activate(root=root)
+    deploy.restore(root=root)
+    directory = deploy._host(root, deploy.ROLLBACK)
+    record = directory / "record.json"
+    before = record.read_bytes()
+    if drift in ("source-original", "source-successor", "historical-policy"):
+        filename = {"source-original": "original-guard.py",
+                    "source-successor": "approved-successor.py",
+                    "historical-policy": "approved-binding.py"}[drift]
+        target = directory / filename
+        target.chmod(0o600)
+        target.write_bytes(b"changed-history")
+        target.chmod(0o400)
+    elif drift == "baseline":
+        (base / "baseline.json").write_bytes(
+            (base / "baseline.json").read_bytes() + b" ")
+    elif drift == "live-original":
+        guard.chmod(0o600)
+        guard.write_bytes(b"foreign")
+        guard.chmod(0o444)
+    elif drift == "residual-policy":
+        policy_path = base / deploy.POLICY_FILE
+        policy_path.write_bytes(b"not-restored")
+        policy_path.chmod(0o444)
+    elif drift == "selected-transaction":
+        folder = deploy._host(root, Path("/opt/zog/compiler-runtime/rollback") / ("b"*32))
+        folder.mkdir(parents=True)
+        tx = folder / "selection-transaction.json"
+        tx.write_text(json.dumps({"service": deploy.SERVICE, "state": "selected"}))
+        tx.chmod(0o600)
+    monkeypatch.setattr(deploy, "_source_tuple", lambda: new_tuple)
+    with pytest.raises(deploy.HelperDeploymentHold):
+        deploy.stage(root=root)
+    assert record.read_bytes() == before
+    assert not (directory / "restored-before-restage-000001.json").exists()
+
+
+def test_policy_revision_retry_reuses_new_backup_and_immutable_history(installed, monkeypatch):
+    root, guard, unit, original, original_unit, base = installed
+    new_tuple, old_tuple = _simulate_reviewed_policy_update(monkeypatch)
+    deploy.stage(root=root)
+    deploy.activate(root=root)
+    deploy.restore(root=root)
+    monkeypatch.setattr(deploy, "_source_tuple", lambda: new_tuple)
+    directory = deploy._host(root, deploy.ROLLBACK)
+    record = directory / "record.json"
+    old_record = record.read_bytes()
+    real_atomic = deploy._atomic
+    def interrupt(path, content, mode):
+        if path == record:
+            raise OSError("interrupt versioned policy commit")
+        return real_atomic(path, content, mode)
+    monkeypatch.setattr(deploy, "_atomic", interrupt)
+    with pytest.raises(OSError, match="interrupt"):
+        deploy.stage(root=root)
+    revised = directory / ("approved-binding-" + hashlib.sha256(new_tuple[2]).hexdigest() + ".py")
+    history = directory / "restored-before-restage-000001.json"
+    assert revised.read_bytes() == new_tuple[2]
+    assert history.read_bytes() == old_record
+    assert record.read_bytes() == old_record
+    monkeypatch.setattr(deploy, "_atomic", real_atomic)
+    assert deploy.stage(root=root)["state"] == "staged"
+    assert history.read_bytes() == old_record
+    assert revised.read_bytes() == new_tuple[2]
+    assert (directory / "approved-binding.py").read_bytes() == old_tuple[2]
+
+
+def test_staged_policy_revision_refuses_conflicting_prior_version_copy(
+        installed, monkeypatch):
+    root, guard, unit, original, original_unit, base = installed
+    new_tuple, old_tuple = _simulate_reviewed_policy_update(monkeypatch)
+    deploy.stage(root=root)
+    directory = deploy._host(root, deploy.ROLLBACK)
+    new_digest = hashlib.sha256(new_tuple[2]).hexdigest()
+    foreign = directory / ("approved-binding-" + new_digest + ".py")
+    foreign.write_bytes(b"forged")
+    foreign.chmod(0o400)
+    before = (directory / "record.json").read_bytes()
+    monkeypatch.setattr(deploy, "_source_tuple", lambda: new_tuple)
+    with pytest.raises(deploy.HelperDeploymentHold, match="conflicts"):
+        deploy.stage(root=root)
+    assert (directory / "record.json").read_bytes() == before
+    assert not (directory / "staged-before-policy-update-000001.json").exists()
