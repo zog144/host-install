@@ -557,3 +557,35 @@ def test_staged_policy_revision_refuses_conflicting_prior_version_copy(
         deploy.stage(root=root)
     assert (directory / "record.json").read_bytes() == before
     assert not (directory / "staged-before-policy-update-000001.json").exists()
+
+
+def test_old_active_policy_can_be_safely_restored_after_source_update(
+        installed, monkeypatch):
+    root, guard, unit, original, original_unit, base = installed
+    new_tuple, old_tuple = _simulate_reviewed_policy_update(monkeypatch)
+    deploy.stage(root=root)
+    deploy.activate(root=root)
+    assert (base / deploy.POLICY_FILE).read_bytes() == old_tuple[2]
+    # New source selection must never prevent recovery of the original
+    # helper, provided the previously installed policy bytes are still
+    # exactly attested by the historical protected rollback record.
+    monkeypatch.setattr(deploy, "_source_tuple", lambda: new_tuple)
+    assert deploy.restore(root=root)["state"] == "restored"
+    assert guard.read_bytes() == original
+    assert not (base / deploy.POLICY_FILE).exists()
+    assert deploy._host(root, deploy.ROLLBACK / "approved-binding.py").read_bytes() == old_tuple[2]
+    assert deploy.stage(root=root)["policy_sha256"] == hashlib.sha256(new_tuple[2]).hexdigest()
+
+
+def test_revised_policy_cannot_activate_before_versioned_staging(installed, monkeypatch):
+    root, guard, unit, original, original_unit, base = installed
+    new_tuple, old_tuple = _simulate_reviewed_policy_update(monkeypatch)
+    deploy.stage(root=root)
+    monkeypatch.setattr(deploy, "_source_tuple", lambda: new_tuple)
+    with pytest.raises(deploy.HelperDeploymentHold,
+                       match="not the currently reviewed successor"):
+        deploy.activate(root=root)
+    assert guard.read_bytes() == original
+    assert not (base / deploy.POLICY_FILE).exists()
+    assert deploy.stage(root=root)["state"] == "staged"
+    assert deploy.activate(root=root)["state"] == "active"
