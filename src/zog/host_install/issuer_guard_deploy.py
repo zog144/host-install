@@ -199,45 +199,83 @@ def _no_incomplete_compiler_transaction(root):
                     "incomplete compiler selection prevents original helper rollback")
 
 
-def _restage_after_restore(root, runner, directory, baseline, original,
-                           successor, policy):
-    """Rearm an existing restored helper without rewriting rollback evidence.
+def _policy_backup(directory, record):
+    """Pinned historical policy path, never a caller-selected location."""
+    name = record.get("policy_backup_name", "approved-binding.py")
+    digest = record.get("policy_sha256")
+    require(type(digest) is str and len(digest) == 64 and
+            all(c in "0123456789abcdef" for c in digest),
+            "invalid retained issuer policy digest")
+    require(name == "approved-binding.py" or
+            name == "approved-binding-" + digest + ".py",
+            "unreviewed issuer policy rollback path")
+    return directory / name
 
-    Keep the immutable original helper and staged source copies, and retain
-    each previous restored record as a create-only, fsynced receipt. Retrying
-    after an interruption between receipt creation and record replacement is
-    safe because the same saved record must match.
+
+def _restage_existing(root, runner, directory, baseline, original,
+                      successor, policy):
+    """Rearm a restored helper, or update only a staged policy version.
+
+    The old policy backup and restored/staged record are immutable evidence.
+    A policy update creates another content-addressed, create-only backup.
     """
     require(directory.is_dir() and not directory.is_symlink(),
             "issuer helper rollback directory is unsafe")
-    prior_raw = _read(root, directory / "record.json", expected_mode=0o600)
-    record, saved_original, saved_successor, saved_policy = _validate_staging(root)
-    require(record.get("state") == "restored",
-            "issuer helper staging already exists and is not restored")
-    require(saved_original == original and saved_successor == successor
-            and saved_policy == policy,
-            "restored helper source or protected rollback differs")
-    require(record["baseline_sha256"] == _sha(baseline),
-            "restored issuer baseline differs from protected rollback")
+    previous = _read(root, directory / "record.json", expected_mode=0o600)
+    record = _record(root)
+    state = record.get("state")
+    require(state in ("restored", "staged"),
+            "existing issuer helper rollback is not restored or staged")
+    require(_read(root, directory / "original-guard.py", expected_mode=0o400)
+            == original and
+            _read(root, directory / "approved-successor.py", expected_mode=0o400)
+            == successor, "protected original or successor helper differs")
+    old_policy = _read(root, _policy_backup(directory, record),
+                       expected_mode=0o400)
+    require(_sha(old_policy) == record["policy_sha256"] and
+            record["original_sha256"] == _sha(original) and
+            record["replacement_sha256"] == _sha(successor) and
+            record["baseline_sha256"] == _sha(baseline),
+            "retained helper policy/source/baseline hashes differ")
+    require(record.get("native_issuer_accepted") is False,
+            "issuer helper acceptance state differs")
     installed_policy = _host(root, BASE / POLICY_FILE)
     require(not installed_policy.exists() and not installed_policy.is_symlink(),
-            "issuer policy remains installed after restoration")
+            "issuer policy remains installed during safe staging")
     _no_incomplete_compiler_transaction(root)
-    count = record.get("restage_count", 0)
+    new_digest = _sha(policy)
+    replacing_policy = new_digest != record["policy_sha256"]
+    if state == "staged":
+        require(replacing_policy,
+                "issuer helper staging already exists with same approved policy")
+    if replacing_policy:
+        name = "approved-binding-" + new_digest + ".py"
+        selected_backup = directory / name
+        if selected_backup.exists() or selected_backup.is_symlink():
+            require(_read(root, selected_backup, expected_mode=0o400) == policy,
+                    "staged revised issuer policy conflicts with prior evidence")
+        else:
+            _inactive(root, runner)
+            _exclusive(selected_backup, policy, 0o400)
+    history_key = "restage_count" if state == "restored" else "policy_update_count"
+    count = record.get(history_key, 0)
     require(type(count) is int and 0 <= count < 999999,
-            "invalid issuer helper restage counter")
-    receipt = directory / f"restored-before-restage-{count + 1:06d}.json"
+            "invalid issuer policy transition counter")
+    prefix = "restored-before-restage" if state == "restored" else "staged-before-policy-update"
+    receipt = directory / f"{prefix}-{count + 1:06d}.json"
     if receipt.exists() or receipt.is_symlink():
-        require(_read(root, receipt, expected_mode=0o400) == prior_raw,
-                "restored issuer history conflicts with protected record")
+        require(_read(root, receipt, expected_mode=0o400) == previous,
+                "issuer policy transition history conflicts with protected record")
     else:
         _inactive(root, runner)
-        _exclusive(receipt, prior_raw, 0o400)
-    # The rollback copy, saved successor/policy and every historical receipt
-    # remain untouched. Only the mutable state pointer is advanced atomically.
+        _exclusive(receipt, previous, 0o400)
     _inactive(root, runner)
     record["state"] = "staged"
-    record["restage_count"] = count + 1
+    record[history_key] = count + 1
+    if replacing_policy:
+        record["previous_policy_sha256"] = record["policy_sha256"]
+        record["policy_sha256"] = new_digest
+        record["policy_backup_name"] = name
     _atomic(directory / "record.json",
             (json.dumps(record, sort_keys=True) + "\n").encode(), 0o600)
     return record
@@ -255,7 +293,7 @@ def stage(*, root=Path("/"), runner=subprocess.run):
     _baseline_original_unit(root)
     directory = _host(root, ROLLBACK)
     if directory.exists() or directory.is_symlink():
-        return _restage_after_restore(
+        return _restage_existing(
             root, runner, directory, baseline, source_original,
             source_new, source_policy)
     require(directory.parent.is_dir() and not directory.parent.is_symlink(),
@@ -287,7 +325,8 @@ def _validate_staging(root):
     directory = _host(root, ROLLBACK)
     require(_read(root, directory / "original-guard.py", expected_mode=0o400) == original
             and _read(root, directory / "approved-successor.py", expected_mode=0o400) == new
-            and _read(root, directory / "approved-binding.py", expected_mode=0o400) == policy,
+            and _read(root, _policy_backup(directory, record),
+                      expected_mode=0o400) == policy,
             "staged issuer helper source or original rollback differs")
     require(record["replacement_sha256"] == _sha(new)
             and record["policy_sha256"] == _sha(policy)
