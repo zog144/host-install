@@ -76,6 +76,10 @@ def _exclusive(file, content, mode):
     fd = os.open(file, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode)
     try:
         with os.fdopen(fd, "wb") as out:
+            # Protected source modes must not depend on the process umask.
+            os.fchmod(out.fileno(), mode)
+            require(stat.S_IMODE(os.fstat(out.fileno()).st_mode) == mode,
+                    "issuer helper create mode differs")
             out.write(content)
             out.flush()
             os.fsync(out.fileno())
