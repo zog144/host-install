@@ -998,7 +998,9 @@ def restore(selection_file, expected_sha256, *, root=Path("/"),
             if guard_file.exists() or guard_file.is_symlink():
                 # If the guard was written but not loaded at crash, install
                 # its protection before cleanup; never unguard an active unit.
-                guard = _startup_guard(root, release, active_dir)
+                _inactive(root, service, runner)
+                guard = _startup_guard(root, release, active_dir,
+                                       recover_umask=True)
                 _dropin_names(root, active_dir, sorted(
                     [*composition["original_dropins"], guard],
                     key=lambda entry: entry["name"]))
@@ -1075,7 +1077,9 @@ def restore(selection_file, expected_sha256, *, root=Path("/"),
         # committing a restoring state. A crash prior to that commit then
         # leaves either a complete previously selected service or a masked
         # pending service, never an unguarded incomplete restoration.
-        guard = _startup_guard(root, release, active_dir)
+        old_state = tx["state"]
+        guard = _startup_guard(root, release, active_dir,
+                               recover_umask=old_state in ("pending", "restoring"))
         _reload(root, runner)
         _inactive(root, service, runner)
         if not _already_masked(active):
@@ -1088,7 +1092,8 @@ def restore(selection_file, expected_sha256, *, root=Path("/"),
             _mask_unit(root, active, service, runner)
         else:
             _assert_masked(root, service, runner)
-        _restore_dropins(root, active_dir, original_dir, composition, guard)
+        _restore_dropins(root, active_dir, original_dir, composition, guard,
+                         recover_umask=old_state in ("pending", "restoring"))
         _assert_masked(root, service, runner)
         receipt = json.loads(_regular(root, backup / "preservation.json"))
         unit_mode = receipt.get("original_fragment", {}).get("mode")
