@@ -601,7 +601,7 @@ def _copy_dropins(root, source, destination, expected):
     _dropin_names(root, destination, expected)
 
 
-def _startup_guard(root, release, active_dir):
+def _startup_guard(root, release, active_dir, *, recover_umask=False):
     from zog.host_deploy import fonts_unit_composition as composition
     expected = composition.transaction_guard_bytes(release)
     name = composition.GUARD_NAME
@@ -610,9 +610,20 @@ def _startup_guard(root, release, active_dir):
             "compiler startup permit unexpectedly exists")
     guard = active_dir / name
     if guard.exists() or guard.is_symlink():
-        require(_regular(root, guard) == expected
-                and stat.S_IMODE(guard.lstat().st_mode) == 0o644,
+        require(_regular(root, guard) == expected,
                 "existing compiler startup guard differs")
+        observed_mode = stat.S_IMODE(guard.lstat().st_mode)
+        if observed_mode != 0o644:
+            require(recover_umask and _umask_reduced_mode(observed_mode, 0o644),
+                    "existing compiler startup guard mode differs")
+            # Only a byte-identical protected guard from a verified
+            # interrupted transaction may have its umask-reduced mode fixed.
+            os.chmod(guard, 0o644)
+            with guard.open("rb") as handle:
+                os.fsync(handle.fileno())
+            _fsync_directory(active_dir)
+            require(stat.S_IMODE(guard.lstat().st_mode) == 0o644,
+                    "recovered startup guard mode differs")
     else:
         _safe_directory(root, active_dir, create=True)
         _atomic(guard, expected, 0o644)
@@ -707,7 +718,26 @@ def _reviewed(selection_file, expected_sha256):
     return verifier, selection
 
 
-def _restore_dropins(root, active_dir, original_dir, composition, guard):
+def _umask_reduced_mode(observed, reviewed):
+    """Allow missing DAC bits only, never extra access permissions."""
+    return (type(observed) is int and type(reviewed) is int
+            and (observed & ~reviewed) == 0
+            and (observed & 0o400) == (reviewed & 0o400))
+
+
+def _umask_reduced_entry(observed, expected):
+    """Same approved bytes and owner, with only more restrictive mode."""
+    if type(observed) is not dict or type(expected) is not dict:
+        return False
+    if set(observed) != set(expected):
+        return False
+    return (all(observed[key] == expected[key] for key in expected
+                if key != "mode")
+            and _umask_reduced_mode(observed["mode"], expected["mode"]))
+
+
+def _restore_dropins(root, active_dir, original_dir, composition, guard,
+                     *, recover_umask=False):
     """Restore original set while retaining the deny-by-default guard."""
     before = {item["name"]: item for item in composition["original_dropins"]}
     after = {item["name"]: item for item in composition["selected_dropins"]}
@@ -716,7 +746,10 @@ def _restore_dropins(root, active_dir, original_dir, composition, guard):
     for item in observed:
         if item["name"] == guard["name"]:
             continue
-        require(item in (before.get(item["name"]), after.get(item["name"])),
+        candidates = (before.get(item["name"]), after.get(item["name"]))
+        require(item in candidates or (
+                    recover_umask and any(_umask_reduced_entry(item, candidate)
+                                          for candidate in candidates)),
                 "unknown or modified drop-in during interrupted selection")
     _safe_directory(root, active_dir, create=True)
     for item in observed:
