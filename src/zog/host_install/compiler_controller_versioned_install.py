@@ -229,7 +229,7 @@ def _inactive(root, service, runner, *, masked=False, release=None):
     else:
         # Loaded status cannot conceal a missing or on-disk masked fragment.
         active = host_path(root, UNIT_DIR / service)
-        require(active.exists() and not active.is_symlink(),
+        require(active.is_file() and not active.is_symlink(),
                 "expected loaded compiler fragment is missing or masked")
         _regular(root, active)
 
