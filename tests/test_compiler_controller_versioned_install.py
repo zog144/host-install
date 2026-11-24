@@ -1391,3 +1391,32 @@ def test_masked_manager_rejects_real_fragment_even_with_guarded_context(
     with pytest.raises(installer.CompilerInstallerHold, match="/dev/null"):
         installer._inactive(Path("/"), service, runner,
                             masked=True, release=release)
+
+def test_masking_refuses_mutation_when_loaded_state_gate_holds(
+        setup, monkeypatch):
+    root, release, service, unit, original, staged, old, data, inspector = (
+        setup)
+    def hold(*args, **kwargs):
+        raise installer.CompilerInstallerHold("queued start/stop job")
+    monkeypatch.setattr(installer, "_inactive", hold)
+    with pytest.raises(installer.CompilerInstallerHold, match="queued start/stop"):
+        installer._mask_unit(root, unit, service, None, release=release)
+    assert unit.read_bytes() == original
+    assert not unit.is_symlink()
+
+
+def test_guard_removal_refuses_mutation_when_loaded_state_gate_holds(
+        setup, monkeypatch):
+    root, release, service, unit, original, staged, old, data, inspector = (
+        setup)
+    active_dir = unit.with_name(service + ".d")
+    guard = installer._startup_guard(root, release, active_dir)
+    guard_file = active_dir / guard["name"]
+    before = guard_file.read_bytes()
+    def hold(*args, **kwargs):
+        raise installer.CompilerInstallerHold("queued start/stop job")
+    monkeypatch.setattr(installer, "_inactive", hold)
+    with pytest.raises(installer.CompilerInstallerHold, match="queued start/stop"):
+        installer._remove_guard(root, release, active_dir, service, None)
+    assert guard_file.read_bytes() == before
+    assert unit.read_bytes() == original
