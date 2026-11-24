@@ -194,7 +194,7 @@ jobs:
       - name: Preserve unapproved issuer helper candidate and original byte rollback
         uses: actions/upload-artifact@v4
         with:
-          name: issuer-helper-source-20261123
+          name: issuer-helper-source-policy-3607f36b-20261124
           path: issuer-helper-out/
           if-no-files-found: error
           retention-days: 30
