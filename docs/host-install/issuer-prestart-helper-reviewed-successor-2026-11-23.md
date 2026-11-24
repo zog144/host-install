@@ -62,3 +62,20 @@ A nonzero command exit, missing/duplicate/unknown property, or nonzero/malformed
 These checks establish **observed manager state**, not a lock against a concurrent new unit start immediately after the query. Work must still use the approved inactive maintenance window and controlled native installation path to exclude unrelated start/stop actors; do not infer full race freedom from a one-time systemd readback.
 
 Source tests mock systemd 252 responses for loaded/inactive/dead/no-job, `activating`, `deactivating`, absent/masked/wrong units, queued start/stop jobs, partial or duplicate property readback, and a systemctl error. Each native entrypoint is required to deny unsafe states before touching deployment files. Real systemd 252 acceptance and service readback remain Work-owned.
+
+
+## November 24 — supported restored → staged helper rearm
+
+The helper installer now supports **one narrow rearm** when its existing protected rollback directory contains a **durably `restored`** helper record. It no longer needs to delete/recreate the rollback directory or overwrite original backup files between approved maintenance windows.
+
+The `stage` command still requires the exact loaded `zog-certbot-seed-root.service` to be `inactive/dead` with no queued systemd job on the real Host. It verifies all of the following *before* changing the record:
+
+- The live original `guard.py` is root-owned, regular, mode 0444 and byte-identical to the recovered 3,853-byte original SHA-256; the original main unit matches the saved `baseline.json` unit digest.
+- The full original issuer baseline bytes still match the baseline SHA-256 in the helper rollback record; the original baseline is not captured or rewritten.
+- All three **previously staged, protected** files—`original-guard.py`, `approved-successor.py`, and `approved-binding.py`—retain the reviewed exact bytes, hashes and mode 0400; the rollback record's original/successor/policy SHA values remain correct.
+- No co-installed policy file remains after restoration, and no compiler selection for this service is `arming`, `pending`, `selected`, or `restoring`.
+- The existing record has `state=restored`. An already-`staged` or `active` helper, foreign record, or changed rollback evidence remains a fail-closed HOLD.
+
+Before the transition, the **unchanged restored-state record bytes** are copied using a create-only, fsynced file `restored-before-restage-000001.json` in the same protected rollback directory (0400), with the number increasing on each completed cycle. An interrupted attempt after receipt creation but before commit can retry **only if the saved receipt equals the current protected restored record**; it does not overwrite the historical evidence. Only `record.json` is atomically advanced from `restored` to `staged`, with a monotonic `restage_count`. Existing backups, receipts, issuer baseline, original service, certificates and selected-operation records stay untouched. `activate` and `restore` retain their independent inactive-state checks and protected rollback behavior.
+
+**Work procedure:** During the separately approved inactive maintenance window, verify the existing protected `record.json` shows `restored` and the original unit/helper/issuer protections pass; then invoke the already reviewed `issuer_guard_deploy stage` again. Do not remove the rollback directory or use a new helper identity. Read back the new `staged` state, the create-only restored-record receipt and the unchanged three protected source files before authorizing the next helper activation. Source tests include a successful stage → activate → restore → re-stage → activate → restore cycle, two distinct restage receipts, fail-closed cases for changed live original/baseline/protected source copies/receipt or an incomplete controller transaction, and a crash/retry between receipt creation and record commit. The historical failed native operation stays preserved. Real systemd 252 startup, reboot, fresh bounded `0:0` fixture and full restoration remain Work-owned.
