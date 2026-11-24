@@ -730,16 +730,11 @@ def _remove_guard(root, release, active_dir, service, runner):
     _inactive(root, service, runner)
 
 
-def _assert_masked(root, service, runner):
-    if root != Path("/"):
-        return
-    result = runner(["/usr/bin/systemctl", "show", "--property=LoadState",
-                     "--value", service], check=False, capture_output=True, text=True)
-    require(result.returncode == 0 and result.stdout.strip() == "masked",
-            "compiler service not reliably masked during transition")
+def _assert_masked(root, service, runner, *, release):
+    _inactive(root, service, runner, masked=True, release=release)
 
 
-def _mask_unit(root, active, service, runner):
+def _mask_unit(root, active, service, runner, *, release):
     """Durable /etc mask survives a restart before drop-in composition changes."""
     pending = active.with_name("." + active.name + "." + uuid.uuid4().hex + ".mask")
     try:
@@ -750,8 +745,7 @@ def _mask_unit(root, active, service, runner):
         if pending.is_symlink():
             pending.unlink()
     _reload(root, runner)
-    _assert_masked(root, service, runner)
-    _inactive(root, service, runner)
+    _assert_masked(root, service, runner, release=release)
 
 
 def _switch_dropins(root, active_dir, existing, wanted_dir, wanted, guard):
@@ -1016,11 +1010,11 @@ def select(selection_file, expected_sha256, *, root=Path("/"), runner=subprocess
         # pending invariant: neither reboot nor start may execute this service.
         tx["state"] = "pending"
         _atomic(transaction_path, _json(tx))
-        _mask_unit(root, active, service, runner)
+        _mask_unit(root, active, service, runner, release=release)
         try:
             _switch_dropins(root, active_dir, composition["original_dropins"],
                             staged_dir, composition["selected_dropins"], guard)
-            _assert_masked(root, service, runner)
+            _assert_masked(root, service, runner, release=release)
             _atomic(active, new_unit, 0o644)
             _reload(root, runner)
             _inactive(root, service, runner)
@@ -1032,7 +1026,7 @@ def select(selection_file, expected_sha256, *, root=Path("/"), runner=subprocess
             # Even when the fragment has been unmasked, reboot cannot start
             # the pending composition while its permit remains absent.
             if not _already_masked(active):
-                _mask_unit(root, active, service, runner)
+                _mask_unit(root, active, service, runner, release=release)
             raise
         tx["state"] = "selected"
         _atomic(transaction_path, _json(tx))
@@ -1219,16 +1213,16 @@ def restore(selection_file, expected_sha256, *, root=Path("/"),
         if not _already_masked(active):
             _confirm_guard_loaded(root, service, active_dir, runner)
         else:
-            _assert_masked(root, service, runner)
+            _assert_masked(root, service, runner, release=release)
         tx["state"] = "restoring"
         _atomic(transaction_path, _json(tx))
         if not _already_masked(active):
-            _mask_unit(root, active, service, runner)
+            _mask_unit(root, active, service, runner, release=release)
         else:
-            _assert_masked(root, service, runner)
+            _assert_masked(root, service, runner, release=release)
         _restore_dropins(root, active_dir, original_dir, composition, guard,
                          recover_umask=old_state in ("pending", "restoring"))
-        _assert_masked(root, service, runner)
+        _assert_masked(root, service, runner, release=release)
         receipt = json.loads(_regular(root, backup / "preservation.json"))
         unit_mode = receipt.get("original_fragment", {}).get("mode")
         require(type(unit_mode) is int and unit_mode in (0o600, 0o640, 0o644),
