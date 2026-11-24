@@ -1194,8 +1194,13 @@ def _status_runner(service, *, response=None, code=0):
     return run, calls
 
 
-def test_compiler_systemd_status_requires_loaded_and_dead_with_no_job(monkeypatch):
+def test_compiler_systemd_status_requires_loaded_and_dead_with_no_job(
+        monkeypatch, tmp_path):
     service = "zog-certbot-seed-root.service"
+    unit = tmp_path / service
+    unit.write_bytes(b"[Service]\nExecStart=/approved\n")
+    monkeypatch.setattr(installer, "host_path",
+                        lambda root, path: unit)
     inspected = []
     monkeypatch.setattr(installer, "_regular",
                         lambda root, path: inspected.append((root, path)) or b"unit")
@@ -1204,9 +1209,7 @@ def test_compiler_systemd_status_requires_loaded_and_dead_with_no_job(monkeypatc
             service, response=_systemd_status(service, job=job))
         installer._inactive(Path("/"), service, runner)
         assert len(calls) == 1
-    assert inspected == [
-        (Path("/"), installer.UNIT_DIR / service),
-        (Path("/"), installer.UNIT_DIR / service)]
+    assert inspected == [(Path("/"), unit), (Path("/"), unit)]
 
 
 @pytest.mark.parametrize("changes", [
@@ -1351,3 +1354,42 @@ def test_masked_systemd_pending_recovery_needs_real_guard_and_transaction(
         installer._inactive(Path("/"), service, runner,
                             masked=True, release=release)
     assert unit.is_symlink() and unit.readlink() == Path("/dev/null")
+
+
+@pytest.mark.parametrize("kind", ["missing", "masked", "nonregular"])
+def test_loaded_systemd_state_rejects_missing_or_masked_fragment(
+        monkeypatch, tmp_path, kind):
+    service = "zog-certbot-seed-root.service"
+    active = tmp_path / service
+    if kind == "masked":
+        active.symlink_to("/dev/null")
+    elif kind == "nonregular":
+        active.mkdir()
+    monkeypatch.setattr(installer, "host_path", lambda root, path: active)
+    monkeypatch.setattr(
+        installer, "_regular",
+        lambda *args: pytest.fail("unsafe loaded fragment reached readback"))
+    runner, _ = _status_runner(service)
+    with pytest.raises(installer.CompilerInstallerHold,
+                       match="missing or masked" if kind != "nonregular"
+                       else "unsafe loaded fragment"):
+        installer._inactive(Path("/"), service, runner)
+
+
+def test_masked_manager_rejects_real_fragment_even_with_guarded_context(
+        setup, monkeypatch):
+    root, release, service, unit, original, staged, data, record = (
+        _pending_legacy_umask_failure(setup, monkeypatch))
+    unit.unlink()
+    unit.write_bytes(original)
+    original_host = installer.host_path
+    original_regular = installer._regular
+    monkeypatch.setattr(installer, "host_path",
+                        lambda native_root, path: original_host(root, path))
+    monkeypatch.setattr(installer, "_regular",
+                        lambda native_root, path: original_regular(root, path))
+    runner, _ = _status_runner(
+        service, response=_systemd_status(service, load="masked"))
+    with pytest.raises(installer.CompilerInstallerHold, match="/dev/null"):
+        installer._inactive(Path("/"), service, runner,
+                            masked=True, release=release)
