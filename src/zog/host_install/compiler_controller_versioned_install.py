@@ -618,12 +618,28 @@ def _startup_guard(root, release, active_dir, *, recover_umask=False):
                     "existing compiler startup guard mode differs")
             # Only a byte-identical protected guard from a verified
             # interrupted transaction may have its umask-reduced mode fixed.
-            os.chmod(guard, 0o644)
-            with guard.open("rb") as handle:
-                os.fsync(handle.fileno())
+            before = guard.lstat()
+            fd = os.open(guard, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+            try:
+                opened = os.fstat(fd)
+                require(stat.S_ISREG(opened.st_mode) and opened.st_nlink == 1
+                        and (opened.st_dev, opened.st_ino) ==
+                            (before.st_dev, before.st_ino)
+                        and stat.S_IMODE(opened.st_mode) == observed_mode
+                        and (root != Path("/") or
+                             (opened.st_uid == opened.st_gid == 0)),
+                        "recovered startup guard identity differs")
+                os.fchmod(fd, 0o644)
+                os.fsync(fd)
+            finally:
+                os.close(fd)
             _fsync_directory(active_dir)
-            require(stat.S_IMODE(guard.lstat().st_mode) == 0o644,
-                    "recovered startup guard mode differs")
+            after = guard.lstat()
+            require((after.st_dev, after.st_ino) ==
+                    (before.st_dev, before.st_ino)
+                    and stat.S_IMODE(after.st_mode) == 0o644
+                    and _regular(root, guard) == expected,
+                    "recovered startup guard mode or bytes differ")
     else:
         _safe_directory(root, active_dir, create=True)
         _atomic(guard, expected, 0o644)
