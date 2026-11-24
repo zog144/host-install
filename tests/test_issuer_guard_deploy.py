@@ -253,3 +253,143 @@ def test_native_helper_operations_stop_before_touching_files_when_unit_not_stopp
     with pytest.raises(deploy.HelperDeploymentHold):
         action(root=Path("/"), runner=runner)
     assert len(calls) == 1
+
+
+
+def _restored_issuer_fixture(installed):
+    root, guard, unit, original, old_unit, base = installed
+    staged = deploy.stage(root=root)
+    assert staged["state"] == "staged"
+    deploy.activate(root=root)
+    result = deploy.restore(root=root)
+    assert result["state"] == "restored"
+    record_file = deploy._host(root, deploy.ROLLBACK / "record.json")
+    original_copy = deploy._host(root, deploy.ROLLBACK / "original-guard.py")
+    successor_copy = deploy._host(root, deploy.ROLLBACK / "approved-successor.py")
+    policy_copy = deploy._host(root, deploy.ROLLBACK / "approved-binding.py")
+    return root, guard, unit, original, base, record_file, (
+        original_copy, successor_copy, policy_copy,
+    )
+
+
+def test_restored_to_staged_revalidates_and_preserves_immutable_rollback(installed):
+    root, guard, unit, original, base, record_file, copies = (
+        _restored_issuer_fixture(installed))
+    old_record = record_file.read_bytes()
+    old_baseline = (base / "baseline.json").read_bytes()
+    original_backups = [(p.read_bytes(), p.stat().st_ino) for p in copies]
+    staged = deploy.stage(root=root)
+    assert staged["state"] == "staged" and staged["restage_count"] == 1
+    assert record_file.read_bytes() != old_record
+    receipt = deploy._host(
+        root, deploy.ROLLBACK / "restored-before-restage-000001.json")
+    assert receipt.read_bytes() == old_record
+    assert receipt.stat().st_mode & 0o777 == 0o400
+    assert [(p.read_bytes(), p.stat().st_ino) for p in copies] == original_backups
+    assert guard.read_bytes() == original
+    assert not (base / deploy.POLICY_FILE).exists()
+    assert (base / "baseline.json").read_bytes() == old_baseline
+    with pytest.raises(deploy.HelperDeploymentHold, match="already exists"):
+        deploy.stage(root=root)
+    deploy.activate(root=root)
+    assert guard.read_bytes() != original
+    deploy.restore(root=root)
+    second_old_record = record_file.read_bytes()
+    again = deploy.stage(root=root)
+    assert again["state"] == "staged" and again["restage_count"] == 2
+    assert receipt.read_bytes() == old_record
+    assert deploy._host(
+        root, deploy.ROLLBACK /
+        "restored-before-restage-000002.json").read_bytes() == second_old_record
+    assert [(p.read_bytes(), p.stat().st_ino) for p in copies] == original_backups
+    assert (base / "baseline.json").read_bytes() == old_baseline
+
+
+@pytest.mark.parametrize("alter", [
+    "live-original", "live-original-mode", "baseline",
+    "backup-original", "backup-successor", "backup-policy",
+    "record-replacement", "remaining-policy", "incomplete-transaction",
+])
+def test_restored_to_staged_rejects_drift_without_rewriting_rollback(
+        installed, alter):
+    root, guard, unit, original, base, record_file, copies = (
+        _restored_issuer_fixture(installed))
+    original_record = record_file.read_bytes()
+    if alter == "live-original":
+        guard.chmod(0o600)
+        guard.write_bytes(b"foreign")
+        guard.chmod(0o444)
+    elif alter == "live-original-mode":
+        guard.chmod(0o644)
+    elif alter == "baseline":
+        (base / "baseline.json").write_bytes(
+            (base / "baseline.json").read_bytes() + b" ")
+    elif alter.startswith("backup-"):
+        index = {"backup-original": 0, "backup-successor": 1,
+                 "backup-policy": 2}[alter]
+        copies[index].chmod(0o600)
+        copies[index].write_bytes(b"foreign")
+        copies[index].chmod(0o400)
+    elif alter == "record-replacement":
+        data = json.loads(record_file.read_bytes())
+        data["replacement_sha256"] = "f" * 64
+        record_file.write_text(json.dumps(data))
+    elif alter == "remaining-policy":
+        p = base / deploy.POLICY_FILE
+        p.write_bytes(b"residual unapproved policy")
+        p.chmod(0o444)
+    elif alter == "incomplete-transaction":
+        folder = deploy._host(root, Path(
+            "/opt/zog/compiler-runtime/rollback") / ("a" * 32))
+        folder.mkdir(parents=True)
+        p = folder / "selection-transaction.json"
+        p.write_text(json.dumps(
+            {"service": deploy.SERVICE, "state": "selected"}))
+        p.chmod(0o600)
+    else:
+        raise AssertionError("unhandled case")
+    with pytest.raises(deploy.HelperDeploymentHold):
+        deploy.stage(root=root)
+    assert not deploy._host(
+        root, deploy.ROLLBACK /
+        "restored-before-restage-000001.json").exists()
+    if alter != "record-replacement":
+        assert record_file.read_bytes() == original_record
+    assert all(p.exists() for p in copies)
+
+
+def test_restored_to_staged_retry_after_evidence_created_before_record_commit(
+        installed, monkeypatch):
+    root, guard, unit, original, base, record_file, copies = (
+        _restored_issuer_fixture(installed))
+    before = record_file.read_bytes()
+    real_atomic = deploy._atomic
+    def simulated_crash(path, content, mode):
+        if path == record_file:
+            raise OSError("crash before restage state commit")
+        return real_atomic(path, content, mode)
+    monkeypatch.setattr(deploy, "_atomic", simulated_crash)
+    with pytest.raises(OSError, match="crash"):
+        deploy.stage(root=root)
+    assert record_file.read_bytes() == before
+    evidence = deploy._host(
+        root, deploy.ROLLBACK / "restored-before-restage-000001.json")
+    assert evidence.read_bytes() == before
+    monkeypatch.setattr(deploy, "_atomic", real_atomic)
+    assert deploy.stage(root=root)["state"] == "staged"
+    assert evidence.read_bytes() == before
+    assert not deploy._host(
+        root, deploy.ROLLBACK / "restored-before-restage-000002.json").exists()
+
+
+def test_restored_to_staged_refuses_mismatched_existing_history(installed):
+    root, guard, unit, original, base, record_file, copies = (
+        _restored_issuer_fixture(installed))
+    evidence = deploy._host(
+        root, deploy.ROLLBACK / "restored-before-restage-000001.json")
+    evidence.write_bytes(b'{"foreign":"receipt"}')
+    evidence.chmod(0o400)
+    old_record = record_file.read_bytes()
+    with pytest.raises(deploy.HelperDeploymentHold, match="history conflicts"):
+        deploy.stage(root=root)
+    assert record_file.read_bytes() == old_record
