@@ -124,6 +124,9 @@ def source(tree, *, selected=False):
 
 def plan(root, reviewed_checkout):
     root, checkout = Path(root).absolute(), Path(reviewed_checkout)
+    if root == Path("/"):
+        migration.require(os.geteuid() == 0,
+                          "native source plan requires root; do not switch/chown existing Project")
     migration.require(root.is_dir() and not root.is_symlink(), "filesystem root absent")
     init._absent_old(root)
     target = migration._map(root, migration.NEW)
