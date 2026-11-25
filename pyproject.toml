@@ -18,6 +18,7 @@ host-install-task-c = "zog.host_install.task_c_local_install:main"
 host-install-fonts-project-migrate = "zog.host_install.fonts_project_migration:main"
 host-install-fonts-project-init = "zog.host_install.fonts_project_initialization:main"
 host-install-fonts-source-reconcile = "zog.host_install.fonts_project_source_reconcile_cli:main"
+host-install-fonts-controller-present-inspect = "zog.host_install.fonts_project_controller_present_inspect:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
