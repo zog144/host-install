@@ -146,7 +146,11 @@ def _identity(observed):
 def _git(directory, *, expected_repo, owners):
     """Read HEAD/tree/origin via an opened source directory, never write."""
     gitfd, metadata = _folder(directory, ".git")
-    os.close(gitfd)
+    try:
+        require(metadata.st_uid in owners,
+                "foreign selected Git metadata ownership")
+    finally:
+        os.close(gitfd)
     source = os.fstat(directory)
     require(source.st_uid in owners, "foreign source Git checkout owner")
     env = os.environ.copy()
@@ -157,6 +161,7 @@ def _git(directory, *, expected_repo, owners):
         ("revision", ("rev-parse", "--verify", "HEAD")),
         ("tree", ("rev-parse", "--verify", "HEAD^{tree}")),
         ("origin", ("remote", "get-url", "origin")),
+        ("top", ("rev-parse", "--show-toplevel")),
     ):
         done = subprocess.run(
             ["/usr/bin/git", "-C", "/proc/self/fd/" + str(directory), *argv],
@@ -170,8 +175,18 @@ def _git(directory, *, expected_repo, owners):
     require(result["origin"] in ("https://github.com/" + expected_repo,
                                  "https://github.com/" + expected_repo + ".git"),
             "source Git origin differs from original manifest")
-    require(os.fstat(directory).st_ino == source.st_ino,
-            "selected source inode changed during Git readback")
+    actual_root = os.readlink("/proc/self/fd/" + str(directory))
+    require(result["top"] == actual_root,
+            "source Git top-level redirects outside opened source directory")
+    another, after_git = _folder(directory, ".git")
+    os.close(another)
+    require((after_git.st_dev, after_git.st_ino, after_git.st_uid,
+             after_git.st_mode) ==
+            (metadata.st_dev, metadata.st_ino, metadata.st_uid,
+             metadata.st_mode) and
+            (os.fstat(directory).st_dev, os.fstat(directory).st_ino) ==
+            (source.st_dev, source.st_ino),
+            "selected source/Git directory changed during observation")
     return {**result, "tree_sha256": hashlib.sha256(
         (result["tree"] + "\n").encode("ascii")).hexdigest(),
             "source_identity": _identity(source),
