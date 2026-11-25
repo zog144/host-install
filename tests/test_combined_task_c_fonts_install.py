@@ -219,7 +219,7 @@ def _ignore_payload(checkout):
     """Git status ignores this payload even with --untracked-files=all."""
     import test_fonts_project_initialization as fixture_git
     with (checkout / ".git/info/exclude").open("a") as output:
-        output.write("\\n*.unreviewed\\n")
+        output.write("\n*.unreviewed\n")
     assert not fixture_git.git(checkout, "status", "--porcelain=v1",
                                "--untracked-files=all")
 
