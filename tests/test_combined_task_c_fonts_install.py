@@ -375,3 +375,57 @@ def test_actual_cli_recovery_verifier_fails_closed_on_history_tampering(
     with pytest.raises((fonts.MigrationHold, ValueError)):
         _cli_read_only_verify(root, plan["plan_sha256"], monkeypatch, capsys)
     assert receipt.exists()
+
+
+def test_verify_recovery_requires_completed_swap_and_never_repairs_staging(
+        tmp_path, monkeypatch):
+    root, checkouts, project, manifest, inode = _divergent_prepared(
+        tmp_path, monkeypatch)
+    approved = reconcile.plan(root, checkouts["source"])
+    actual = recovery._exchange
+    monkeypatch.setattr(recovery, "_exchange",
+                        lambda *args: (_ for _ in ()).throw(
+                            KeyboardInterrupt("before atomic exchange")))
+    with pytest.raises(KeyboardInterrupt):
+        recovery.restore(root=root, reviewed_checkout=checkouts["source"],
+                         expected_plan_sha256=approved["plan_sha256"])
+    monkeypatch.setattr(recovery, "_exchange", actual)
+    pending = fonts._map(root, reconcile.PENDING)
+    receipt = fonts._map(root, reconcile.RECEIPT)
+    bytes_before = receipt.read_bytes()
+    assert pending.is_dir()
+    with pytest.raises(fonts.MigrationHold):
+        recovery.verify_recovery(root=root,
+                                 expected_plan_sha256=approved["plan_sha256"])
+    assert receipt.read_bytes() == bytes_before
+    assert pending.is_dir()
+    assert (project / prepared.MANIFEST).read_bytes() == manifest
+    assert (project / "state").stat().st_ino == inode
+    # A later explicitly approved retry can still use this exact durable
+    # receipt and source. A read-only verify never performs that retry.
+    restored = recovery.restore(
+        root=root, reviewed_checkout=checkouts["source"],
+        expected_plan_sha256=approved["plan_sha256"])
+    assert restored["restored_source_verified"]
+    assert recovery.verify_recovery(
+        root=root, expected_plan_sha256=approved["plan_sha256"])[
+            "receipt_verified"] is True
+
+
+def test_post_swap_cli_recovery_refuses_unapproved_digest_and_external_checkout(
+        tmp_path, monkeypatch, capsys):
+    root, checkouts, project, manifest, inode = _divergent_prepared(
+        tmp_path, monkeypatch)
+    approved = _crash_after_recovery_swap(root, checkouts["source"], monkeypatch)
+    from zog.host_install import fonts_project_source_reconcile_cli as cli
+    actual_path = Path
+    monkeypatch.setattr(cli, "Path",
+                        lambda value: root if value == "/" else actual_path(value))
+    with pytest.raises(fonts.MigrationHold, match="approved plan"):
+        cli.main(["--verify-recovery", "--expected-plan-sha256", "f"*64])
+    with pytest.raises(SystemExit):
+        cli.main(["--verify-recovery", "--expected-plan-sha256",
+                  approved["plan_sha256"], "--source-checkout",
+                  str(checkouts["source"])])
+    assert (project / prepared.MANIFEST).read_bytes() == manifest
+    assert (project / "state").stat().st_ino == inode
