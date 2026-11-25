@@ -183,7 +183,7 @@ def test_recovery_rejects_tampered_content_addressed_staging_receipt(
     monkeypatch.setattr(recovery, "_exchange", actual)
     retained = fonts._map(root, reconcile.RECEIPT)
     retained.write_bytes(b"foreign receipt")
-    with pytest.raises(fonts.MigrationHold, match="evidence"):
+    with pytest.raises(fonts.MigrationHold, match="receipt/staging differs"):
         recovery.restore(root=root, reviewed_checkout=checkouts["source"],
                          expected_plan_sha256=plan["plan_sha256"])
     assert retained.read_bytes() == b"foreign receipt"
