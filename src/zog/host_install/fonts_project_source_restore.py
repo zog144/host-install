@@ -39,7 +39,15 @@ def _locked(path):
                           "source reconciliation lock inode differs")
         yield
     finally:
-        os.close(fd)
+        try:
+            named = path.lstat()
+            migration.require((st.st_dev, st.st_ino) ==
+                              (named.st_dev, named.st_ino)
+                              and named.st_nlink == 1
+                              and stat.S_IMODE(named.st_mode) == 0o600,
+                              "source reconciliation lock replaced during operation")
+        finally:
+            os.close(fd)
 
 
 def _exchange(source, staged):
