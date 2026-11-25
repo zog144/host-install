@@ -465,6 +465,10 @@ def test_corrupt_new_staging_never_exchanged_before_receipt_backed_retry(
 
     def corrupt_after_copy_and_fsync(staged):
         real_sync_tree(staged)
+        # _sync_tree recursively calls itself for children; inject only
+        # after the complete top-level staged checkout was fsynced.
+        if staged != fonts._map(root, reconcile.PENDING):
+            return
         if damage == "ignored":
             (staged / "inserted.unreviewed").write_bytes(
                 b"unexpected ignored payload")
