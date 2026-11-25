@@ -177,3 +177,187 @@ def _git(directory, *, expected_repo, owners):
             "source_identity": _identity(source),
             "full_checkout_contents_authenticated": False}
 
+
+
+def _manifest(data):
+    expected = {key: {"repository": repo, "revision": revision}
+                for key, (repo, revision) in init.SOURCES.items()}
+    require(data.get("schema") == init.SCHEMA
+            and data.get("project_root") == migration.NEW
+            and data.get("source_checkouts") == expected
+            and data.get("historical_project_materialized") is False
+            and data.get("copy_performed") is False
+            and data.get("account_selection") is False
+            and data.get("controller_installed") is False
+            and type(data.get("source_tree_sha256")) is dict
+            and set(data["source_tree_sha256"]) == set(init.SOURCES)
+            and all(type(x) is str and _HEX.fullmatch(x)
+                    for x in data["source_tree_sha256"].values()),
+            "original initialized manifest does not bind expected historical sources")
+
+
+def inspect(*, root=Path("/")):
+    """Return diagnostic facts without approving the controller or source.
+
+    Native inspection runs as the existing root service without switching
+    identity, and *observes* the already-owned UID 24201 Project. The
+    supplied root is a disposable test fixture only, not a CLI option.
+    """
+    root = Path(root).absolute()
+    native = root == Path("/")
+    if native:
+        require(os.geteuid() == 0, "native controller-present inspection needs root")
+    owner = NATIVE_PROJECT_UID if native else os.geteuid()
+    owners = {0, owner}
+    target = root / migration.NEW.lstrip("/")
+    fd, ancestry = _absolute(target)
+    try:
+        project = ancestry[-1]
+        require(project.st_uid == owner and
+                stat.S_IMODE(project.st_mode) == 0o700,
+                "historical Project owner or private mode differs")
+        require(all(x.st_uid in owners for x in ancestry),
+                "foreign historical Project ancestor owner")
+        initial_entries = sorted(os.listdir(fd))
+        expected = {init.MANIFEST, "source", "companions", "state",
+                    "controller-inherited-v1.json", *init.LAYOUT_DIRECTORIES}
+        require({init.MANIFEST, "source", "companions", "state",
+                 "controller-inherited-v1.json"} <= set(initial_entries)
+                and set(initial_entries) <= expected,
+                "unrecognized historical destination contents")
+        require("controller.json" not in initial_entries,
+                "unexpected second controller in original destination")
+
+        manifest_raw, manifest_meta = _file(
+            fd, init.MANIFEST, owners=owners)
+        require(manifest_raw is not None,
+                "historical initialization manifest is absent")
+        manifest = _json(manifest_raw)
+        require(manifest_raw == _canonical(manifest) + b"\n",
+                "historical initialization manifest noncanonical")
+        _manifest(manifest)
+        canonical_sha = hashlib.sha256(_canonical(manifest)).hexdigest()
+        require(canonical_sha == EXPECTED_MANIFEST_SHA256,
+                "historical initialization manifest SHA differs")
+        controller_raw, controller_meta = _file(
+            fd, "controller-inherited-v1.json", owners=owners)
+        require(controller_raw is not None,
+                "historical destination controller is missing")
+        _json(controller_raw)  # Structure only, not proof of authorization.
+
+        state_fd, state_meta = _folder(fd, "state")
+        source_fd, source_meta = _folder(fd, "source")
+        companion_fd, companion_meta = _folder(fd, "companions")
+        try:
+            require(state_meta.st_uid == owner and
+                    stat.S_IMODE(state_meta.st_mode) == 0o700,
+                    "historical STATE owner or private mode differs")
+            require(source_meta.st_uid in owners and
+                    companion_meta.st_uid in owners,
+                    "foreign historical source/companion owner")
+            source_repo, expected_revision = init.SOURCES["source"]
+            active_source = _git(source_fd, expected_repo=source_repo,
+                                 owners=owners)
+            companions = {}
+            for key in ("companions/box-control", "companions/build-record"):
+                repo, historical_revision = init.SOURCES[key]
+                which = key.split("/")[-1]
+                child, meta = _folder(companion_fd, which)
+                try:
+                    require(meta.st_uid in owners,
+                            "foreign retained companion owner")
+                    observed = _git(child, expected_repo=repo, owners=owners)
+                finally:
+                    os.close(child)
+                companions[key] = {
+                    **observed,
+                    "historical_revision": historical_revision,
+                    "manifest_tree_sha256": manifest["source_tree_sha256"][key],
+                    "revision_matches_manifest": observed["revision"] == historical_revision,
+                    "tree_matches_manifest": observed["tree_sha256"] ==
+                        manifest["source_tree_sha256"][key],
+                }
+            layout = {}
+            for name in init.LAYOUT_DIRECTORIES:
+                if name not in initial_entries:
+                    layout[name] = "absent"
+                    continue
+                child, entry = _folder(fd, name)
+                try:
+                    require(entry.st_uid in owners,
+                            "foreign historical runtime directory owner")
+                    layout[name] = "present"  # Never inspect or mutate runtime state.
+                finally:
+                    os.close(child)
+            retained_state = _identity(state_meta)
+        finally:
+            os.close(state_fd)
+            os.close(source_fd)
+            os.close(companion_fd)
+
+        # Check the same opened manifest and controller, plus state identity,
+        # after Git and other readbacks. Do not claim a consistent snapshot
+        # if the Project was replaced under our open descriptor.
+        again_manifest, current_manifest = _file(
+            fd, init.MANIFEST, owners=owners)
+        again_controller, current_controller = _file(
+            fd, "controller-inherited-v1.json", owners=owners)
+        reread_state, state_after = _folder(fd, "state")
+        os.close(reread_state)
+        now_fd, now_ancestry = _absolute(target)
+        try:
+            require(_identity(now_ancestry[-1]) == _identity(project),
+                    "historical Project identity changed during inspection")
+        finally:
+            os.close(now_fd)
+        require(again_manifest == manifest_raw and
+                current_manifest.st_ino == manifest_meta.st_ino and
+                again_controller == controller_raw and
+                current_controller.st_ino == controller_meta.st_ino and
+                _identity(state_after) == retained_state and
+                sorted(os.listdir(fd)) == initial_entries,
+                "historical manifest/controller/STATE changed during readback")
+        return {
+            "schema": SCHEMA, "status": "controller-present-unresolved",
+            "project_root": migration.NEW,
+            "project": _identity(project),
+            "effective_uid": os.geteuid(),
+            "manifest_sha256": canonical_sha,
+            "manifest_raw_sha256": hashlib.sha256(manifest_raw).hexdigest(),
+            "manifest_inode": manifest_meta.st_ino,
+            "historical_source_revision": expected_revision,
+            "manifest_source_tree_sha256": manifest["source_tree_sha256"]["source"],
+            "observed_source": active_source,
+            "source_revision_matches_manifest":
+                active_source["revision"] == expected_revision,
+            "source_tree_matches_manifest":
+                active_source["tree_sha256"] ==
+                    manifest["source_tree_sha256"]["source"],
+            "companions": companions,
+            "controller_present": True,
+            "controller_filename": "controller-inherited-v1.json",
+            "controller_sha256": hashlib.sha256(controller_raw).hexdigest(),
+            "controller": _identity(controller_meta),
+            "state": retained_state, "runtime_layout": layout,
+            "initialized_controller_authority": False,
+            "historical_writer_authenticated": False,
+            "manifest_replaced": False, "state_modified": False,
+            "mutation": False, "ssm_send_authorized": False,
+            "execution_authorized": False, "compilation_authorized": False,
+        }
+    finally:
+        os.close(fd)
+
+
+def main(argv=None):
+    """Fixed native CLI; no root/UID/user/controller/source overrides."""
+    import argparse
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--inspect", action="store_true", required=True)
+    args = parser.parse_args(argv)
+    print(json.dumps(inspect(), sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
