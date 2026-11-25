@@ -96,7 +96,7 @@ def _verify_recovery_unlocked(root, expected_plan_sha256):
                      "project_inode", "state_inode", "layout_missing",
                      "manifest_replaced", "compilation_authorized", "plan_sha256"}
     migration.require(type(plan) is dict and set(plan) == expected_keys
-                      and original_raw == init._canonical(plan) + b"\\n"
+                      and original_raw == init._canonical(plan) + b"\n"
                       and plan["schema"] == evidence.SCHEMA
                       and plan["project"] == migration.NEW
                       and plan["manifest_replaced"] is False
@@ -118,7 +118,7 @@ def _verify_recovery_unlocked(root, expected_plan_sha256):
                       "unexpected post-exchange Project contents")
     manifest_raw = evidence.retained_file(target / init.MANIFEST)
     manifest = init._manifest(target)
-    migration.require(manifest_raw == init._canonical(manifest) + b"\\n"
+    migration.require(manifest_raw == init._canonical(manifest) + b"\n"
                       and evidence.sha(manifest_raw) ==
                           plan["manifest_raw_sha256"]
                       and evidence.sha(init._canonical(manifest)) ==
