@@ -10,6 +10,8 @@ on:
       - 'src/zog/host_install/fonts_project_source_reconciliation.py'
       - 'src/zog/host_install/fonts_project_source_restore.py'
       - 'src/zog/host_install/fonts_project_source_reconcile_cli.py'
+      - 'src/zog/host_install/fonts_project_controller_present_inspect.py'
+      - 'tests/test_fonts_controller_present_inspect.py'
       - 'src/zog/host_install/systemd/task-c-local/**'
       - 'tests/test_task_c_local_install.py'
       - 'tests/test_fonts_project_migration.py'
@@ -43,11 +45,13 @@ jobs:
             tests/test_task_c_local_install.py \
             tests/test_fonts_project_migration.py \
             tests/test_fonts_project_initialization.py \
-            tests/test_combined_task_c_fonts_install.py
+            tests/test_combined_task_c_fonts_install.py \
+            tests/test_fonts_controller_present_inspect.py
           host-install-task-c --help
           host-install-fonts-project-migrate --help
           host-install-fonts-project-init --help
           host-install-fonts-source-reconcile --help
+          host-install-fonts-controller-present-inspect --help
       - name: Verify both capabilities and systemd unit in ONE built distribution
         run: |
           mkdir -p /tmp/zog-combined-host-install-wheel
@@ -63,12 +67,14 @@ jobs:
               assert 'zog/host_install/task_c_local_install.py' in names
               assert 'zog/host_install/fonts_project_migration.py' in names
               assert 'zog/host_install/fonts_project_initialization.py' in names
+              assert 'zog/host_install/fonts_project_controller_present_inspect.py' in names
               assert 'zog/host_install/systemd/task-c-local/zog-task-c-gateway.service' in names
               ep=next(n for n in names if n.endswith('.dist-info/entry_points.txt'))
               scripts=archive.read(ep).decode()
               assert 'host-install-task-c = zog.host_install.task_c_local_install:main' in scripts
               assert 'host-install-fonts-project-migrate = zog.host_install.fonts_project_migration:main' in scripts
               assert 'host-install-fonts-project-init = zog.host_install.fonts_project_initialization:main' in scripts
+              assert 'host-install-fonts-controller-present-inspect = zog.host_install.fonts_project_controller_present_inspect:main' in scripts
           PY
       - name: Nonactivation declaration
         run: |
