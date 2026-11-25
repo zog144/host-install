@@ -106,6 +106,7 @@ def test_inspector_does_not_fall_back_to_mutating_or_controller_free_paths(
     "changed-manifest", "noncanonical-manifest", "missing-state",
     "symlink-state", "foreign-root-entry", "extra-controller",
     "symlink-source", "symlink-git", "foreign-git-origin",
+    "redirected-git-worktree",
 ])
 def test_inspector_rejects_foreign_controller_manifest_state_or_source(
         tmp_path, monkeypatch, damage):
@@ -148,6 +149,8 @@ def test_inspector_rejects_foreign_controller_manifest_state_or_source(
         git_dir = project / "source/.git"
         git_dir.rename(project / "source/git-original")
         git_dir.symlink_to("git-original")
+    elif damage == "redirected-git-worktree":
+        git(project / "source", "config", "core.worktree", str(root))
     else:
         git(project / "source", "remote", "set-url", "origin",
             "https://github.com/foreign/project.git")
