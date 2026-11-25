@@ -213,3 +213,165 @@ def test_interrupted_after_atomic_swap_is_read_only_verifiable(
     with pytest.raises(fonts.MigrationHold, match="already matches"):
         recovery.restore(root=root, reviewed_checkout=checkouts["source"],
                          expected_plan_sha256=plan["plan_sha256"])
+
+
+def _ignore_payload(checkout):
+    """Git status ignores this payload even with --untracked-files=all."""
+    import test_fonts_project_initialization as fixture_git
+    with (checkout / ".git/info/exclude").open("a") as output:
+        output.write("\\n*.unreviewed\\n")
+    assert not fixture_git.git(checkout, "status", "--porcelain=v1",
+                               "--untracked-files=all")
+
+
+@pytest.mark.parametrize("location", ["reviewed", "selected"])
+def test_ignored_worktree_payload_rejected_before_approval(tmp_path, monkeypatch, location):
+    import test_fonts_project_initialization as fixture_git
+    root, checkouts, project, manifest, inode = _divergent_prepared(
+        tmp_path, monkeypatch)
+    tree = (checkouts["source"] if location == "reviewed"
+            else project / "source")
+    _ignore_payload(tree)
+    (tree / "attacker.unreviewed").write_text("disallowed ignored payload")
+    assert fixture_git.git(tree, "status", "--porcelain=v1",
+                           "--untracked-files=all") == ""
+    with pytest.raises(fonts.MigrationHold, match="Git-ignored"):
+        reconcile.plan(root, checkouts["source"])
+    assert (project / prepared.MANIFEST).read_bytes() == manifest
+    assert not fonts._map(root, reconcile.RECEIPT).exists()
+
+
+def test_ignored_payload_added_after_approval_refuses_restore(tmp_path, monkeypatch):
+    import test_fonts_project_initialization as fixture_git
+    root, checkouts, project, manifest, inode = _divergent_prepared(
+        tmp_path, monkeypatch)
+    checkout = checkouts["source"]
+    _ignore_payload(checkout)
+    approved = reconcile.plan(root, checkout)
+    (checkout / "unreviewed.unreviewed").write_text("added after plan")
+    assert fixture_git.git(checkout, "status", "--porcelain=v1",
+                           "--untracked-files=all") == ""
+    with pytest.raises(fonts.MigrationHold, match="Git-ignored"):
+        recovery.restore(root=root, reviewed_checkout=checkout,
+                         expected_plan_sha256=approved["plan_sha256"])
+    assert (project / prepared.MANIFEST).read_bytes() == manifest
+    assert not fonts._map(root, reconcile.RECEIPT).exists()
+
+
+def test_receipt_backed_staging_rejects_later_git_ignored_payload(tmp_path, monkeypatch):
+    import test_fonts_project_initialization as fixture_git
+    root, checkouts, project, manifest, inode = _divergent_prepared(
+        tmp_path, monkeypatch)
+    checkout = checkouts["source"]
+    _ignore_payload(checkout)
+    approved = reconcile.plan(root, checkout)
+    actual = recovery._exchange
+    monkeypatch.setattr(recovery, "_exchange",
+                        lambda *args: (_ for _ in ()).throw(
+                            KeyboardInterrupt("durable receipt published")))
+    with pytest.raises(KeyboardInterrupt):
+        recovery.restore(root=root, reviewed_checkout=checkout,
+                         expected_plan_sha256=approved["plan_sha256"])
+    monkeypatch.setattr(recovery, "_exchange", actual)
+    pending = fonts._map(root, reconcile.PENDING)
+    (pending / "late.unreviewed").write_bytes(b"no post-approval injection")
+    assert fixture_git.git(pending, "status", "--porcelain=v1",
+                           "--untracked-files=all") == ""
+    with pytest.raises(fonts.MigrationHold, match="Git-ignored"):
+        recovery.restore(root=root, reviewed_checkout=checkout,
+                         expected_plan_sha256=approved["plan_sha256"])
+    assert fonts._map(root, reconcile.RECEIPT).is_file()
+    assert (project / prepared.MANIFEST).read_bytes() == manifest
+    assert (project / "state").stat().st_ino == inode
+
+
+def test_git_metadata_mutated_after_approval_changes_plan(tmp_path, monkeypatch):
+    root, checkouts, project, manifest, inode = _divergent_prepared(
+        tmp_path, monkeypatch)
+    approved = reconcile.plan(root, checkouts["source"])
+    (checkouts["source"] / ".git/description").write_text("changed after approval")
+    observed = reconcile.plan(root, checkouts["source"])
+    assert observed["replacement_source"]["tree_sha256"] == (
+        approved["replacement_source"]["tree_sha256"])
+    assert observed["replacement_source"]["physical_tree_sha256"] != (
+        approved["replacement_source"]["physical_tree_sha256"])
+    with pytest.raises(fonts.MigrationHold, match="plan differs"):
+        recovery.restore(root=root, reviewed_checkout=checkouts["source"],
+                         expected_plan_sha256=approved["plan_sha256"])
+    assert (project / prepared.MANIFEST).read_bytes() == manifest
+
+
+def _crash_after_recovery_swap(root, checkout, monkeypatch):
+    plan = reconcile.plan(root, checkout)
+    original_verify = prepared._verify
+    monkeypatch.setattr(prepared, "_verify",
+                        lambda *args, **kwargs: (_ for _ in ()).throw(
+                            KeyboardInterrupt("after source exchange")))
+    with pytest.raises(KeyboardInterrupt):
+        recovery.restore(root=root, reviewed_checkout=checkout,
+                         expected_plan_sha256=plan["plan_sha256"])
+    monkeypatch.setattr(prepared, "_verify", original_verify)
+    return plan
+
+
+def _cli_read_only_verify(root, plan_sha, monkeypatch, capsys):
+    from zog.host_install import fonts_project_source_reconcile_cli as cli
+    real_path = Path
+    monkeypatch.setattr(cli, "Path",
+                        lambda value: root if value == "/" else real_path(value))
+    assert cli.main(["--verify-recovery", "--expected-plan-sha256",
+                     plan_sha]) == 0
+    return json.loads(capsys.readouterr().out)
+
+
+def test_real_cli_verifies_retained_receipt_and_both_sources_after_crash(
+        tmp_path, monkeypatch, capsys):
+    root, checkouts, project, manifest, inode = _divergent_prepared(
+        tmp_path, monkeypatch)
+    old_manifest_inode = (project / prepared.MANIFEST).stat().st_ino
+    plan = _crash_after_recovery_swap(root, checkouts["source"], monkeypatch)
+    proof = _cli_read_only_verify(root, plan["plan_sha256"], monkeypatch, capsys)
+    assert proof["action"] == "verify-recovery"
+    assert proof["recovered_source_verified"] is True
+    assert proof["displaced_source_verified"] is True
+    assert proof["receipt_verified"] is True
+    assert proof["state_inode_preserved"] is True
+    assert proof["mutation"] is False
+    assert proof["compilation_authorized"] is False
+    assert (project / prepared.MANIFEST).read_bytes() == manifest
+    assert (project / prepared.MANIFEST).stat().st_ino == old_manifest_inode
+    assert (project / "state").stat().st_ino == inode
+    with pytest.raises(fonts.MigrationHold, match="already matches"):
+        reconcile.plan(root, checkouts["source"])
+
+
+@pytest.mark.parametrize("damage", [
+    "receipt", "displaced-tracked", "displaced-ignored", "restored-ignored",
+    "state-inode", "manifest",
+])
+def test_actual_cli_recovery_verifier_fails_closed_on_history_tampering(
+        tmp_path, monkeypatch, capsys, damage):
+    root, checkouts, project, manifest, inode = _divergent_prepared(
+        tmp_path, monkeypatch)
+    plan = _crash_after_recovery_swap(root, checkouts["source"], monkeypatch)
+    pending = fonts._map(root, reconcile.PENDING)
+    receipt = fonts._map(root, reconcile.RECEIPT)
+    if damage == "receipt":
+        receipt.write_bytes(b"{}\\n")
+    elif damage == "displaced-tracked":
+        (pending / "tracked.txt").write_text("forged history")
+    elif damage == "displaced-ignored":
+        _ignore_payload(pending)
+        (pending / "hidden.unreviewed").write_text("forged history")
+    elif damage == "restored-ignored":
+        _ignore_payload(project / "source")
+        (project / "source/hidden.unreviewed").write_text("forged replacement")
+    elif damage == "state-inode":
+        state = project / "state"
+        state.rename(project / "state-before-replace")
+        state.mkdir(mode=0o700)
+    else:
+        (project / prepared.MANIFEST).write_text("{}\\n")
+    with pytest.raises((fonts.MigrationHold, ValueError)):
+        _cli_read_only_verify(root, plan["plan_sha256"], monkeypatch, capsys)
+    assert receipt.exists()
