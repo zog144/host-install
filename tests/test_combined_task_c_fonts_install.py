@@ -22,6 +22,8 @@ def test_distribution_installs_both_commands_from_one_wheel():
         if item.group == "console_scripts"}
     assert ep["host-install-task-c"] == "zog.host_install.task_c_local_install:main"
     assert ep["host-install-fonts-project-migrate"] == "zog.host_install.fonts_project_migration:main"
+    assert ep["host-install-fonts-source-reconcile"] == (
+        "zog.host_install.fonts_project_source_reconcile_cli:main")
 
 
 # Keep the historical first-Fonts initializer intact. These regressions exercise
@@ -164,3 +166,50 @@ def test_unknown_prepared_source_recovery_staging_is_not_adopted(
     assert pending.is_symlink()
     assert not fonts._map(root, reconcile.RECEIPT).exists()
     assert (project / prepared.MANIFEST).read_bytes() == manifest
+
+
+def test_recovery_rejects_tampered_content_addressed_staging_receipt(
+        tmp_path, monkeypatch):
+    root, checkouts, project, manifest, inode = _divergent_prepared(
+        tmp_path, monkeypatch)
+    plan = reconcile.plan(root, checkouts["source"])
+    actual = recovery._exchange
+    monkeypatch.setattr(recovery, "_exchange",
+                        lambda *args: (_ for _ in ()).throw(
+                            KeyboardInterrupt("interrupt after durable receipt")))
+    with pytest.raises(KeyboardInterrupt):
+        recovery.restore(root=root, reviewed_checkout=checkouts["source"],
+                         expected_plan_sha256=plan["plan_sha256"])
+    monkeypatch.setattr(recovery, "_exchange", actual)
+    retained = fonts._map(root, reconcile.RECEIPT)
+    retained.write_bytes(b"foreign receipt")
+    with pytest.raises(fonts.MigrationHold, match="evidence"):
+        recovery.restore(root=root, reviewed_checkout=checkouts["source"],
+                         expected_plan_sha256=plan["plan_sha256"])
+    assert retained.read_bytes() == b"foreign receipt"
+    assert (project / prepared.MANIFEST).read_bytes() == manifest
+    assert (project / "state").stat().st_ino == inode
+
+
+def test_interrupted_after_atomic_swap_is_read_only_verifiable(
+        tmp_path, monkeypatch):
+    root, checkouts, project, manifest, inode = _divergent_prepared(
+        tmp_path, monkeypatch)
+    plan = reconcile.plan(root, checkouts["source"])
+    original_verify = prepared._verify
+    monkeypatch.setattr(prepared, "_verify",
+                        lambda *args, **kwargs: (_ for _ in ()).throw(
+                            KeyboardInterrupt("interrupt after atomic swap")))
+    with pytest.raises(KeyboardInterrupt):
+        recovery.restore(root=root, reviewed_checkout=checkouts["source"],
+                         expected_plan_sha256=plan["plan_sha256"])
+    monkeypatch.setattr(prepared, "_verify", original_verify)
+    assert prepared.operation("verify", root=root)["initialized_source_verified"]
+    assert (project / prepared.MANIFEST).read_bytes() == manifest
+    assert (project / "state").stat().st_ino == inode
+    assert fonts._map(root, reconcile.RECEIPT).is_file()
+    assert reconcile.source(fonts._map(root, reconcile.PENDING))[
+        "revision"] == plan["observed_source"]["revision"]
+    with pytest.raises(fonts.MigrationHold, match="already matches"):
+        recovery.restore(root=root, reviewed_checkout=checkouts["source"],
+                         expected_plan_sha256=plan["plan_sha256"])
