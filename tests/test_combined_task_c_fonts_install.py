@@ -274,13 +274,31 @@ def test_receipt_backed_staging_rejects_later_git_ignored_payload(tmp_path, monk
                          expected_plan_sha256=approved["plan_sha256"])
     monkeypatch.setattr(recovery, "_exchange", actual)
     pending = fonts._map(root, reconcile.PENDING)
+    live = project / "source"
+    before_live = reconcile.source(live, selected=True)
+    live_inode = live.stat().st_ino
+    staged_inode = pending.stat().st_ino
     (pending / "late.unreviewed").write_bytes(b"no post-approval injection")
     assert fixture_git.git(pending, "status", "--porcelain=v1",
                            "--untracked-files=all") == ""
+    receipt = fonts._map(root, reconcile.RECEIPT)
+    original_receipt = receipt.read_bytes()
+
+    # An invalid staged source must be refused BEFORE _exchange. Merely
+    # throwing from post-swap verification would fail this regression.
+    def forbidden_exchange(*args):
+        pytest.fail("unreviewed staged tree reached atomic exchange")
+    monkeypatch.setattr(recovery, "_exchange", forbidden_exchange)
     with pytest.raises(fonts.MigrationHold, match="Git-ignored"):
         recovery.restore(root=root, reviewed_checkout=checkout,
                          expected_plan_sha256=approved["plan_sha256"])
-    assert fonts._map(root, reconcile.RECEIPT).is_file()
+    assert live.stat().st_ino == live_inode
+    assert reconcile.source(live, selected=True) == before_live
+    assert pending.stat().st_ino == staged_inode
+    assert (pending / "late.unreviewed").read_bytes() == (
+        b"no post-approval injection")
+    assert not (live / "late.unreviewed").exists()
+    assert receipt.read_bytes() == original_receipt
     assert (project / prepared.MANIFEST).read_bytes() == manifest
     assert (project / "state").stat().st_ino == inode
 
@@ -429,3 +447,51 @@ def test_post_swap_cli_recovery_refuses_unapproved_digest_and_external_checkout(
                   str(checkouts["source"])])
     assert (project / prepared.MANIFEST).read_bytes() == manifest
     assert (project / "state").stat().st_ino == inode
+
+
+@pytest.mark.parametrize("damage", ["ignored", "tracked", "git-metadata"])
+def test_corrupt_new_staging_never_exchanged_before_receipt_backed_retry(
+        tmp_path, monkeypatch, damage):
+    root, checkouts, project, manifest, state_inode = _divergent_prepared(
+        tmp_path, monkeypatch)
+    checkout = checkouts["source"]
+    if damage == "ignored":
+        _ignore_payload(checkout)
+    approved = reconcile.plan(root, checkout)
+    live = project / "source"
+    selected_before = reconcile.source(live, selected=True)
+    live_inode = live.stat().st_ino
+    real_sync_tree = fonts._sync_tree
+
+    def corrupt_after_copy_and_fsync(staged):
+        real_sync_tree(staged)
+        if damage == "ignored":
+            (staged / "inserted.unreviewed").write_bytes(
+                b"unexpected ignored payload")
+        elif damage == "tracked":
+            (staged / "tracked.txt").write_text("unreviewed edit")
+        else:
+            (staged / ".git/description").write_text(
+                "unreviewed metadata replacement")
+    monkeypatch.setattr(fonts, "_sync_tree", corrupt_after_copy_and_fsync)
+
+    def forbidden_exchange(*args):
+        pytest.fail("corrupt newly staged tree reached atomic exchange")
+    monkeypatch.setattr(recovery, "_exchange", forbidden_exchange)
+    with pytest.raises(fonts.MigrationHold):
+        recovery.restore(root=root, reviewed_checkout=checkout,
+                         expected_plan_sha256=approved["plan_sha256"])
+    assert live.stat().st_ino == live_inode
+    assert reconcile.source(live, selected=True) == selected_before
+    assert (project / prepared.MANIFEST).read_bytes() == manifest
+    assert (project / "state").stat().st_ino == state_inode
+    pending = fonts._map(root, reconcile.PENDING)
+    assert pending.is_dir()
+    if damage == "ignored":
+        assert (pending / "inserted.unreviewed").read_bytes() == (
+            b"unexpected ignored payload")
+    elif damage == "tracked":
+        assert (pending / "tracked.txt").read_text() == "unreviewed edit"
+    else:
+        assert (pending / ".git/description").read_text() == (
+            "unreviewed metadata replacement")
