@@ -1,5 +1,6 @@
 """Guarded atomic restoration of an original manifest-pinned source checkout."""
 import ctypes
+import json
 import fcntl
 import os
 from pathlib import Path
@@ -65,6 +66,141 @@ def _exchange(source, staged):
                       str(ctypes.get_errno()) + ")")
 
 
+
+def _verify_recovery_unlocked(root, expected_plan_sha256):
+    """Inspect the *completed exchange*, including displaced history.
+
+    This does not require the original external reviewed checkout: durable
+    immutable plan, original manifest, restored source and displaced source
+    must all authenticate independently. It never repairs, stages or swaps.
+    """
+    migration.require(type(expected_plan_sha256) is str and
+                      re.fullmatch(r"[0-9a-f]{64}", expected_plan_sha256) is not None,
+                      "independently reviewed recovery plan SHA required")
+    target = migration._map(root, migration.NEW)
+    pending = migration._map(root, evidence.PENDING)
+    receipt = migration._map(root, evidence.RECEIPT)
+    migration._parents_secure(root, migration.NEW, require_leaf=True)
+    evidence.private(target.parent)
+    project = evidence.private(target)
+    state = evidence.private(target / "state")
+    evidence.private(pending)
+    original_raw = evidence.retained_file(receipt)
+    try:
+        plan = json.loads(original_raw)
+    except (ValueError, UnicodeDecodeError) as error:
+        raise migration.MigrationHold("invalid durable source recovery receipt") from error
+    expected_keys = {"schema", "project", "manifest_sha256",
+                     "manifest_raw_sha256", "observed_source",
+                     "replacement_source", "reviewed_checkout",
+                     "project_inode", "state_inode", "layout_missing",
+                     "manifest_replaced", "compilation_authorized", "plan_sha256"}
+    migration.require(type(plan) is dict and set(plan) == expected_keys
+                      and original_raw == init._canonical(plan) + b"\\n"
+                      and plan["schema"] == evidence.SCHEMA
+                      and plan["project"] == migration.NEW
+                      and plan["manifest_replaced"] is False
+                      and plan["compilation_authorized"] is False
+                      and type(plan["reviewed_checkout"]) is str
+                      and Path(plan["reviewed_checkout"]).is_absolute()
+                      and plan["plan_sha256"] == expected_plan_sha256,
+                      "durable recovery receipt differs from approved plan")
+    body = {k: v for k, v in plan.items() if k != "plan_sha256"}
+    migration.require(evidence.sha(init._canonical(body)) == expected_plan_sha256,
+                      "durable recovery plan digest differs")
+    migration.require(plan["project_inode"] == [project.st_dev, project.st_ino]
+                      and plan["state_inode"] == [state.st_dev, state.st_ino],
+                      "prepared Project or retained state identity differs")
+    entries = set(os.listdir(target))
+    migration.require({"source", "companions", "state", init.MANIFEST} <= entries
+                      and entries <= {"source", "companions", "state",
+                                      init.MANIFEST, *init.LAYOUT_DIRECTORIES},
+                      "unexpected post-exchange Project contents")
+    manifest_raw = evidence.retained_file(target / init.MANIFEST)
+    manifest = init._manifest(target)
+    migration.require(manifest_raw == init._canonical(manifest) + b"\\n"
+                      and evidence.sha(manifest_raw) ==
+                          plan["manifest_raw_sha256"]
+                      and evidence.sha(init._canonical(manifest)) ==
+                          plan["manifest_sha256"]
+                      and type(manifest.get("source_tree_sha256")) is dict
+                      and set(manifest["source_tree_sha256"]) ==
+                          set(init.SOURCES),
+                      "restored Project manifest differs from original record")
+    migration.require(type(plan["layout_missing"]) is list
+                      and init._layout(target)["missing"] ==
+                          plan["layout_missing"],
+                      "restored Project runtime layout differs")
+    original = plan["observed_source"]
+    replacement = plan["replacement_source"]
+    required_source = {"revision", "repository", "tree_sha256",
+                       "physical_tree_sha256", "physical_entries"}
+    migration.require(type(original) is dict and type(replacement) is dict
+                      and set(original) == required_source
+                      and set(replacement) == required_source
+                      and original != replacement
+                      and replacement["repository"] == init.SOURCES["source"][0]
+                      and replacement["revision"] == init.SOURCES["source"][1]
+                      and replacement["tree_sha256"] ==
+                          manifest["source_tree_sha256"]["source"],
+                      "recorded original and displaced source identities differ")
+    final = init._verify(root, target, "verify")
+    migration.require(final["manifest_sha256"] == plan["manifest_sha256"]
+                      and final["source_tree_sha256"] ==
+                          manifest["source_tree_sha256"]
+                      and final["controllers_present"] == []
+                      and final["compilation_authorized"] is False,
+                      "restored original initializer verification differs")
+    migration.require(evidence.source(target / "source", selected=True) == replacement,
+                      "restored physical source differs from approved replacement")
+    migration.require(evidence.source(pending, selected=True) == original,
+                      "displaced physical source differs from approved history")
+    migration.require(evidence.retained_file(receipt) == original_raw
+                      and evidence.retained_file(target / init.MANIFEST) ==
+                          manifest_raw,
+                      "recovery receipt or original manifest changed during readback")
+    latest_state = evidence.private(target / "state")
+    migration.require([latest_state.st_dev, latest_state.st_ino] ==
+                      plan["state_inode"],
+                      "restored Project state changed during verification")
+    return {"schema": evidence.SCHEMA, "action": "verify-recovery",
+            "plan_sha256": expected_plan_sha256,
+            "manifest_sha256": plan["manifest_sha256"],
+            "recovered_source_verified": True,
+            "displaced_source_verified": True,
+            "receipt_verified": True, "state_inode_preserved": True,
+            "displaced_source_retained_at": evidence.PENDING,
+            "compilation_authorized": False, "mutation": False}
+
+
+def verify_recovery(*, root=Path("/"), expected_plan_sha256):
+    """Read-only CLI/API for a completed or interrupted-after-swap restore."""
+    root = Path(root).absolute()
+    lock = migration._map(root, evidence.LOCK)
+    # Never create a lock or partial state in the *read-only* verifier.
+    fd = os.open(lock, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        st = os.fstat(fd)
+        migration.require(stat.S_ISREG(st.st_mode) and st.st_nlink == 1
+                          and stat.S_IMODE(st.st_mode) == 0o600
+                          and st.st_uid == os.geteuid()
+                          and st.st_gid == os.getegid(),
+                          "read-only recovery lock custody differs")
+        fcntl.flock(fd, fcntl.LOCK_SH)
+        named = lock.lstat()
+        migration.require((named.st_dev, named.st_ino) ==
+                          (st.st_dev, st.st_ino),
+                          "read-only recovery lock was replaced")
+        result = _verify_recovery_unlocked(root, expected_plan_sha256)
+        named = lock.lstat()
+        migration.require((named.st_dev, named.st_ino) ==
+                          (st.st_dev, st.st_ino),
+                          "read-only recovery lock changed after observation")
+        return result
+    finally:
+        os.close(fd)
+
+
 def restore(*, root=Path("/"), reviewed_checkout, expected_plan_sha256):
     root = Path(root).absolute()
     migration.require(type(expected_plan_sha256) is str and
@@ -104,18 +240,7 @@ def restore(*, root=Path("/"), reviewed_checkout, expected_plan_sha256):
         _exchange(target / "source", pending)
         init._sync_directory(target)
         init._sync_directory(target.parent)
-        final = init._verify(root, target, "verify")
-        state = evidence.private(target / "state")
-        migration.require(final["manifest_sha256"] == plan["manifest_sha256"]
-                          and evidence.source(pending, selected=True) ==
-                              plan["observed_source"]
-                          and [state.st_dev, state.st_ino] == plan["state_inode"]
-                          and evidence.retained_file(receipt) == raw,
-                          "restored source or historical state differs")
-        return {"schema": evidence.SCHEMA, "action": "restore-reviewed-source",
-                "plan_sha256": expected_plan_sha256,
-                "manifest_sha256": final["manifest_sha256"],
+        verified = _verify_recovery_unlocked(root, expected_plan_sha256)
+        return {**verified, "action": "restore-reviewed-source",
                 "restored_source_verified": True,
-                "displaced_source_retained_at": evidence.PENDING,
-                "original_manifest_preserved": True, "state_preserved": True,
-                "compilation_authorized": False}
+                "original_manifest_preserved": True, "state_preserved": True}
