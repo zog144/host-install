@@ -101,6 +101,17 @@ the final swap. Volatile directory/file mtimes are excluded, and
 Git logical HEAD/index consistency rather than binding its self-refreshing
 stat-cache bytes, which change when Git refreshes a copied checkout.
 
+Immediately before `renameat2(RENAME_EXCHANGE)`, the installer runs the
+**full** `evidence.source(..., selected=True)` check on both the pending
+source and the still-selected source, requiring equality with the exact
+`replacement_source` and `observed_source` descriptors in the approved plan.
+This includes the physical inventory digest and entry count as well as Git
+origin, HEAD and tree identity. The check applies to newly copied staging
+**and** receipt-backed recovery. If the pending tree was modified, it remains
+pending; no live source exchange occurs. Tests assert the original selected
+source inode and physical inventory remain unchanged, the corrupt pending
+file stays pending, and the exchange function is never reached.
+
 A file introduced after approval, an ignored payload introduced into
 receipt-backed staging or changed Git metadata is never silently adopted
 under an unchanged `HEAD^{tree}` hash. Any such change makes the original
