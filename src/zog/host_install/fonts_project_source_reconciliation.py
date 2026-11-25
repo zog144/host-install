@@ -44,8 +44,38 @@ def retained_file(path):
     return raw
 
 
+def _physical_source(tree):
+    """Bind all checkout bytes/modes/links, including Git metadata.
+
+    Git may refresh the *content* of .git/index while rebuilding its
+    stat cache after a copied checkout changes inode/mtime. That file is
+    therefore validated as a regular nonlinked file and its *logical*
+    tracked index verified by Git status, rather than pinning transient
+    index-cache bytes. Every other Git metadata and worktree entry is
+    included in this canonical inventory, without volatile mtimes.
+    """
+    snapshot = migration._tree(tree)
+    rows = []
+    for original in snapshot["rows"]:
+        row = {k: v for k, v in original.items() if k != "mtime_ns"}
+        if row["path"] == ".git/index":
+            migration.require(row["type"] == "file" and
+                              not row["mode"] & 0o022,
+                              "Git index is not a protected regular cache")
+            # Index content changes on correct Git refresh after directory
+            # exchange. Its actual tracked membership must match HEAD.
+            row.pop("sha256", None)
+            row.pop("size", None)
+        rows.append(row)
+    migration.require(any(x["path"] == ".git/index" for x in rows),
+                      "Git checkout has no independent tracked index")
+    raw = init._canonical(rows)
+    return {"physical_tree_sha256": sha(raw),
+            "physical_entries": len(rows)}
+
+
 def source(tree, *, selected=False):
-    """Verify a real clean Git checkout, permitting a *reported* different HEAD."""
+    """Check actual tracked bytes and *all* untracked/ignored entries."""
     tree = Path(tree)
     repository, _ = init.SOURCES["source"]
     migration.require(tree.is_absolute() and tree.is_dir() and
@@ -66,15 +96,30 @@ def source(tree, *, selected=False):
     migration.require(not init._git(tree, "status", "--porcelain=v1",
                                    "--untracked-files=all"),
                       "source checkout contains unexpected modifications")
-    migration._tree(tree)  # Reject special files, external links/hardlinks.
+    # Porcelain ignores Git-ignored files. Such files are still copied by
+    # migration._copy and therefore must never reach the privileged Project.
+    migration.require(not init._git(tree, "ls-files", "--others",
+                                   "--exclude-standard", "-z"),
+                      "source checkout contains untracked worktree contents")
+    migration.require(not init._git(tree, "ls-files", "--others", "--ignored",
+                                   "--exclude-standard", "-z"),
+                      "source checkout contains Git-ignored worktree contents")
+    physical = _physical_source(tree)
     migration.require(not init._git(tree, "status", "--porcelain=v1",
-                                   "--untracked-files=all"),
+                                   "--untracked-files=all")
+                      and not init._git(tree, "ls-files", "--others",
+                                        "--exclude-standard", "-z")
+                      and not init._git(tree, "ls-files", "--others", "--ignored",
+                                        "--exclude-standard", "-z"),
                       "source checkout changed during inspection")
+    migration.require(_physical_source(tree) == physical,
+                      "source checkout physical bytes changed during inspection")
     tree_id = init._git(tree, "rev-parse", "HEAD^{tree}")
     migration.require(re.fullmatch(r"[a-f0-9]{40,64}", tree_id) is not None,
                       "invalid source Git tree")
     return {"revision": commit, "repository": repository,
-            "tree_sha256": sha((tree_id + "\n").encode("ascii"))}
+            "tree_sha256": sha((tree_id + "\n").encode("ascii")),
+            **physical}
 
 
 def plan(root, reviewed_checkout):
