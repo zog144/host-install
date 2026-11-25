@@ -1,3 +1,85 @@
-# Prepared source reconciliation
+# Prepared first-Fonts Project: reconcile the original source manifest
 
-Source-only reviewed recovery; original manifest immutable.
+**Source-only candidate; no native authorization.** This procedure applies to
+the existing initialized destination
+`/var/lib/zog/image-build/projects/gateway-first-fonts-runtime`.
+Its original `.first-fonts-initialization-v1.json` records **image-build**
+`620378bdd8075daeb5eaad45eedea4af7db36423`, box-control
+`fdafbfb3032847b73c77abd9d90d769e43fddf85` and build-record
+`a866c9c4b0dd385045f00ce2de7d809f5b67c104`. A later clean
+`source` checkout at a different image-build HEAD is **not** the source
+recorded by that manifest. The existing initializer `--verify` must continue
+to refuse that mismatch; do not relax `SOURCES`, overwrite the manifest,
+`git checkout` in the live Project, or re-run `--stage/--commit`.
+
+## Supported path A — restore the exactly recorded source tree
+
+Use `host-install-fonts-source-reconcile --reconcile-plan --source-checkout
+<absolute-clean-original-image-build-checkout>` with the *external* checkout
+at the exact historical commit `620378bdd...`. This read-only plan authenticates
+the original canonical manifest, expected original source hash, unchanged
+box-control and build-record Git provenance, observed clean but different
+image-build checkout, source origin, and Project/state inode identities. Unknown
+root entries, controllers, nonempty/foreign runtime layout, unsafe paths, dirty
+Git checkout, unexpected companions, noncanonical manifest or unsupported
+source revision fail closed. The returned `plan_sha256` binds the exact
+observed/reviewed source pair and physical destination identities.
+
+Have the separate source/native owners **independently review and approve the
+exact plan digest** before considering a mutating action. During a separately
+approved exclusive inactive maintenance window, with the same existing effective
+process identity, use:
+
+```sh
+host-install-fonts-source-reconcile --restore-reviewed-source \
+  --source-checkout /reviewed/image-build-original-exact \
+  --expected-plan-sha256 <independently-reviewed-64-hex-plan-digest>
+host-install-fonts-project-init --verify
+```
+
+The restoration command rechecks the plan under a durable locked path and
+creates a **new private staging checkout outside the Project**. It verifies
+the exact recorded source revision/tree and copies it with no unexpected files,
+then fsyncs it and creates a 0600/fsynced, create-only plan receipt. It
+performs Linux `renameat2(RENAME_EXCHANGE)` between the existing
+`Project/source` and this reviewed staging tree. This single atomic exchange
+leaves the displaced (newer) checkout at the fixed protected sibling path
+`.gateway-first-fonts-runtime.source-recovery`; no source is deleted.
+The original manifest and `Project/state` are untouched. The initializer's
+unchanged `--verify` must pass after the exchange with the original manifest
+SHA and the expected original source/companion Git tree digests.
+
+An interrupted staging *without* a complete retained receipt is a HOLD; do
+not delete/recreate the staging path or invent a receipt. If the receipt exists
+and the source exchange has not yet happened, a retry revalidates **all** exact
+plan/checkout bytes and will not overwrite or adopt conflicting staging.
+If the exchange already happened, use **read-only** initializer `--verify`
+and verify the preserved older checkout/receipt; do not initiate a second
+exchange. A remaining conflict or unexpected object requires source-owner
+reconciliation, never a manual shortcut.
+
+## Supported path B — new intended image-build revision
+
+If the goal is to **adopt** the newer image-build HEAD rather than restore the
+recorded original, the existing manifest cannot authorize that selection.
+First publish and independently review a **distinct manifest/source revision**
+with exact image-build commit, clean Git tree digest, original manifest and
+historical state binding, plus host-deploy lane consumer and pin compatibility.
+No current initializer operation may label the old manifest as approving a new
+tree. Do not manufacture new `source_tree_sha256`, overwrite the original
+manifest, destroy historical receipts or activate the consumer based on a
+source-only candidate. This is a separate source-selection change, not a
+flag to `--verify`.
+
+## Safety and acceptance boundaries
+
+The existing prepared-init destination and state are never recreated or
+deleted, no alternate user/group is selected, and neither path authorizes a
+controller launch, Task C webhook submission, Fonts compilation or SSM action.
+The original lane and accepted compiler generation are retained. Work must
+attest actual installed host-install package/RECORD, physical Project paths,
+permissions, source Git objects, original manifest hash (historically
+`535c0c283599c8ad3e256d4cdf8db5bb4b16bf1350dfec59de10ebde52d79cb7`),
+independently reviewed plan and any existing recovery sibling before mutation.
+Keep the destination isolated from automatic source updates until this
+reconciliation is explicitly accepted and independently verified.
