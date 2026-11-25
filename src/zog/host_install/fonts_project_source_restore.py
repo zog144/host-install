@@ -237,6 +237,19 @@ def restore(*, root=Path("/"), reviewed_checkout, expected_plan_sha256):
             _save_once(receipt, raw)  # Durable before any live source mutation.
         migration.require(evidence.plan(root, reviewed_checkout) == plan,
                           "source or state changed before publication")
+        # The receipt-backed staging check above uses the historical
+        # initializer's Git-only verifier. That is insufficient to protect
+        # the atomic exchange from ignored files or unreviewed Git metadata.
+        # Apply the complete reviewed physical inventory gate to BOTH new
+        # staging and resumed staging before any live source replacement.
+        migration.require(
+            evidence.source(pending, selected=True) ==
+                plan["replacement_source"],
+            "staged source physical inventory differs before exchange")
+        migration.require(
+            evidence.source(target / "source", selected=True) ==
+                plan["observed_source"],
+            "selected source physical inventory changed before exchange")
         _exchange(target / "source", pending)
         init._sync_directory(target)
         init._sync_directory(target.parent)
