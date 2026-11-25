@@ -47,6 +47,7 @@ jobs:
           host-install-task-c --help
           host-install-fonts-project-migrate --help
           host-install-fonts-project-init --help
+          host-install-fonts-source-reconcile --help
       - name: Verify both capabilities and systemd unit in ONE built distribution
         run: |
           mkdir -p /tmp/zog-combined-host-install-wheel
