@@ -45,7 +45,9 @@ The existing source and two companion checkouts are opened via anchored
 directory file descriptors; Git `rev-parse HEAD`, `HEAD^{tree}` and
 `remote get-url origin` run against `/proc/self/fd/<source-fd>` with
 `pass_fds` and `GIT_OPTIONAL_LOCKS=0`, with global/system Git
-configuration disabled. Git metadata directories must be real nonlinked
+configuration disabled. The Git-reported top-level must equal the
+still-open source directory, and the real `.git` directory inode and owner
+must remain stable across the subprocess. Git metadata directories must be real nonlinked
 directories. This is an **observed Git HEAD/tree diagnostic**, *not* a full
 physical inventory or an attestation of every Git-ignored file. The report
 explicitly sets `full_checkout_contents_authenticated=false`. A source
