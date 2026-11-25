@@ -20,8 +20,8 @@ from . import fonts_project_migration as migration
 SCHEMA = "zog-host-install-fonts-controller-present-inspection-v1"
 EXPECTED_MANIFEST_SHA256 = "535c0c283599c8ad3e256d4cdf8db5bb4b16bf1350dfec59de10ebde52d79cb7"
 NATIVE_PROJECT_UID = 24201
-_HEX = re.compile(r"[0-9a-f]{64}\\Z")
-_REV = re.compile(r"[0-9a-f]{40,64}\\Z")
+_HEX = re.compile(r"[0-9a-f]{64}\Z")
+_REV = re.compile(r"[0-9a-f]{40,64}\Z")
 _MAX = 1024 * 1024
 
 
