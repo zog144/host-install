@@ -1,7 +1,7 @@
 name: Compiler-controller exact tuple and versioned rollback
 on:
   push:
-    branches: [regular/compiler-controller-versioned-installer-20261121]
+    branches: [regular/compiler-controller-matched-peer-v2-successor-20261127]
   pull_request:
     paths:
       - src/zog/host_install/compiler_controller_versioned_install.py
@@ -35,25 +35,25 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: zog144/root-control
-          ref: a672f007b33f83bf70970e3a571fd443366bd93f
+          ref: 35fc1ea8969c97a00cdb4b3c18ecb47bf1f83bbb
           path: companions/root-control
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: zog144/box-control
-          ref: ad61fa6a4e9c3176149720868cb008e0512dbec9
+          ref: b5903779e72ea852a125a268dcd35189339dc4ae
           path: companions/box-control
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: zog144/image-build
-          ref: 0eeb8a1cc73ae2b8410e29865c36ea1e0643b75a
+          ref: d42703b9e4f7aedce2b9959aab855485add2795a
           path: companions/image-build
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: zog144/host-deploy
-          ref: f3903dd4468436ceda20f64d67159540418325d2
+          ref: 7aa80b41b5a7698a455e42f24114b04202c53f3b
           path: companions/host-deploy
           persist-credentials: false
       - uses: actions/setup-python@v5
@@ -63,12 +63,22 @@ jobs:
       - name: Check exact clean Git commits and source inventory
         run: |
           python - <<'PY'
-          from zog.host_install.compiler_controller_versioned_install import verify_sources
-          verify_sources({
+          from zog.host_install.compiler_controller_versioned_install import (
+              verify_sources, _source_inventory,
+          )
+          checkouts = {
               'root-control': 'companions/root-control',
               'box-control': 'companions/box-control',
               'image-build': 'companions/image-build',
-          })
+          }
+          # Source-only inventory measurements are emitted even when the
+          # selected verifier still retains its previous tuple. Every
+          # measurement must subsequently be independently repinned.
+          for role, checkout in checkouts.items():
+              revision, digest = _source_inventory(checkout)
+              print('ZOG_REVIEWED_COMPILER_SOURCE_INVENTORY', role,
+                    revision, digest, flush=True)
+          verify_sources(checkouts)
           PY
       - name: Require exact verifier and installer source tuple agreement
         run: |
@@ -89,6 +99,14 @@ jobs:
           old = (base / 'issuer_guard_original_20261023.py').read_bytes()
           assert len(old) == 3853 and sha256(old).hexdigest() == (
               '990366a7e21dd89b1def0c1d9974c0e02586b8f5e2af32efa49874d926589d78')
+          from zog.host_install.issuer_guard_deploy import (
+              ORIGINAL_SHA256, SUCCESSOR_SHA256, POLICY_SHA256,
+          )
+          assert sha256(old).hexdigest() == ORIGINAL_SHA256
+          assert sha256((base / 'issuer_guard_successor.py').read_bytes()).hexdigest() == SUCCESSOR_SHA256
+          assert SUCCESSOR_SHA256 == '313cb4d644b259ece175adea24f030d36c851c753f547288aad21359a8db686e'
+          assert sha256((base / 'compiler_issuer_persistence_binding.py').read_bytes()).hexdigest() == POLICY_SHA256
+          assert POLICY_SHA256 == '4a1bf57251f80763f0288fa512d059135225fc40c7254b98df0b907592f3c91c'
           for name in ('issuer_guard_successor.py', 'compiler_issuer_persistence_binding.py'):
               value = (base / name).read_bytes()
               print('ISSUER_REVIEWED_SOURCE_SHA256', name, sha256(value).hexdigest(), len(value), flush=True)
@@ -123,25 +141,25 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: zog144/root-control
-          ref: a672f007b33f83bf70970e3a571fd443366bd93f
+          ref: 35fc1ea8969c97a00cdb4b3c18ecb47bf1f83bbb
           path: companions/root-control
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: zog144/box-control
-          ref: ad61fa6a4e9c3176149720868cb008e0512dbec9
+          ref: b5903779e72ea852a125a268dcd35189339dc4ae
           path: companions/box-control
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: zog144/image-build
-          ref: 0eeb8a1cc73ae2b8410e29865c36ea1e0643b75a
+          ref: d42703b9e4f7aedce2b9959aab855485add2795a
           path: companions/image-build
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: zog144/host-deploy
-          ref: f3903dd4468436ceda20f64d67159540418325d2
+          ref: 7aa80b41b5a7698a455e42f24114b04202c53f3b
           path: companions/host-deploy
           persist-credentials: false
       - name: Real Amazon Linux 2023 Python 3.12 venv/pip/install/import acceptance
@@ -201,7 +219,7 @@ jobs:
       - name: Preserve new disposable immutable runtime candidate
         uses: actions/upload-artifact@v4
         with:
-          name: compiler-runtime-8b1f12ee1da24dd68b5aaeb4f6a3f0c2
+          name: compiler-runtime-0d3aa81c09f4ea132886f0f538678bf9
           path: candidate-out/
           if-no-files-found: error
           retention-days: 30

@@ -5,6 +5,9 @@ build/install and imports from the three exact source checkouts. It never
 inspects or changes a Host systemd service.
 """
 import os
+import base64
+import csv
+import io
 import hashlib
 import json
 import tarfile
@@ -35,19 +38,46 @@ assert SELECTED_SOURCES == {
 verifier_revision = subprocess.check_output(
     ["git", "-C", "/work/companions/host-deploy", "rev-parse", "HEAD"],
     text=True).strip()
-assert verifier_revision == "f3903dd4468436ceda20f64d67159540418325d2"
-# Distinct candidate identity derived from exact 4-component reviewed source tuple.
-release = "8b1f12ee1da24dd68b5aaeb4f6a3f0c2"
-service = "zog-root-control.service"
+assert verifier_revision == "7aa80b41b5a7698a455e42f24114b04202c53f3b"
+# Stable identity of the three exact producer/source commits PLUS the
+# separately selected inspected host-deploy verifier revision, not of any
+# historical compiler generation. The candidate remains unapproved.
+revisions = {role: pin[0] for role, pin in installer.SOURCES.items()}
+revisions["host-deploy-verifier"] = verifier_revision
+release = hashlib.sha256(json.dumps(
+    revisions, sort_keys=True, separators=(",", ":")).encode("ascii")
+).hexdigest()[:32]
+assert release == "0d3aa81c09f4ea132886f0f538678bf9"
+service = "zog-certbot-seed-root.service"
 unit = (f"[Service]\nExecStart=/opt/zog/compiler-runtime/versions/"
         f"{release}/bin/root-control\n").encode()
 with tempfile.TemporaryDirectory(prefix="compiler-al2023-") as tmp:
     root = Path(tmp)
+    # Synthetic candidate service composition ONLY. The real issuer
+    # mount, UUID and grant bytes must come from native readback.
+    synthetic_dropins = root / "candidate-dropins"
+    synthetic_dropins.mkdir(mode=0o700)
+    successor = {
+        "70-fonts-combined-runtime.conf": (
+            b"[Service]\nExecStart=\nExecStart=/opt/zog/compiler-runtime/"
+            + b"versions/" + release.encode() + b"/bin/root-control\n"),
+        "gateway-mounts.conf":
+            b"[Unit]\nRequires=state.mount\nAfter=state.mount\n",
+        "issuer-persistence.conf": (
+            b"[Service]\nExecStartPre=/usr/bin/test -d /state\n"
+            b"ReadOnlyPaths=/state\n"),
+    }
+    for name, body in successor.items():
+        (synthetic_dropins / name).write_bytes(body)
     result = installer.stage(
         release, checkouts, python="/usr/bin/python3.12",
         service=service, executable="root-control",
-        unit_template=unit, root=root,
+        unit_template=unit, dropins_directory=synthetic_dropins, root=root,
     )
+    staged_dropins = installer.host_path(
+        root, installer.VERSIONS / release / "systemd" / (service + ".d"))
+    assert {p.name: p.read_bytes() for p in staged_dropins.iterdir()} == successor
+    assert "60-boot-a-restrictive-import.conf" not in successor
     selected = installer.host_path(root, installer.VERSIONS / release)
     assert result["execution_authorized"] is False
     assert result["installed_selection_reviewed"] is False
@@ -67,6 +97,48 @@ with tempfile.TemporaryDirectory(prefix="compiler-al2023-") as tmp:
                     "assert authenticated_build_peer((1234, 1234)) == (1234, 1234)"],
                    check=True)
     assert (selected / "bin/root-control").is_file()
+    # Installed-byte acceptance is source/disposable evidence, never a
+    # substitute for matching the actual Host's selected wheel RECORD.
+    installed_modules = {}
+    for role, rel in {
+        "root-control": "zog/root_control/build.py",
+        "box-control": "zog/box_control/build_jobs.py",
+        "image-build": "zog/image_build/box_control_adapter.py",
+    }.items():
+        module = selected / "venv/lib/python3.12/site-packages" / rel
+        assert module.is_file() and not module.is_symlink(), (
+            "missing selected installed module", role, str(module))
+        content = module.read_bytes()
+        installed_modules[role] = {
+            "relative_path": str(module.relative_to(selected)),
+            "sha256": hashlib.sha256(content).hexdigest(),
+            "size": len(content),
+        }
+    installed_records = {}
+    site_packages = selected / "venv/lib/python3.12/site-packages"
+    for role, module in installed_modules.items():
+        dist_name = role.replace("-", "_")
+        candidate_records = sorted(site_packages.glob(
+            dist_name + "-*.dist-info/RECORD"))
+        assert len(candidate_records) == 1, (
+            "missing unique installed distribution RECORD", role,
+            [str(p) for p in candidate_records])
+        record = candidate_records[0]
+        contents = record.read_bytes()
+        names = {row[0]: row for row in csv.reader(
+            io.StringIO(contents.decode("utf-8")))}
+        module_path = module["relative_path"].split(
+            "site-packages/", 1)[1]
+        entry = names[module_path]
+        expected = "sha256=" + base64.urlsafe_b64encode(
+            bytes.fromhex(module["sha256"])).decode("ascii").rstrip("=")
+        assert entry[1] == expected and entry[2] == str(module["size"]), (
+            "installed module bytes differ from pip RECORD", role)
+        installed_records[role] = {
+            "relative_path": str(record.relative_to(selected)),
+            "sha256": hashlib.sha256(contents).hexdigest(),
+            "size": len(contents),
+        }
     assert not any(item.is_symlink() for directory, dirs, files in
                    os.walk(selected) for item in
                    [Path(directory) / name for name in dirs + files])
@@ -85,9 +157,17 @@ with tempfile.TemporaryDirectory(prefix="compiler-al2023-") as tmp:
         "selection_approved": False,
         "execution_authorized": False,
         "service_unit_fixture_only": True,
+        "synthetic_issuer_dropins_only": True,
+        "synthetic_staged_dropin_sha256": {
+            name: hashlib.sha256(content).hexdigest()
+            for name, content in sorted(successor.items())
+        },
         "requires_reviewed_real_unit_and_dropins": True,
         "source_revisions": {role: pins[0] for role, pins in installer.SOURCES.items()},
         "source_inventory_sha256": {role: pins[1] for role, pins in installer.SOURCES.items()},
+        "installed_module_sha256": installed_modules,
+        "installed_distribution_record_sha256": installed_records,
+        "installed_module_record_binding_verified": True,
         "host_deploy_verifier_revision": verifier_revision,
         "runtime_tree_sha256": installer._inventory(root, selected),
         "archive_sha256": hashlib.sha256(release_bytes).hexdigest(),
