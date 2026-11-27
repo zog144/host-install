@@ -41,16 +41,36 @@ verifier_revision = subprocess.check_output(
 assert verifier_revision == "7aa80b41b5a7698a455e42f24114b04202c53f3b"
 # Distinct candidate identity derived from exact 4-component reviewed source tuple.
 release = "03e6dae95033699537aafedf5332d09b"
-service = "zog-root-control.service"
+service = "zog-certbot-seed-root.service"
 unit = (f"[Service]\nExecStart=/opt/zog/compiler-runtime/versions/"
         f"{release}/bin/root-control\n").encode()
 with tempfile.TemporaryDirectory(prefix="compiler-al2023-") as tmp:
     root = Path(tmp)
+    # Synthetic candidate service composition ONLY. The real issuer
+    # mount, UUID and grant bytes must come from native readback.
+    synthetic_dropins = root / "candidate-dropins"
+    synthetic_dropins.mkdir(mode=0o700)
+    successor = {
+        "70-fonts-combined-runtime.conf": (
+            b"[Service]\nExecStart=\nExecStart=/opt/zog/compiler-runtime/"
+            + b"versions/" + release.encode() + b"/bin/root-control\n"),
+        "gateway-mounts.conf":
+            b"[Unit]\nRequires=state.mount\nAfter=state.mount\n",
+        "issuer-persistence.conf": (
+            b"[Service]\nExecStartPre=/usr/bin/test -d /state\n"
+            b"ReadOnlyPaths=/state\n"),
+    }
+    for name, body in successor.items():
+        (synthetic_dropins / name).write_bytes(body)
     result = installer.stage(
         release, checkouts, python="/usr/bin/python3.12",
         service=service, executable="root-control",
-        unit_template=unit, root=root,
+        unit_template=unit, dropins_directory=synthetic_dropins, root=root,
     )
+    staged_dropins = installer.host_path(
+        root, installer.VERSIONS / release / "systemd" / (service + ".d"))
+    assert {p.name: p.read_bytes() for p in staged_dropins.iterdir()} == successor
+    assert "60-boot-a-restrictive-import.conf" not in successor
     selected = installer.host_path(root, installer.VERSIONS / release)
     assert result["execution_authorized"] is False
     assert result["installed_selection_reviewed"] is False
@@ -130,6 +150,11 @@ with tempfile.TemporaryDirectory(prefix="compiler-al2023-") as tmp:
         "selection_approved": False,
         "execution_authorized": False,
         "service_unit_fixture_only": True,
+        "synthetic_issuer_dropins_only": True,
+        "synthetic_staged_dropin_sha256": {
+            name: hashlib.sha256(content).hexdigest()
+            for name, content in sorted(successor.items())
+        },
         "requires_reviewed_real_unit_and_dropins": True,
         "source_revisions": {role: pins[0] for role, pins in installer.SOURCES.items()},
         "source_inventory_sha256": {role: pins[1] for role, pins in installer.SOURCES.items()},
