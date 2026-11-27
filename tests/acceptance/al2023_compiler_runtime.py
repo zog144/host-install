@@ -5,6 +5,9 @@ build/install and imports from the three exact source checkouts. It never
 inspects or changes a Host systemd service.
 """
 import os
+import base64
+import csv
+import io
 import hashlib
 import json
 import tarfile
@@ -84,6 +87,31 @@ with tempfile.TemporaryDirectory(prefix="compiler-al2023-") as tmp:
             "sha256": hashlib.sha256(content).hexdigest(),
             "size": len(content),
         }
+    installed_records = {}
+    site_packages = selected / "venv/lib/python3.12/site-packages"
+    for role, module in installed_modules.items():
+        dist_name = role.replace("-", "_")
+        candidate_records = sorted(site_packages.glob(
+            dist_name + "-*.dist-info/RECORD"))
+        assert len(candidate_records) == 1, (
+            "missing unique installed distribution RECORD", role,
+            [str(p) for p in candidate_records])
+        record = candidate_records[0]
+        contents = record.read_bytes()
+        names = {row[0]: row for row in csv.reader(
+            io.StringIO(contents.decode("utf-8")))}
+        module_path = module["relative_path"].split(
+            "site-packages/", 1)[1]
+        entry = names[module_path]
+        expected = "sha256=" + base64.urlsafe_b64encode(
+            bytes.fromhex(module["sha256"])).decode("ascii").rstrip("=")
+        assert entry[1] == expected and entry[2] == str(module["size"]), (
+            "installed module bytes differ from pip RECORD", role)
+        installed_records[role] = {
+            "relative_path": str(record.relative_to(selected)),
+            "sha256": hashlib.sha256(contents).hexdigest(),
+            "size": len(contents),
+        }
     assert not any(item.is_symlink() for directory, dirs, files in
                    os.walk(selected) for item in
                    [Path(directory) / name for name in dirs + files])
@@ -106,6 +134,8 @@ with tempfile.TemporaryDirectory(prefix="compiler-al2023-") as tmp:
         "source_revisions": {role: pins[0] for role, pins in installer.SOURCES.items()},
         "source_inventory_sha256": {role: pins[1] for role, pins in installer.SOURCES.items()},
         "installed_module_sha256": installed_modules,
+        "installed_distribution_record_sha256": installed_records,
+        "installed_module_record_binding_verified": True,
         "host_deploy_verifier_revision": verifier_revision,
         "runtime_tree_sha256": installer._inventory(root, selected),
         "archive_sha256": hashlib.sha256(release_bytes).hexdigest(),
