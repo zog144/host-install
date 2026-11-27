@@ -39,8 +39,15 @@ verifier_revision = subprocess.check_output(
     ["git", "-C", "/work/companions/host-deploy", "rev-parse", "HEAD"],
     text=True).strip()
 assert verifier_revision == "7aa80b41b5a7698a455e42f24114b04202c53f3b"
-# Distinct candidate identity derived from exact 4-component reviewed source tuple.
-release = "0d3aa81c09f4ea132886f0f538678bf9"
+# Stable identity of the three exact producer/source commits PLUS the
+# separately selected inspected host-deploy verifier revision, not of any
+# historical compiler generation. The candidate remains unapproved.
+revisions = {role: pin[0] for role, pin in installer.SOURCES.items()}
+revisions["host-deploy-verifier"] = verifier_revision
+release = hashlib.sha256(json.dumps(
+    revisions, sort_keys=True, separators=(",", ":")).encode("ascii")
+).hexdigest()[:32]
+assert release == "0d3aa81c09f4ea132886f0f538678bf9"
 service = "zog-certbot-seed-root.service"
 unit = (f"[Service]\nExecStart=/opt/zog/compiler-runtime/versions/"
         f"{release}/bin/root-control\n").encode()
