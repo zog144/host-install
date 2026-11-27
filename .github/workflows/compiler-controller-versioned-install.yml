@@ -53,7 +53,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: zog144/host-deploy
-          ref: f3903dd4468436ceda20f64d67159540418325d2
+          ref: 7aa80b41b5a7698a455e42f24114b04202c53f3b
           path: companions/host-deploy
           persist-credentials: false
       - uses: actions/setup-python@v5
@@ -151,7 +151,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: zog144/host-deploy
-          ref: f3903dd4468436ceda20f64d67159540418325d2
+          ref: 7aa80b41b5a7698a455e42f24114b04202c53f3b
           path: companions/host-deploy
           persist-credentials: false
       - name: Real Amazon Linux 2023 Python 3.12 venv/pip/install/import acceptance
