@@ -1420,3 +1420,35 @@ def test_guard_removal_refuses_mutation_when_loaded_state_gate_holds(
         installer._remove_guard(root, release, active_dir, service, None)
     assert guard_file.read_bytes() == before
     assert unit.read_bytes() == original
+
+
+
+def test_corrected_0_0_peer_pair_and_boot_a_revision_are_exact():
+    """No older daemon/client/R5 producer can enter this staged tuple."""
+    assert {role: revision for role, (revision, _) in installer.SOURCES.items()} == {
+        "root-control": "35fc1ea8969c97a00cdb4b3c18ecb47bf1f83bbb",
+        "box-control": "b5903779e72ea852a125a268dcd35189339dc4ae",
+        "image-build": "d42703b9e4f7aedce2b9959aab855485add2795a",
+    }
+    assert all(len(digest) == 64
+               and set(digest) <= set("0123456789abcdef")
+               for _, digest in installer.SOURCES.values())
+
+
+def test_corrected_successor_cannot_bypass_existing_rollback_review(setup):
+    """The new source tuple cannot itself authorize service selection."""
+    root, release, service, unit, old, staged, old_runtime, data, inspector = (
+        setup)
+    # No approved/independently installed selection: the original
+    # unit survives and no rollback transaction or permit can appear.
+    approval = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        installer.CompilerInstallerHold("unreviewed installed verifier"))
+    from pytest import MonkeyPatch
+    with MonkeyPatch.context() as patch:
+        patch.setattr(installer, "_reviewed", approval)
+        with pytest.raises(installer.CompilerInstallerHold,
+                           match="unreviewed installed verifier"):
+            installer.select("unreviewed.json", "f" * 64, root=root)
+    assert unit.read_bytes() == old
+    assert not installer.host_path(
+        root, installer.BACKUPS / release / "selection-transaction.json").exists()
