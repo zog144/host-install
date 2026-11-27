@@ -103,10 +103,10 @@ jobs:
               ORIGINAL_SHA256, SUCCESSOR_SHA256, POLICY_SHA256,
           )
           assert sha256(old).hexdigest() == ORIGINAL_SHA256
-          assert sha256((base / 'issuer_guard_successor.py').read_bytes()).hexdigest() == (
-              SUCCESSOR_SHA256 == '313cb4d644b259ece175adea24f030d36c851c753f547288aad21359a8db686e')
-          assert sha256((base / 'compiler_issuer_persistence_binding.py').read_bytes()).hexdigest() == (
-              POLICY_SHA256 == '4a1bf57251f80763f0288fa512d059135225fc40c7254b98df0b907592f3c91c')
+          assert sha256((base / 'issuer_guard_successor.py').read_bytes()).hexdigest() == SUCCESSOR_SHA256
+          assert SUCCESSOR_SHA256 == '313cb4d644b259ece175adea24f030d36c851c753f547288aad21359a8db686e'
+          assert sha256((base / 'compiler_issuer_persistence_binding.py').read_bytes()).hexdigest() == POLICY_SHA256
+          assert POLICY_SHA256 == '4a1bf57251f80763f0288fa512d059135225fc40c7254b98df0b907592f3c91c'
           for name in ('issuer_guard_successor.py', 'compiler_issuer_persistence_binding.py'):
               value = (base / name).read_bytes()
               print('ISSUER_REVIEWED_SOURCE_SHA256', name, sha256(value).hexdigest(), len(value), flush=True)
