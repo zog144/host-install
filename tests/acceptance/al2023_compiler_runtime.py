@@ -37,7 +37,7 @@ verifier_revision = subprocess.check_output(
     text=True).strip()
 assert verifier_revision == "f3903dd4468436ceda20f64d67159540418325d2"
 # Distinct candidate identity derived from exact 4-component reviewed source tuple.
-release = "8b1f12ee1da24dd68b5aaeb4f6a3f0c2"
+release = "03e6dae95033699537aafedf5332d09b"
 service = "zog-root-control.service"
 unit = (f"[Service]\nExecStart=/opt/zog/compiler-runtime/versions/"
         f"{release}/bin/root-control\n").encode()
@@ -67,6 +67,23 @@ with tempfile.TemporaryDirectory(prefix="compiler-al2023-") as tmp:
                     "assert authenticated_build_peer((1234, 1234)) == (1234, 1234)"],
                    check=True)
     assert (selected / "bin/root-control").is_file()
+    # Installed-byte acceptance is source/disposable evidence, never a
+    # substitute for matching the actual Host's selected wheel RECORD.
+    installed_modules = {}
+    for role, rel in {
+        "root-control": "zog/root_control/build.py",
+        "box-control": "zog/box_control/build_jobs.py",
+        "image-build": "zog/image_build/box_control_adapter.py",
+    }.items():
+        module = selected / "venv/lib/python3.12/site-packages" / rel
+        assert module.is_file() and not module.is_symlink(), (
+            "missing selected installed module", role, str(module))
+        content = module.read_bytes()
+        installed_modules[role] = {
+            "relative_path": str(module.relative_to(selected)),
+            "sha256": hashlib.sha256(content).hexdigest(),
+            "size": len(content),
+        }
     assert not any(item.is_symlink() for directory, dirs, files in
                    os.walk(selected) for item in
                    [Path(directory) / name for name in dirs + files])
@@ -88,6 +105,7 @@ with tempfile.TemporaryDirectory(prefix="compiler-al2023-") as tmp:
         "requires_reviewed_real_unit_and_dropins": True,
         "source_revisions": {role: pins[0] for role, pins in installer.SOURCES.items()},
         "source_inventory_sha256": {role: pins[1] for role, pins in installer.SOURCES.items()},
+        "installed_module_sha256": installed_modules,
         "host_deploy_verifier_revision": verifier_revision,
         "runtime_tree_sha256": installer._inventory(root, selected),
         "archive_sha256": hashlib.sha256(release_bytes).hexdigest(),
