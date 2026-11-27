@@ -7,8 +7,11 @@
 - root-control PR #55: `35fc1ea8969c97a00cdb4b3c18ecb47bf1f83bbb`
 - box-control PR #21: `b5903779e72ea852a125a268dcd35189339dc4ae`
 - image-build Boot A PR #30: `d42703b9e4f7aedce2b9959aab855485add2795a`
-- host-deploy PR #35: **new verifier head is an external prerequisite, not yet selected**. The currently retained verifier `f3903dd4468436ceda20f64d67159540418325d2` pins the OLD source tuple and must FAIL against this successor until host-deploy Regular publishes/reviews the exact matching replacement.
-- source inventory SHA256s: measure with `_source_inventory` using actual GitHub Actions checkout at each exact above commit and repin all roles only after source readback. Historical source hashes on PR #49 are never relabeled as hashes for the new revision.
+- host-deploy PR #35 matching verifier candidate: `7aa80b41b5a7698a455e42f24114b04202c53f3b` (separate independent source review and native acceptance still required). The earlier verifier `f3903dd4468436ceda20f64d67159540418325d2` remains historical for its original old selected transaction; never relabel historical evidence.
+- root-control tracked-tree SHA256: `ede1ddd9c1c23c8e385d4e118f973105925f400a21440dae17d9eb7919b1f672`.
+- box-control tracked-tree SHA256: `46e0b09fe35a0aff54e5bcf49e4f855b6091705e14723b39df63137b392b5380`.
+- image-build tracked-tree SHA256: `580f478d12858f8cef083736169da61f319f65e7ed4014455328a678c4b3eaaf`.
+- independently measured by two exact-revision GitHub Actions Python 3.12 and 3.13 runs on host-install successor initial CI `#46078723768`, and separately by host-deploy source CI `#46078519403`. Matching verifier source pin and *all three* digests are now selected in the successor; passing source CI is still required.
 
 The source verifier requires `git status` clean, no symlinked/nonregular tracked source, a canonical list of Git tracked paths and exact tracked bytes. The actual package staging uses `git archive HEAD`; ignored/untracked files do not enter the release. Both `verify_sources` and the separately installed host-deploy `SELECTED_SOURCES` equality gate must pass **before** candidate runtime or source selection may be called acceptable.
 
@@ -24,7 +27,7 @@ The **only** native restore path is the supported host-install `--restore` with 
 
 ## Review and source/disposable evidence before Work
 
-CI on the **successor PR exact head** must verify: all three source revision+inventory digests; matching new host-deploy PR #35 verifier `SELECTED_SOURCES`; Python 3.12/3.13 issuer+installer+legacy rollback tests; Amazon Linux 2023 genuine Python 3.12 versioned `venv --copies`/pip check/imports, exact installed source module SHA-256, package candidate archive hash and strict runtime inventory. The candidate artifact is **not** an installed Host release and is marked `native_installed=false`, `execution_authorized=false`, `selection_approved=false`.
+CI on the **successor PR exact head** must verify: all three source revision+inventory digests; matching new host-deploy PR #35 verifier `SELECTED_SOURCES`; Python 3.12/3.13 issuer+installer+legacy rollback tests; Amazon Linux 2023 genuine Python 3.12 versioned `venv --copies`/pip check/imports, exact installed source module SHA-256 **bound to each installed distribution's pip RECORD entry and RECORD-file SHA**, package candidate archive hash and strict runtime inventory. The candidate artifact is **not** an installed Host release and is marked `native_installed=false`, `execution_authorized=false`, `selection_approved=false`.
 
 A separate exact-head **independent source review** must accept the matching installer **and** host-deploy verifier before Work can proceed. Root-control/box-control real Unix-socket integration used authenticated 0:0 peer and simulated systemd, *not* PID 1 systemd 252; Work must check installed exact source and wheel RECORD on both Gateway/compiler as relevant and attest actual `SO_PEERCRED`, child UID/GID, cgroup memory.max, job InvocationID, terminal report, journal and rollback.
 
